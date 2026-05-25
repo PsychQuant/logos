@@ -2,7 +2,9 @@
 
 > Native macOS app that hosts Claude Code with auto-recovery, multi-account, and zero render tearing.
 
-**Status**: Design phase — see [`docs/design/2026-05-25-logos-design.md`](docs/design/2026-05-25-logos-design.md)
+**Status**: Sub-plan A (app shell foundation) complete ✅ — see [`docs/design/2026-05-25-logos-design.md`](docs/design/2026-05-25-logos-design.md) and [`docs/superpowers/plans/2026-05-25-app-shell-foundation.md`](docs/superpowers/plans/2026-05-25-app-shell-foundation.md)
+
+![Logos shell foundation screenshot](docs/screenshots/shell-foundation.png)
 
 **Working name**: `Logos` (λόγος — word, reason, rational order). Trademark validation pending.
 
@@ -34,8 +36,38 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 
 ## Repo status
 
-Design doc lives in [`docs/design/`](docs/design/). Spectra (spec-driven dev) will be initialized once design questions are resolved. No Swift code yet.
+**Sub-plan A — App shell foundation: COMPLETE ✅**
+
+- Launchable native macOS app with VS Code-like layout (activity bar + sidebar + main area top/bottom + status bar)
+- All panes are placeholders pointing to future sub-plans
+- Drag-resize between all panes with persistence (UserDefaults)
+- Multi-tab Settings stub (⌘,)
+- 18 unit tests passing (3 model suites: WindowLayoutState, ActivityBarSelection, StatusBarViewModel)
+
+**How to run:**
+
+```bash
+# Tests
+swift test
+
+# Dev launch (window may not activate cleanly without .app bundle)
+swift run Logos
+
+# Production launch (proper .app bundle)
+swift build -c release
+mkdir -p .build/Logos.app/Contents/MacOS
+cp .build/release/Logos .build/Logos.app/Contents/MacOS/Logos
+cp Info.plist .build/Logos.app/Contents/Info.plist
+echo "APPL????" > .build/Logos.app/Contents/PkgInfo
+codesign --force --deep --sign - .build/Logos.app
+open .build/Logos.app
+```
+
+**Next**: sub-plan B — SwiftTerm integration + `claude` subprocess in terminal pane.
+
+Design doc: [`docs/design/2026-05-25-logos-design.md`](docs/design/2026-05-25-logos-design.md)
+All plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
 
 ## License
 
-TBD (default intent: MIT to match sister projects).
+MIT — see [LICENSE](LICENSE).
