@@ -5,6 +5,7 @@ struct MainScene: Scene {
     @State private var layout = WindowLayoutState()
     @State private var activityBar = ActivityBarSelection()
     @State private var statusBar = StatusBarViewModel()
+    @State private var terminalConfig = TerminalConfig()
 
     var body: some Scene {
         WindowGroup("Logos") {
@@ -12,6 +13,7 @@ struct MainScene: Scene {
                 .environment(layout)
                 .environment(activityBar)
                 .environment(statusBar)
+                .environment(terminalConfig)
                 .frame(
                     minWidth: 900,
                     idealWidth: 1400,

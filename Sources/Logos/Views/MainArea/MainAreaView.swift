@@ -17,7 +17,7 @@ struct MainAreaView: View {
                     layout.topAreaHeightFraction = newFraction
                 }
 
-                TerminalPanePlaceholder()
+                TerminalPaneView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
