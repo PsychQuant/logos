@@ -379,14 +379,14 @@ Each numbered question needs explicit user answer before writing-plans phase.
 | 10.2 | **Renderer rewrite expertise**: (a) maintainer has terminal-emulator depth / (b) finding collaborator / (c) learn-on-the-way | Determines phase 1 ramp + risk profile |
 | 10.3 | **No vanilla SwiftTerm interim ship** — confirmed? | Affects launch narrative |
 | 10.4 | **PDF pane**: always visible with empty state, OR conditional (only when PDF bound)? | Layout invariant |
-| 10.5 | **Activity bar**: confirm inclusion (currently designed in per § 6.1) OR remove (sidebar starts at left edge of window)? If keep, confirm icon set (Files / Search / Sessions / Settings / Account). | Layout invariant |
-| 10.6 | **Status bar items**: confirm proposed list § 7.7 — additions / removals? | Layout invariant |
+| 10.5 | ~~**Activity bar**: confirm inclusion~~ → **RESOLVED 2026-05-25**: Keep activity bar with icons Files / Search / Sessions / Settings / Account | Layout invariant |
+| 10.6 | ~~**Status bar items**~~ → **RESOLVED 2026-05-25**: All 4 items confirmed for v1.0 (Account, Cost, Auto-handle status, Token usage) | Layout invariant |
 | 10.7 | **Session ↔ workspace**: 1:1 (each session = one workspace), N:1 (multiple sessions same workspace), or N:N? | Multi-session model |
 | 10.8 | **Syntax highlighter**: TreeSitter (heavier, real parsing) vs Highlightr (lighter, regex-based)? | Dependency choice |
 | 10.9 | **Auto-handle rule UI in v1.0**: simple on/off toggle, OR per-rule editor? | Settings scope cut |
-| 10.10 | **Min macOS**: 13 (Ventura, more users) vs 14 (Sonoma, more SwiftUI) vs 15 (Sequoia, latest)? | Compatibility floor |
-| 10.14 | **License**: confirm MIT (matches sister projects) — OR pick something else (Apache 2.0 / GPL / proprietary)? | Affects contribution model |
-| 10.15 | **Bundle ID** for App Store: e.g., `app.getlogos.logos` / `com.che.logos` / other? | App Store identity |
+| 10.10 | ~~**Min macOS**~~ → **RESOLVED 2026-05-25**: macOS 15 (Sequoia) | Compatibility floor |
+| 10.14 | ~~**License**~~ → **RESOLVED 2026-05-25**: MIT (matches sister projects) | Affects contribution model |
+| 10.15 | ~~**Bundle ID**~~ → **RESOLVED 2026-05-25**: `app.getlogos.logos` | App Store identity |
 
 ### Validation needed (parallel to design)
 
