@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Xcode / SwiftPM (when code lands)
+.build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+Package.resolved
+.swiftpm/
+
+# Editor
+.vscode/
+*.code-workspace
+*.swp
+*~
+
+# Claude Code / superpowers
+.claude/
+.superpowers/
+.remember/
+
+# Spectra (when initialized)
+.spectra/
+
+# Local notes
+NOTES.md
+TODO.local.md
