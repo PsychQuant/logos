@@ -9,9 +9,15 @@ let package = Package(
     products: [
         .executable(name: "Logos", targets: ["Logos"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0")
+    ],
     targets: [
         .executableTarget(
-            name: "Logos"
+            name: "Logos",
+            dependencies: [
+                .product(name: "SwiftTerm", package: "SwiftTerm")
+            ]
         ),
         .testTarget(
             name: "LogosTests",
