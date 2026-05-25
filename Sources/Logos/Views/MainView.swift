@@ -7,6 +7,8 @@ struct MainView: View {
     @Environment(StatusBarViewModel.self) private var statusBar
 
     var body: some View {
+        @Bindable var layout = layout
+
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ActivityBarView()
@@ -14,7 +16,10 @@ struct MainView: View {
                 if activityBar.isVisible && !layout.isSidebarHidden {
                     SidebarView()
                         .frame(width: layout.sidebarWidth)
-                    Divider()
+
+                    ResizableDivider(axis: .vertical) { delta in
+                        layout.sidebarWidth = max(0, layout.sidebarWidth + delta)
+                    }
                 }
 
                 MainAreaView()
