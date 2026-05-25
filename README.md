@@ -2,9 +2,11 @@
 
 > Native macOS app that hosts Claude Code with auto-recovery, multi-account, and zero render tearing.
 
-**Status**: Sub-plan A (app shell foundation) complete ✅ — see [`docs/design/2026-05-25-logos-design.md`](docs/design/2026-05-25-logos-design.md) and [`docs/superpowers/plans/2026-05-25-app-shell-foundation.md`](docs/superpowers/plans/2026-05-25-app-shell-foundation.md)
+**Status**: Sub-plans A + B complete ✅ — real `claude` CLI runs in native Mac terminal pane.
 
-![Logos shell foundation screenshot](docs/screenshots/shell-foundation.png)
+![Logos with Claude running](docs/screenshots/claude-running.png)
+
+See [design doc](docs/design/2026-05-25-logos-design.md), [sub-plan A](docs/superpowers/plans/2026-05-25-app-shell-foundation.md), [sub-plan B](docs/superpowers/plans/2026-05-25-swiftterm-claude-host.md).
 
 **Working name**: `Logos` (λόγος — word, reason, rational order). Trademark validation pending.
 
@@ -37,12 +39,15 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 ## Repo status
 
 **Sub-plan A — App shell foundation: COMPLETE ✅**
+**Sub-plan B — SwiftTerm + claude subprocess: COMPLETE ✅**
 
 - Launchable native macOS app with VS Code-like layout (activity bar + sidebar + main area top/bottom + status bar)
-- All panes are placeholders pointing to future sub-plans
+- **Real `claude` CLI runs as PTY subprocess in terminal pane** (upstream SwiftTerm 1.13, theme `Menlo 13pt` dark `#1e1e1e` / `#d4d4d4`)
 - Drag-resize between all panes with persistence (UserDefaults)
 - Multi-tab Settings stub (⌘,)
-- 18 unit tests passing (3 model suites: WindowLayoutState, ActivityBarSelection, StatusBarViewModel)
+- 27 unit tests passing (5 model suites: WindowLayoutState, ActivityBarSelection, StatusBarViewModel, TerminalConfig, ClaudeProcessConfig)
+- Tearing/flicker still inherited from upstream SwiftTerm — fixed in sub-plan C (renderer rewrite)
+- claude not in `$PATH`? App shows `ClaudeNotFoundBanner` with install link
 
 **How to run:**
 
@@ -63,7 +68,7 @@ codesign --force --deep --sign - .build/Logos.app
 open .build/Logos.app
 ```
 
-**Next**: sub-plan B — SwiftTerm integration + `claude` subprocess in terminal pane.
+**Next**: sub-plan C — fork SwiftTerm, rewrite renderer for zero tearing (the moat, 3-4 months focused).
 
 Design doc: [`docs/design/2026-05-25-logos-design.md`](docs/design/2026-05-25-logos-design.md)
 All plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
