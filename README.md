@@ -2,11 +2,11 @@
 
 > Native macOS app that hosts Claude Code with auto-recovery, multi-account, and zero render tearing.
 
-**Status**: Sub-plans A + B complete ✅ — real `claude` CLI runs in native Mac terminal pane.
+**Status**: Sub-plans A + B + D complete ✅ — real `claude` CLI runs in native Mac terminal pane, with 5-rule auto-handle intercepting permission/rate-limit/trust prompts.
 
-![Logos with Claude running](docs/screenshots/claude-running.png)
+![Logos with auto-handle armed](docs/screenshots/auto-handle-live.png)
 
-See [design doc](docs/design/2026-05-25-logos-design.md), [sub-plan A](docs/superpowers/plans/2026-05-25-app-shell-foundation.md), [sub-plan B](docs/superpowers/plans/2026-05-25-swiftterm-claude-host.md).
+See [design doc](docs/design/2026-05-25-logos-design.md), [sub-plan A](docs/superpowers/plans/2026-05-25-app-shell-foundation.md), [sub-plan B](docs/superpowers/plans/2026-05-25-swiftterm-claude-host.md), [sub-plan D](docs/superpowers/plans/2026-05-25-auto-handle.md), [sub-plan C.1](docs/superpowers/plans/2026-05-25-renderer-rewrite-c1-fork-harness.md) (partial — see [PR #1](https://github.com/PsychQuant/logos/pull/1)).
 
 **Working name**: `Logos` (λόγος — word, reason, rational order). Trademark validation pending.
 
@@ -40,13 +40,17 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 
 **Sub-plan A — App shell foundation: COMPLETE ✅**
 **Sub-plan B — SwiftTerm + claude subprocess: COMPLETE ✅**
+**Sub-plan D — Auto-handle: COMPLETE ✅**
+**Sub-plan C.1 — SwiftTerm fork + capture/replay harness: PARTIAL** ([PR #1](https://github.com/PsychQuant/logos/pull/1))
 
 - Launchable native macOS app with VS Code-like layout (activity bar + sidebar + main area top/bottom + status bar)
-- **Real `claude` CLI runs as PTY subprocess in terminal pane** (upstream SwiftTerm 1.13, theme `Menlo 13pt` dark `#1e1e1e` / `#d4d4d4`)
+- **Real `claude` CLI runs as PTY subprocess in terminal pane** (SwiftTerm 1.13, theme `Menlo 13pt` dark `#1e1e1e` / `#d4d4d4`)
+- **5-rule auto-handle**: rate-limit "keep going", trust folder, trust files, Bash permission, Press Enter — all auto-approved per-rule with 5s cooldown + runaway-disable (3 fires in 30s → rule auto-disables, status bar turns yellow)
+- `--dangerously-skip-permissions` removed; claude asks normally, `AutoHandleEngine` answers per-rule
 - Drag-resize between all panes with persistence (UserDefaults)
 - Multi-tab Settings stub (⌘,)
-- 27 unit tests passing (5 model suites: WindowLayoutState, ActivityBarSelection, StatusBarViewModel, TerminalConfig, ClaudeProcessConfig)
-- Tearing/flicker still inherited from upstream SwiftTerm — fixed in sub-plan C (renderer rewrite)
+- **40 unit tests passing** in 8 suites (WindowLayoutState, ActivityBarSelection, StatusBarViewModel, TerminalConfig, ClaudeProcessConfig, AutoHandleRule, AutoHandleEngine, PatternParser)
+- Tearing/flicker still inherited from upstream SwiftTerm — fix lives in sub-plan C.2+ (renderer rewrite)
 - claude not in `$PATH`? App shows `ClaudeNotFoundBanner` with install link
 
 **How to run:**
@@ -68,7 +72,11 @@ codesign --force --deep --sign - .build/Logos.app
 open .build/Logos.app
 ```
 
-**Next**: sub-plan C — fork SwiftTerm, rewrite renderer for zero tearing (the moat, 3-4 months focused).
+**Next**:
+- Merge [PR #1](https://github.com/PsychQuant/logos/pull/1) (sub-plan C.1) into main after review
+- Collect remaining baseline captures (plan mode / rate-limit / permission) organically
+- Sub-plan C.2 — frame-rate renderer (the moat work begins)
+- Sub-plan E — multi-account Keychain switcher (independent of C)
 
 Design doc: [`docs/design/2026-05-25-logos-design.md`](docs/design/2026-05-25-logos-design.md)
 All plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
