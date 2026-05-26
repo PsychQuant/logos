@@ -9,14 +9,17 @@ struct SwiftTermView: NSViewRepresentable {
     let config: TerminalConfig
     let processConfig: ClaudeProcessConfig
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let view = LocalProcessTerminalView(frame: .zero)
+    func makeNSView(context: Context) -> TeedLocalProcessTerminalView {
+        let view = TeedLocalProcessTerminalView(frame: .zero)
         TerminalThemeApplier.apply(config: config, to: view)
+        view.onChunk = { [weak coord = context.coordinator] chunk in
+            coord?.handleChunk(chunk)
+        }
         context.coordinator.startIfNeeded(view)
         return view
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
+    func updateNSView(_ nsView: TeedLocalProcessTerminalView, context: Context) {
         // Re-apply theme if config changes (font/colors edited via Settings later)
         TerminalThemeApplier.apply(config: config, to: nsView)
     }
@@ -30,14 +33,20 @@ struct SwiftTermView: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         let processConfig: ClaudeProcessConfig
-        weak var view: LocalProcessTerminalView?
+        weak var view: TeedLocalProcessTerminalView?
         private var hasStarted = false
 
         init(processConfig: ClaudeProcessConfig) {
             self.processConfig = processConfig
         }
 
-        func startIfNeeded(_ view: LocalProcessTerminalView) {
+        /// Hook for the tee. D-Task 5 wires this to PatternParser +
+        /// AutoHandleEngine; for now this is a no-op so the build is green.
+        func handleChunk(_ bytes: [UInt8]) {
+            // Filled in by D-Task 5.
+        }
+
+        func startIfNeeded(_ view: TeedLocalProcessTerminalView) {
             guard !hasStarted else { return }
             hasStarted = true
             self.view = view
