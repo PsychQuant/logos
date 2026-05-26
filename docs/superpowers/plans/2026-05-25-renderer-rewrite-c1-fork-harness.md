@@ -106,9 +106,13 @@ logos/                                                NO CHANGE to existing app
 
 ## Tasks
 
-### Task 1: Fork SwiftTerm
+### Task 1: Fork SwiftTerm — **ALREADY DONE 2026-05-26** ✅
 
-**This task requires manual GitHub action by the user.**
+> Fork created at `https://github.com/PsychQuant/SwiftTerm` with `logos-renderer-base` branch tracking upstream `main`. Done via `gh repo fork + gh api git/refs` during pre-flight setup. Skip steps 1-5 below; jump to Task 2.
+
+**Original task definition (for reference):**
+
+**This task originally required manual GitHub action by the user.**
 
 **Files:** none (GitHub UI)
 
@@ -165,7 +169,7 @@ Replace `migueldeicaza/SwiftTerm.git` URL with user's fork URL:
 ```swift
 dependencies: [
     // OLD: .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0")
-    .package(url: "https://github.com/<user>/SwiftTerm.git", branch: "logos-renderer-base")
+    .package(url: "https://github.com/PsychQuant/SwiftTerm.git", branch: "logos-renderer-base")
 ]
 ```
 
@@ -198,7 +202,7 @@ git commit -m "feat(renderer): switch SwiftTerm dependency to logos fork
 
 Tracks logos-renderer-base branch. Behavior identical to upstream
 until C.2 begins renderer modifications. Fork URL:
-https://github.com/<user>/SwiftTerm"
+https://github.com/PsychQuant/SwiftTerm"
 ```
 
 ---
@@ -225,7 +229,7 @@ let package = Package(
     ],
     dependencies: [
         // Same fork as main app
-        .package(url: "https://github.com/<user>/SwiftTerm.git", branch: "logos-renderer-base"),
+        .package(url: "https://github.com/PsychQuant/SwiftTerm.git", branch: "logos-renderer-base"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.0.0")
     ],
     targets: [
