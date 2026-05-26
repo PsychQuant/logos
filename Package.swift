@@ -10,7 +10,7 @@ let package = Package(
         .executable(name: "Logos", targets: ["Logos"])
     ],
     dependencies: [
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0")
+        .package(url: "https://github.com/PsychQuant/SwiftTerm.git", branch: "logos-renderer-base")
     ],
     targets: [
         .executableTarget(
