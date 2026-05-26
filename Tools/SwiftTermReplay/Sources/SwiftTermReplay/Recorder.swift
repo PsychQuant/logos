@@ -86,6 +86,19 @@ extension SwiftTermReplay {
                 Data("Recording \(command.joined(separator: " ")) → \(output) (Ctrl-C to stop)\n".utf8)
             )
 
+            // Forward stdin to PTY master so user/scripted input reaches the child.
+            // Use a background thread that copies stdin → master.
+            let masterCopy = amaster
+            DispatchQueue.global().async {
+                let inBuf = UnsafeMutablePointer<UInt8>.allocate(capacity: 1024)
+                defer { inBuf.deallocate() }
+                while true {
+                    let n = read(0, inBuf, 1024)
+                    if n <= 0 { break }
+                    _ = write(masterCopy, inBuf, n)
+                }
+            }
+
             while true {
                 let n = read(amaster, buffer, bufferSize)
                 if n <= 0 { break }

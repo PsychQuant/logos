@@ -71,26 +71,31 @@ extension SwiftTermReplay {
             let payload: [UInt8]
         }
 
+        /// Read a little-endian Int32 from `data` at `offset` without requiring
+        /// pointer alignment. Required because Data slices may begin at any byte
+        /// boundary; `load(as:)` traps on misaligned reads.
+        static func readLEInt32(_ data: Data, at offset: Int) -> Int32 {
+            let b0 = UInt32(data[data.startIndex + offset])
+            let b1 = UInt32(data[data.startIndex + offset + 1])
+            let b2 = UInt32(data[data.startIndex + offset + 2])
+            let b3 = UInt32(data[data.startIndex + offset + 3])
+            let u = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+            return Int32(bitPattern: u)
+        }
+
         static func parseTtyrec(data: Data) throws -> [Chunk] {
             var chunks: [Chunk] = []
             var index = 0
             while index + 12 <= data.count {
-                // Read 3 little-endian Int32 header values
-                let sec = data.withUnsafeBytes { raw -> Int32 in
-                    raw.load(fromByteOffset: index, as: Int32.self).littleEndian
-                }
-                let usec = data.withUnsafeBytes { raw -> Int32 in
-                    raw.load(fromByteOffset: index + 4, as: Int32.self).littleEndian
-                }
-                let lenRaw = data.withUnsafeBytes { raw -> Int32 in
-                    raw.load(fromByteOffset: index + 8, as: Int32.self).littleEndian
-                }
+                let sec = readLEInt32(data, at: index)
+                let usec = readLEInt32(data, at: index + 4)
+                let lenRaw = readLEInt32(data, at: index + 8)
                 let len = Int(lenRaw)
                 index += 12
                 guard len >= 0 && index + len <= data.count else {
                     throw ValidationError("Truncated ttyrec at offset \(index) (len=\(len), remaining=\(data.count - index))")
                 }
-                let payload = Array(data[index..<(index + len)])
+                let payload = Array(data[(data.startIndex + index)..<(data.startIndex + index + len)])
                 let timestamp = Double(sec) + Double(usec) / 1_000_000
                 chunks.append(Chunk(timestamp: timestamp, payload: payload))
                 index += len

@@ -18,7 +18,10 @@ let package = Package(
             dependencies: [
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
-            ]
+            ],
+            // Exclude capture corpus from compilation — they're test fixtures,
+            // not bundled resources.
+            exclude: ["Captures"]
         )
     ]
 )
