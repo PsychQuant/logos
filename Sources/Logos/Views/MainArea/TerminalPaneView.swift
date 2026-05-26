@@ -2,12 +2,13 @@ import SwiftUI
 
 struct TerminalPaneView: View {
     @Environment(TerminalConfig.self) private var config
+    @Environment(AutoHandleEngine.self) private var engine
 
     var body: some View {
         Group {
             if let claudePath = config.resolvedClaudePath {
                 let processConfig = ClaudeProcessConfig(executablePath: claudePath)
-                SwiftTermView(config: config, processConfig: processConfig)
+                SwiftTermView(config: config, processConfig: processConfig, engine: engine)
                     .background(Color.black)
             } else {
                 ClaudeNotFoundBanner()

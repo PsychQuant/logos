@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct AutoHandleStatusItem: View {
-    @Environment(StatusBarViewModel.self) private var vm
+    @Environment(AutoHandleEngine.self) private var engine
 
     var body: some View {
-        Label(vm.autoHandleStatus.label, systemImage: "bolt.fill")
+        Label(engine.currentStatus.label, systemImage: "bolt.fill")
             .font(.caption)
-            .foregroundStyle(vm.autoHandleStatus.color)
-            .help("Auto-handle pattern engine status (wired in sub-plan D)")
+            .foregroundStyle(engine.currentStatus.color)
+            .help("Auto-handle: \(engine.disabledRuleIDs.count) rules disabled")
     }
 }

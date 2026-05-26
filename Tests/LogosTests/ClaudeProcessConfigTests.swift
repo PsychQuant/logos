@@ -5,10 +5,13 @@ import Testing
 @MainActor
 struct ClaudeProcessConfigTests {
 
-    @Test("default args includes dangerously-skip-permissions")
-    func defaultArgs() {
+    @Test("default args is empty (AutoHandleEngine handles prompts)")
+    func defaultArgsEmpty() {
         let cfg = ClaudeProcessConfig(executablePath: "/usr/local/bin/claude")
-        #expect(cfg.arguments.contains("--dangerously-skip-permissions"))
+        // D-Task 5: --dangerously-skip-permissions removed. AutoHandleEngine
+        // intercepts permission prompts and answers per hardcoded rule.
+        #expect(cfg.arguments.isEmpty)
+        #expect(!cfg.arguments.contains("--dangerously-skip-permissions"))
     }
 
     @Test("environment inherits PATH and HOME")

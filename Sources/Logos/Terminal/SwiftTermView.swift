@@ -4,10 +4,13 @@ import SwiftTerm
 
 /// SwiftUI wrapper around SwiftTerm's LocalProcessTerminalView.
 /// Owns the NSView; configures theme + font; spawns subprocess on appear.
+/// Tees PTY bytes through PatternParser + AutoHandleEngine so known
+/// claude prompts get auto-answered.
 struct SwiftTermView: NSViewRepresentable {
 
     let config: TerminalConfig
     let processConfig: ClaudeProcessConfig
+    let engine: AutoHandleEngine
 
     func makeNSView(context: Context) -> TeedLocalProcessTerminalView {
         let view = TeedLocalProcessTerminalView(frame: .zero)
@@ -25,7 +28,7 @@ struct SwiftTermView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(processConfig: processConfig)
+        Coordinator(processConfig: processConfig, engine: engine)
     }
 
     /// Owns subprocess start. Gated by `hasStarted` so SwiftUI re-rendering
@@ -33,17 +36,29 @@ struct SwiftTermView: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         let processConfig: ClaudeProcessConfig
+        let engine: AutoHandleEngine
+        let parser: PatternParser
         weak var view: TeedLocalProcessTerminalView?
         private var hasStarted = false
 
-        init(processConfig: ClaudeProcessConfig) {
+        init(processConfig: ClaudeProcessConfig, engine: AutoHandleEngine) {
             self.processConfig = processConfig
+            self.engine = engine
+            self.parser = PatternParser()
         }
 
-        /// Hook for the tee. D-Task 5 wires this to PatternParser +
-        /// AutoHandleEngine; for now this is a no-op so the build is green.
+        /// Called for each chunk the subprocess emits. Append to parser
+        /// buffer, ask engine if any rule matches, inject response if so.
         func handleChunk(_ bytes: [UInt8]) {
-            // Filled in by D-Task 5.
+            guard let text = String(bytes: bytes, encoding: .utf8) else { return }
+            let buffered = parser.append(text)
+            if let response = engine.processChunk(buffered) {
+                // Inject into PTY stdin via the LocalProcess.
+                view?.process.send(data: ArraySlice(response))
+                // Reset buffer so we don't re-fire on the same text on
+                // the next chunk.
+                parser.reset()
+            }
         }
 
         func startIfNeeded(_ view: TeedLocalProcessTerminalView) {

@@ -14,8 +14,11 @@ public struct ClaudeProcessConfig: Sendable {
     ) {
         self.executablePath = executablePath
 
-        // Default args. Auto-handle in sub-plan D will revisit these.
-        let defaultArgs = ["--dangerously-skip-permissions"]
+        // Default args: empty. Sub-plan D's AutoHandleEngine intercepts
+        // permission prompts and answers per-rule, so we no longer need
+        // --dangerously-skip-permissions globally. Callers can still pass
+        // it via extraArgs for opt-in fallback.
+        let defaultArgs: [String] = []
         self.arguments = defaultArgs + extraArgs
 
         self.workingDirectory = workingDirectory
