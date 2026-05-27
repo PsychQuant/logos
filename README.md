@@ -43,6 +43,7 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 **Sub-plan C.1 — SwiftTerm fork + capture/replay harness: COMPLETE ✅** (merged)
 **Sub-plan D — Auto-handle: COMPLETE ✅**
 **Sub-plan E + E.2 — Multi-account: COMPLETE ✅** (real Keychain swap working — see [retrospective](docs/sub-plan-e-retrospective.md) for E.2 architecture)
+**Sub-plan F — File explorer + viewer: COMPLETE ✅** (Highlightr code viewer, Markdown render, file tree sidebar, ⌘O Open Workspace)
 
 - Launchable native macOS app with VS Code-like layout (activity bar + sidebar + main area top/bottom + status bar)
 - **Real `claude` CLI runs as PTY subprocess in terminal pane** (SwiftTerm 1.13, theme `Menlo 13pt` dark `#1e1e1e` / `#d4d4d4`)
@@ -51,7 +52,9 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 - **Multi-account with real Keychain swap** (⌘K opens switcher sheet). First launch auto-imports current claude login as "default" account. `Capture current login` button saves the live system Claude Keychain entry as a labeled Logos account. `setActive(_:)` writes target account's stored creds back to system Keychain → claude reads on next spawn. Token refreshes during a session are captured into the previously-active account on swap (no lost refresh).
 - Drag-resize between all panes with persistence (UserDefaults)
 - Multi-tab Settings stub (⌘,)
-- **70 unit tests passing** in 12 suites (WindowLayoutState, ActivityBarSelection, StatusBarViewModel, TerminalConfig, ClaudeProcessConfig, AutoHandleRule, AutoHandleEngine, PatternParser, Account, AccountCredentialStore, AccountManager, SystemKeychainBridge)
+- **89 unit tests passing** in 16 suites (12 prior + FileNode + WorkspaceLoader + FileContentLoader + WorkspaceModel)
+- **File explorer**: workspace tree in sidebar (DisclosureGroup recursive), hidden-files toggle, `⌘O` opens NSOpenPanel for workspace switch, claude's cwd auto-loaded as fallback
+- **Read-only viewer**: tabbed editor pane, Highlightr xcode-theme syntax highlighting (~250 languages), Markdown rendered via AttributedString, 5MB file size cap with `Open in external editor` fallback
 - Tearing/flicker still inherited from upstream SwiftTerm — fix lives in sub-plan C.2+ (renderer rewrite)
 - claude not in `$PATH`? App shows `ClaudeNotFoundBanner` with install link
 - No active account? App shows `NoActiveAccountBanner` directing to status bar
