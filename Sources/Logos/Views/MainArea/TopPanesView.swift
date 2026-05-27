@@ -19,7 +19,7 @@ struct TopPanesView: View {
                     layout.pdfPaneWidthFraction = newPDFFraction
                 }
 
-                PDFPanePlaceholder()
+                PDFLiveRenderView()
                     .frame(maxWidth: .infinity)
             }
         }

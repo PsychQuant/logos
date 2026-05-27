@@ -10,6 +10,7 @@ struct MainScene: Scene {
     @State private var autoHandleEngine = AutoHandleEngine()
     @State private var accountManager = AccountManager(store: KeychainCredentialStore())
     @State private var workspace = WorkspaceModel()
+    @State private var pdfPreview = PDFLivePreviewModel()
 
     var body: some Scene {
         WindowGroup("Logos") {
@@ -21,6 +22,7 @@ struct MainScene: Scene {
                 .environment(autoHandleEngine)
                 .environment(accountManager)
                 .environment(workspace)
+                .environment(pdfPreview)
                 .frame(
                     minWidth: 900,
                     idealWidth: 1400,
