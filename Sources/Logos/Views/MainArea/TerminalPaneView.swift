@@ -2,13 +2,16 @@ import SwiftUI
 
 struct TerminalPaneView: View {
     @Environment(TerminalConfig.self) private var config
+    @Environment(AdvancedSettings.self) private var advanced
     @Environment(AutoHandleEngine.self) private var engine
     @Environment(AccountManager.self) private var accountMgr
 
     var body: some View {
+        // H-Task 9: AdvancedSettings.claudePathOverride wins over PATH lookup.
+        let effectivePath = advanced.claudePathOverride ?? config.resolvedClaudePath
+
         Group {
-            if let active = accountMgr.active,
-               let claudePath = config.resolvedClaudePath {
+            if let active = accountMgr.active, let claudePath = effectivePath {
                 let processConfig = ClaudeProcessConfig(
                     executablePath: claudePath,
                     account: active
@@ -20,11 +23,11 @@ struct TerminalPaneView: View {
                     accountManager: accountMgr
                 )
                 .background(Color.black)
-                .id(active.id)  // Force view recreation on account switch
-            } else if accountMgr.active == nil {
-                NoActiveAccountBanner()
-            } else {
+                .id("\(active.id)-\(claudePath)")  // Recreate on path or account change
+            } else if effectivePath == nil {
                 ClaudeNotFoundBanner()
+            } else {
+                NoActiveAccountBanner()
             }
         }
     }
@@ -39,9 +42,11 @@ private struct ClaudeNotFoundBanner: View {
             Text("claude CLI not found")
                 .font(.headline)
                 .foregroundStyle(.white)
-            Text("Install Claude Code and ensure 'claude' is in your $PATH.")
+            Text("Install Claude Code and ensure 'claude' is in your $PATH, or set the path explicitly in Settings → Advanced.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
             Link(
                 "Install instructions →",
                 destination: URL(string: "https://docs.claude.com/en/docs/claude-code/")!

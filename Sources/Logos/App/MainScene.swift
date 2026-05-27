@@ -11,6 +11,8 @@ struct MainScene: Scene {
     @State private var accountManager = AccountManager(store: KeychainCredentialStore())
     @State private var workspace = WorkspaceModel()
     @State private var pdfPreview = PDFLivePreviewModel()
+    @State private var generalSettings = GeneralSettings()
+    @State private var advancedSettings = AdvancedSettings()
 
     var body: some Scene {
         WindowGroup("Logos") {
@@ -23,15 +25,16 @@ struct MainScene: Scene {
                 .environment(accountManager)
                 .environment(workspace)
                 .environment(pdfPreview)
+                .environment(generalSettings)
+                .environment(advancedSettings)
                 .frame(
                     minWidth: 900,
                     idealWidth: 1400,
                     minHeight: 600,
                     idealHeight: 900
                 )
+                .preferredColorScheme(generalSettings.theme.colorScheme)
                 .onAppear {
-                    // Defer state changes one runloop tick to avoid
-                    // AttributeGraph cycle warnings on initial render
                     Task { @MainActor in
                         FirstLaunchAccountImport.runIfNeeded(into: accountManager)
                         autoLoadWorkspaceIfNeeded()

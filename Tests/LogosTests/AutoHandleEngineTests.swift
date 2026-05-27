@@ -50,12 +50,12 @@ struct AutoHandleEngineTests {
 
     @Test("status reflects rule states")
     func statusReflection() {
-        let engine = AutoHandleEngine(rules: AutoHandleRule.defaultRuleset)
+        // persistence: nil so test doesn't load real on-disk state (would
+        // make this test order-dependent if H ever wrote to autohandle.json)
+        let engine = AutoHandleEngine(rules: AutoHandleRule.defaultRuleset, persistence: nil)
         #expect(engine.currentStatus == .armed)
-        // After disabling one rule manually:
         engine.disableRule(id: "rate-limit")
         #expect(engine.currentStatus == .partial)
-        // Disable all:
         for rule in AutoHandleRule.defaultRuleset {
             engine.disableRule(id: rule.id)
         }
