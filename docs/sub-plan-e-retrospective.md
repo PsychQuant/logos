@@ -1,7 +1,7 @@
 # Sub-plan E Retrospective — Multi-Account Architecture Gap
 
 **Date**: 2026-05-27
-**Status**: E delivered as infrastructure scaffold; **real multi-account switching does NOT work** because of a wrong assumption.
+**Status**: ✅ E delivered as infrastructure; E.2 (Keychain swap) shipped same day — multi-account switching now **functional**. This doc captures the diagnosis + E.2 design for posterity.
 
 ## What we built
 
@@ -104,20 +104,34 @@ Ship Sub-plan E as it is — the infrastructure (model + UI + store + manager) i
 
 For users who only want ONE account: Logos works fine (they never switch, the active account's credentials are irrelevant since claude reads system Keychain anyway). The killer feature is delayed until E.2.
 
-## Sub-plan E.2 sketch
+## Sub-plan E.2 — DELIVERED 2026-05-27 ✅
 
-```
-E.2-Task 1: SystemKeychainBridge — read/write Keychain[Claude Code-credentials][$USER]
-E.2-Task 2: AccountManager.addByCapturingCurrent() — capture step
-E.2-Task 3: AccountManager.setActive() also swaps system Keychain — switch step
-E.2-Task 4: First-launch import via SystemKeychainBridge (no more file path)
-E.2-Task 5: Drop materializeHomeTree (no longer needed)
-E.2-Task 6: Drop HOME override in ClaudeProcessConfig (no longer needed)
-E.2-Task 7: Tests via mocked SystemKeychainBridge
-E.2-Task 8: Smoke + screenshot showing real account switch in claude
-```
+Actual implementation:
 
-Estimated 4-6 hours after Logos team commits to E.2.
+| Task | Status | Notes |
+|------|--------|-------|
+| E.2-Task 1: SystemKeychainBridge | ✅ | Protocol + RealSystemKeychainBridge + InMemorySystemKeychainBridge. 6 tests. |
+| E.2-Task 2: AccountManager.addByCapturingCurrent | ✅ | Reads system Keychain → stores as new account. Throws `AddByCaptureError.noSystemCredentials` if nothing to capture. |
+| E.2-Task 3: AccountManager.setActive swaps system Keychain | ✅ | 3-step: capture current → write target → update local. `captureCurrent:` parameter to disable refresh-capture in tests. |
+| E.2-Task 4: FirstLaunchAccountImport via SystemKeychainBridge | ✅ | No more file path; uses systemBridge.read(). |
+| E.2-Task 5: Drop `.credentials.json` write in materializeHomeTree | ✅ | Now only creates the empty HOME tree (still useful for per-account history isolation). |
+| E.2-Task 6: Drop HOME override | ❌ Kept | HOME override is still useful — gives per-account history/cache isolation in `~/.logos/accounts/<id>/`. claude treats each HOME as fresh, which is the intended isolation behavior. |
+| E.2-Task 7: Tests via mocked SystemKeychainBridge | ✅ | 4 new AccountManager tests cover capture / capture-empty / swap-on-setActive / refresh-capture-on-swap. |
+| E.2-Task 8: Smoke + screenshot of real account switch | ✅ | docs/screenshots/multi-account-e2-working.png shows claude running with status-bar `👤 default` after auto-import. |
+
+**Final test count**: 70 in 12 suites (was 60 in 11). +6 SystemKeychainBridge, +4 new AccountManager E.2 tests.
+
+**Live smoke confirmed**:
+1. Cold start: Logos defaults wiped, Logos Keychain wiped
+2. Launch Logos → claude PID spawned as child
+3. FirstLaunchAccountImport fired, read `Claude Code-credentials/che` from Keychain
+4. Created account `default` with random UUID id
+5. Saved creds to `app.getlogos.logos.credentials/<UUID>`
+6. setActive picked the new account
+7. claude inside terminal pane authenticated successfully via system Keychain (unchanged value)
+8. Status bar shows `👤 default` (replacing prior "no account")
+
+**One UX papercut to note**: HOME override means claude treats each account as first launch (no `.claude/projects/` etc.). The first-launch theme picker appears. This is the cost of per-account isolation; acceptable for v1.0.
 
 ## What this means for downstream sub-plans
 

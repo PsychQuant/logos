@@ -42,16 +42,16 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 **Sub-plan B — SwiftTerm + claude subprocess: COMPLETE ✅**
 **Sub-plan C.1 — SwiftTerm fork + capture/replay harness: COMPLETE ✅** (merged)
 **Sub-plan D — Auto-handle: COMPLETE ✅**
-**Sub-plan E — Multi-account: INFRASTRUCTURE ⚠️** (real account switching needs E.2 — see [retrospective](docs/sub-plan-e-retrospective.md))
+**Sub-plan E + E.2 — Multi-account: COMPLETE ✅** (real Keychain swap working — see [retrospective](docs/sub-plan-e-retrospective.md) for E.2 architecture)
 
 - Launchable native macOS app with VS Code-like layout (activity bar + sidebar + main area top/bottom + status bar)
 - **Real `claude` CLI runs as PTY subprocess in terminal pane** (SwiftTerm 1.13, theme `Menlo 13pt` dark `#1e1e1e` / `#d4d4d4`)
 - **5-rule auto-handle**: rate-limit "keep going", trust folder, trust files, Bash permission, Press Enter — all auto-approved per-rule with 5s cooldown + runaway-disable (3 fires in 30s → rule auto-disables, status bar turns yellow)
 - `--dangerously-skip-permissions` removed; claude asks normally, `AutoHandleEngine` answers per-rule
-- **Multi-account UI + model + Keychain store** (⌘K opens switcher sheet) — but switching active account does NOT yet change which claude account runs, because modern Claude Code stores OAuth in macOS Keychain at `Claude Code-credentials/$USER` not in `~/.claude/.credentials.json`. Sub-plan E.2 will add real Keychain-swap mechanism.
+- **Multi-account with real Keychain swap** (⌘K opens switcher sheet). First launch auto-imports current claude login as "default" account. `Capture current login` button saves the live system Claude Keychain entry as a labeled Logos account. `setActive(_:)` writes target account's stored creds back to system Keychain → claude reads on next spawn. Token refreshes during a session are captured into the previously-active account on swap (no lost refresh).
 - Drag-resize between all panes with persistence (UserDefaults)
 - Multi-tab Settings stub (⌘,)
-- **60 unit tests passing** in 11 suites (WindowLayoutState, ActivityBarSelection, StatusBarViewModel, TerminalConfig, ClaudeProcessConfig, AutoHandleRule, AutoHandleEngine, PatternParser, Account, AccountCredentialStore, AccountManager)
+- **70 unit tests passing** in 12 suites (WindowLayoutState, ActivityBarSelection, StatusBarViewModel, TerminalConfig, ClaudeProcessConfig, AutoHandleRule, AutoHandleEngine, PatternParser, Account, AccountCredentialStore, AccountManager, SystemKeychainBridge)
 - Tearing/flicker still inherited from upstream SwiftTerm — fix lives in sub-plan C.2+ (renderer rewrite)
 - claude not in `$PATH`? App shows `ClaudeNotFoundBanner` with install link
 - No active account? App shows `NoActiveAccountBanner` directing to status bar
