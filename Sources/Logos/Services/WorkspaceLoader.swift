@@ -1,6 +1,6 @@
 import Foundation
 
-public struct WorkspaceLoader {
+public struct WorkspaceLoader: Sendable {
 
     static let skipNames: Set<String> = [
         ".git", ".build", ".swiftpm", ".DS_Store", "node_modules",
@@ -28,6 +28,15 @@ public struct WorkspaceLoader {
         }
         var counter = 0
         return try walk(path: rootPath, depth: 1, counter: &counter)
+    }
+
+    /// Off-main-actor variant — wraps sync `load` in a detached Task so callers
+    /// on `MainActor` don't block the UI thread during recursive walks.
+    public func loadAsync(rootPath: String) async throws -> FileNode {
+        let loader = self
+        return try await Task.detached(priority: .userInitiated) {
+            try loader.load(rootPath: rootPath)
+        }.value
     }
 
     static func normalize(_ p: String) -> String {

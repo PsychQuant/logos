@@ -125,6 +125,33 @@ struct WorkspaceLoaderTests {
         #expect(names == ["keep.txt"])
     }
 
+    // MARK: - Async loader (Issue #2 Prong C)
+
+    @Test("loadAsync does not block its caller's actor")
+    @MainActor
+    func loadAsync_doesNotBlockCaller() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        for i in 0..<200 {
+            try "x".write(toFile: "\(tmp)/file-\(i).txt", atomically: true, encoding: .utf8)
+        }
+
+        var sentinelTicks = 0
+        let sentinel = Task { @MainActor in
+            // Run 5 ticks of 10ms each on MainActor; if MainActor is blocked
+            // by the loader, the ticks won't fire.
+            for _ in 0..<5 {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                sentinelTicks += 1
+            }
+        }
+
+        _ = try await WorkspaceLoader().loadAsync(rootPath: tmp)
+
+        try await sentinel.value
+        #expect(sentinelTicks >= 4)  // allow 1 jitter slot
+    }
+
     private static func treeDepth(_ node: FileNode) -> Int {
         1 + (node.children?.map { treeDepth($0) }.max() ?? 0)
     }

@@ -5,6 +5,7 @@ struct MainView: View {
     @Environment(WindowLayoutState.self) private var layout
     @Environment(ActivityBarSelection.self) private var activityBar
     @Environment(StatusBarViewModel.self) private var statusBar
+    @Environment(WorkspaceModel.self) private var workspace
 
     var body: some View {
         @Bindable var layout = layout
@@ -29,6 +30,14 @@ struct MainView: View {
 
             Divider()
             StatusBarView()
+        }
+        .overlay {
+            if workspace.isLoading {
+                ProgressView("Loading workspace…")
+                    .padding(24)
+                    .background(.thinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
         }
     }
 }
