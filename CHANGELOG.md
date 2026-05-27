@@ -39,14 +39,45 @@ All notable changes to Logos are documented here. Format loosely follows
   11 new tests; full suite 125/125 pass. Smoke-verified against the
   Developer-ID-signed + notarized v0.1.0 build.
 
-### Known issues
+### Changed
 
-- **Keychain dialog on first-launch credential import**
-  ([#3](https://github.com/PsychQuant/logos/issues/3)) — running login
-  triggers macOS `找不到鑰匙圈來儲存「<username>」` dialog because
-  `SystemKeychainBridge` writes a keychain item under a service / account
-  pair owned by the `claude` CLI's signing identity. Workaround: click
-  "重置為預設值" once. Tracked separately.
+- **No more auto-import of `claude` credentials on first launch**
+  ([#3](https://github.com/PsychQuant/logos/issues/3) — commit `15c36f8`).
+  Previously `MainScene.onAppear` called `FirstLaunchAccountImport.runIfNeeded`,
+  which on macOS 26 unsandboxed Developer-ID apps surfaced the legacy
+  `找不到鑰匙圈來儲存「<user>」` modal dialog inside `SecItemAdd` /
+  `SecItemUpdate`. The fallback "重置為預設值" button in that dialog is
+  **system-level destructive** — it would create a new default `login.keychain`,
+  cascading silent failures into Safari autofill, Wi-Fi 802.1X certs, Mail
+  account creds, VPN, and any other app that stores credentials in the user's
+  login keychain. Users seeing the dialog had no way to tell that was the
+  consequence.
+
+  Logos now defers credential import to an explicit user action: open
+  Settings → Accounts → "Capture current login as new account" (the existing
+  flow in `AccountSwitcherSheet`, unchanged). `FirstLaunchAccountImport.swift`
+  is deleted; no other callers.
+
+  Note this is a **behavioral mitigation**, not a structural fix of the
+  underlying `SystemKeychainBridge` write path. `setActive(_:)` (multi-account
+  swap) and the manual "Capture" button still call `SecItemAdd` / `SecItemUpdate`
+  on `service = "Claude Code-credentials"` and *could* re-surface the same
+  dialog under unfavorable macOS keychain state. Those user-gesture paths
+  give the user context to interpret the dialog, unlike the unprompted
+  launch-time surface. Long-term structural fix (re-architect to read-only
+  system bridge + own access group) tracked as a follow-up.
+
+  Hypothesis (a) (add `keychain-access-groups` entitlement) was tried first
+  and **empirically falsified**: notarized cleanly but AMFI SIGKILLed the
+  signed bundle at launch (exit=137) — restricted entitlements require an
+  embedded provisioning profile that Developer ID distribution doesn't have.
+  Commits `afc646a` (attempt) + `c25b3d6` (revert) preserved in history.
+
+### Internal
+
+- Initialized Spectra (spec-driven development scaffolding, commit `cbe9b4e`):
+  `openspec/` directory, `.spectra.yaml`, `AGENTS.md`, `.agents/skills/`,
+  CLAUDE.md `SPECTRA:START/END` block. Not yet exercised on any feature.
 
 ## [0.1.0] — 2026-05-25
 
