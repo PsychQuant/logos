@@ -6,6 +6,7 @@ import Observation
 public final class WorkspaceModel {
 
     @ObservationIgnored private let loader: WorkspaceLoader
+    @ObservationIgnored private let persistence: WorkspacePersistence
     @ObservationIgnored private var currentLoadTask: Task<Void, Never>?
 
     public private(set) var rootNode: FileNode?
@@ -14,12 +15,17 @@ public final class WorkspaceModel {
     public private(set) var showHidden: Bool = false
     public private(set) var isLoading: Bool = false
 
-    public init(loader: WorkspaceLoader = WorkspaceLoader()) {
+    public init(
+        loader: WorkspaceLoader = WorkspaceLoader(),
+        persistence: WorkspacePersistence = WorkspacePersistence()
+    ) {
         self.loader = loader
+        self.persistence = persistence
     }
 
     public func openWorkspace(at path: String) throws {
         rootNode = try loader.load(rootPath: path)
+        persistence.saveLastPath(path)
     }
 
     /// Async opener — runs filesystem walk off the main thread, sets
@@ -27,8 +33,13 @@ public final class WorkspaceModel {
     /// only the most recent invocation's tree reaches `rootNode`.
     public func openWorkspaceAsync(at path: String) async {
         currentLoadTask?.cancel()
-        let task = Task { @MainActor [loader] in
-            await Self.performLoad(loader: loader, path: path, model: self)
+        let task = Task { @MainActor [loader, persistence] in
+            await Self.performLoad(
+                loader: loader,
+                persistence: persistence,
+                path: path,
+                model: self
+            )
         }
         currentLoadTask = task
         await task.value
@@ -36,6 +47,7 @@ public final class WorkspaceModel {
 
     private static func performLoad(
         loader: WorkspaceLoader,
+        persistence: WorkspacePersistence,
         path: String,
         model: WorkspaceModel
     ) async {
@@ -45,6 +57,7 @@ public final class WorkspaceModel {
             let node = try await loader.loadAsync(rootPath: path)
             guard !Task.isCancelled else { return }
             model.rootNode = node
+            persistence.saveLastPath(path)
         } catch is CancellationError {
             return
         } catch {

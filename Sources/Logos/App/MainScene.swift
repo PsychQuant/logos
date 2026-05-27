@@ -37,7 +37,7 @@ struct MainScene: Scene {
                 .onAppear {
                     Task { @MainActor in
                         FirstLaunchAccountImport.runIfNeeded(into: accountManager)
-                        autoLoadWorkspaceIfNeeded()
+                        await autoLoadWorkspaceIfNeeded()
                     }
                 }
         }
@@ -52,11 +52,18 @@ struct MainScene: Scene {
         }
     }
 
-    private func autoLoadWorkspaceIfNeeded() {
-        if workspace.rootNode == nil {
-            let cwd = FileManager.default.currentDirectoryPath
-            try? workspace.openWorkspace(at: cwd)
+    private func autoLoadWorkspaceIfNeeded() async {
+        guard workspace.rootNode == nil else { return }
+        let persistence = WorkspacePersistence()
+        guard let lastPath = persistence.loadLastPath() else { return }
+        // Validate path still exists before attempting load; stale entries
+        // (workspace deleted / moved) clear persistence so user sees welcome
+        // empty state on next launch instead of repeated load failures.
+        guard FileManager.default.fileExists(atPath: lastPath) else {
+            persistence.clear()
+            return
         }
+        await workspace.openWorkspaceAsync(at: lastPath)
     }
 
     private func openWorkspaceViaDialog() {
@@ -65,7 +72,9 @@ struct MainScene: Scene {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
-            try? workspace.openWorkspace(at: url.path)
+            Task { @MainActor in
+                await workspace.openWorkspaceAsync(at: url.path)
+            }
         }
     }
 }
