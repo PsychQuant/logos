@@ -36,7 +36,13 @@ struct MainScene: Scene {
                 .preferredColorScheme(generalSettings.theme.colorScheme)
                 .onAppear {
                     Task { @MainActor in
-                        FirstLaunchAccountImport.runIfNeeded(into: accountManager)
+                        // E.2 behavior change (per #3): no auto-import on launch.
+                        // Touching the system Claude keychain entry from
+                        // MainActor onAppear triggers macOS's "找不到鑰匙圈來
+                        // 儲存「<user>」" fallback dialog on macOS 26 for
+                        // unsandboxed Developer-ID apps. The user-facing flow
+                        // is now: open Settings → Accounts → "Capture current
+                        // login" button (existing UI in AccountSwitcherSheet).
                         await autoLoadWorkspaceIfNeeded()
                     }
                 }

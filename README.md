@@ -51,7 +51,7 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 - **Real `claude` CLI runs as PTY subprocess in terminal pane** (SwiftTerm 1.13, theme `Menlo 13pt` dark `#1e1e1e` / `#d4d4d4`)
 - **5-rule auto-handle**: rate-limit "keep going", trust folder, trust files, Bash permission, Press Enter — all auto-approved per-rule with 5s cooldown + runaway-disable (3 fires in 30s → rule auto-disables, status bar turns yellow)
 - `--dangerously-skip-permissions` removed; claude asks normally, `AutoHandleEngine` answers per-rule
-- **Multi-account with real Keychain swap** (⌘K opens switcher sheet). First launch auto-imports current claude login as "default" account. `Capture current login` button saves the live system Claude Keychain entry as a labeled Logos account. `setActive(_:)` writes target account's stored creds back to system Keychain → claude reads on next spawn. Token refreshes during a session are captured into the previously-active account on swap (no lost refresh).
+- **Multi-account with real Keychain swap** (⌘K opens switcher sheet). Open Settings → Accounts → `Capture current login` to save the live system Claude Keychain entry as a labeled Logos account ([#3](https://github.com/PsychQuant/logos/issues/3) — no auto-import on launch, to avoid the macOS "找不到鑰匙圈" fallback dialog under macOS 26 unsandboxed Developer-ID apps). `setActive(_:)` writes target account's stored creds back to system Keychain → claude reads on next spawn. Token refreshes during a session are captured into the previously-active account on swap (no lost refresh).
 - Drag-resize between all panes with persistence (UserDefaults)
 - Multi-tab Settings stub (⌘,)
 - **113 unit tests passing** in 24 suites (covers all models + services across A/B/D/E/F/G/H)
