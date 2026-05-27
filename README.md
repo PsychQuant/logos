@@ -55,7 +55,7 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 - Drag-resize between all panes with persistence (UserDefaults)
 - Multi-tab Settings stub (⌘,)
 - **113 unit tests passing** in 24 suites (covers all models + services across A/B/D/E/F/G/H)
-- **File explorer**: workspace tree in sidebar (DisclosureGroup recursive), hidden-files toggle, `⌘O` opens NSOpenPanel for workspace switch, claude's cwd auto-loaded as fallback
+- **File explorer**: workspace tree in sidebar (DisclosureGroup recursive), hidden-files toggle, `⌘O` opens NSOpenPanel for workspace switch, last-opened workspace auto-loaded on relaunch via UserDefaults (`logos.lastWorkspacePath`); welcome empty state on first launch. Loader has `maxDepth=10` / `maxFiles=50_000` safety limits and refuses system roots (`/`, `/System`, `/Library`, etc.) — see [#2](https://github.com/PsychQuant/logos/issues/2)
 - **Read-only viewer**: tabbed editor pane, Highlightr xcode-theme syntax highlighting (~250 languages), Markdown rendered via AttributedString, 5MB file size cap with `Open in external editor` fallback
 - Tearing/flicker still inherited from upstream SwiftTerm — fix lives in sub-plan C.2+ (renderer rewrite)
 - claude not in `$PATH`? App shows `ClaudeNotFoundBanner` with install link
