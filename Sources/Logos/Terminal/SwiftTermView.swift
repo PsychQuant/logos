@@ -6,11 +6,15 @@ import SwiftTerm
 /// Owns the NSView; configures theme + font; spawns subprocess on appear.
 /// Tees PTY bytes through PatternParser + AutoHandleEngine so known
 /// claude prompts get auto-answered.
+///
+/// E-Task 5: accepts AccountManager so Coordinator can materialize the
+/// per-account HOME tree (write creds with 0o600) BEFORE startProcess.
 struct SwiftTermView: NSViewRepresentable {
 
     let config: TerminalConfig
     let processConfig: ClaudeProcessConfig
     let engine: AutoHandleEngine
+    let accountManager: AccountManager
 
     func makeNSView(context: Context) -> TeedLocalProcessTerminalView {
         let view = TeedLocalProcessTerminalView(frame: .zero)
@@ -28,7 +32,11 @@ struct SwiftTermView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(processConfig: processConfig, engine: engine)
+        Coordinator(
+            processConfig: processConfig,
+            engine: engine,
+            accountManager: accountManager
+        )
     }
 
     /// Owns subprocess start. Gated by `hasStarted` so SwiftUI re-rendering
@@ -37,13 +45,19 @@ struct SwiftTermView: NSViewRepresentable {
     final class Coordinator {
         let processConfig: ClaudeProcessConfig
         let engine: AutoHandleEngine
+        let accountManager: AccountManager
         let parser: PatternParser
         weak var view: TeedLocalProcessTerminalView?
         private var hasStarted = false
 
-        init(processConfig: ClaudeProcessConfig, engine: AutoHandleEngine) {
+        init(
+            processConfig: ClaudeProcessConfig,
+            engine: AutoHandleEngine,
+            accountManager: AccountManager
+        ) {
             self.processConfig = processConfig
             self.engine = engine
+            self.accountManager = accountManager
             self.parser = PatternParser()
         }
 
@@ -65,6 +79,20 @@ struct SwiftTermView: NSViewRepresentable {
             guard !hasStarted else { return }
             hasStarted = true
             self.view = view
+
+            // E-Task 5: materialize HOME tree for active account before spawn.
+            // Without this, claude reads from an empty dir and triggers OAuth.
+            if let account = processConfig.account {
+                do {
+                    try accountManager.materializeHomeTree(for: account)
+                } catch {
+                    // Could not write credentials — claude will likely fail to auth.
+                    // For v1, log and let claude show its own auth-failed message.
+                    // Future (sub-plan H): show in-app banner.
+                    print("Logos: failed to materialize HOME for account \(account.id): \(error)")
+                }
+            }
+
             view.startProcess(
                 executable: processConfig.executablePath,
                 args: processConfig.arguments,
