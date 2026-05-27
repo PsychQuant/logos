@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import Logos
 
 @Suite("ClaudeProcessConfig", .serialized)
@@ -40,5 +41,25 @@ struct ClaudeProcessConfigTests {
             extraArgs: ["--help"]
         )
         #expect(cfg.arguments.contains("--help"))
+    }
+
+    // E-Task 4: per-account HOME injection
+
+    @Test("HOME overridden when account provided")
+    func homeOverride() {
+        let account = Account(id: "test-acc", label: "work")
+        let cfg = ClaudeProcessConfig(
+            executablePath: "/usr/local/bin/claude",
+            account: account
+        )
+        #expect(cfg.environment["HOME"] == account.homeDirectoryPath)
+        #expect(cfg.environment["HOME"]?.hasSuffix("/.logos/accounts/test-acc") == true)
+    }
+
+    @Test("HOME unchanged when no account")
+    func homeNoAccount() {
+        let cfg = ClaudeProcessConfig(executablePath: "/usr/local/bin/claude")
+        let processHome = ProcessInfo.processInfo.environment["HOME"]
+        #expect(cfg.environment["HOME"] == processHome)
     }
 }
