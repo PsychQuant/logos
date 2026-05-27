@@ -27,7 +27,7 @@ struct SidebarView: View {
             Text("No workspace open")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("File → Open Workspace…  or workspace will auto-load from claude's current directory on next launch.")
+            Text("File → Open Workspace…  Your last-opened workspace auto-loads on next launch.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
