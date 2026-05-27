@@ -6,7 +6,6 @@ struct AccountSwitcherSheet: View {
 
     @State private var showAddSheet = false
     @State private var newLabel = ""
-    @State private var newCredentialsPath = ""
     @State private var addError: String?
 
     var body: some View {
@@ -29,9 +28,11 @@ struct AccountSwitcherSheet: View {
                 VStack(spacing: 8) {
                     Text("No accounts yet")
                         .foregroundStyle(.secondary)
-                    Text("Add your first account below.")
+                    Text("Run `claude login` in a terminal, then 'Capture current login' below.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
                 }
                 .frame(maxHeight: .infinity)
             } else {
@@ -53,33 +54,30 @@ struct AccountSwitcherSheet: View {
             Divider()
 
             Button(action: { showAddSheet = true }) {
-                Label("Add account", systemImage: "plus.circle.fill")
+                Label("Capture current login as new account", systemImage: "plus.circle.fill")
                     .padding(.vertical, 4)
             }
             .padding(8)
+            .help("Reads claude's current login from macOS Keychain and saves it as a labeled Logos account.")
         }
-        .frame(width: 360, height: 360)
+        .frame(width: 380, height: 380)
         .sheet(isPresented: $showAddSheet) {
-            AddAccountForm(
+            CaptureAccountForm(
                 label: $newLabel,
-                credentialsPath: $newCredentialsPath,
                 error: $addError,
-                onSave: { addAccount() },
+                onSave: { captureAccount() },
                 onCancel: { dismissAddSheet() }
             )
         }
     }
 
-    private func addAccount() {
+    private func captureAccount() {
         addError = nil
-        let credsURL = URL(fileURLWithPath: NSString(string: newCredentialsPath).expandingTildeInPath)
-        guard let data = try? Data(contentsOf: credsURL) else {
-            addError = "Could not read credentials file at that path."
-            return
-        }
         do {
-            try mgr.add(label: newLabel, credentials: data)
+            try mgr.addByCapturingCurrent(label: newLabel)
             dismissAddSheet()
+        } catch AccountManager.AddByCaptureError.noSystemCredentials {
+            addError = "No claude login found in macOS Keychain. Run `claude login` in a terminal first."
         } catch {
             addError = "\(error)"
         }
@@ -87,41 +85,42 @@ struct AccountSwitcherSheet: View {
 
     private func dismissAddSheet() {
         newLabel = ""
-        newCredentialsPath = ""
         addError = nil
         showAddSheet = false
     }
 }
 
-private struct AddAccountForm: View {
+private struct CaptureAccountForm: View {
     @Binding var label: String
-    @Binding var credentialsPath: String
     @Binding var error: String?
     let onSave: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add account")
+            Text("Capture current claude login")
                 .font(.title3)
                 .fontWeight(.semibold)
-            TextField("Label (e.g. work)", text: $label)
+            Text("Logos will read the system Keychain entry for `Claude Code-credentials` and store it under the label below.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Label (e.g. work, personal)", text: $label)
                 .textFieldStyle(.roundedBorder)
-            TextField("Path to .credentials.json", text: $credentialsPath)
-                .textFieldStyle(.roundedBorder)
-                .help("Run `claude login` in a terminal first, then point here to ~/.claude/.credentials.json")
             if let err = error {
-                Text(err).foregroundStyle(.red).font(.caption)
+                Text(err)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                    .lineLimit(3)
             }
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
-                Button("Save", action: onSave)
+                Button("Capture", action: onSave)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(label.isEmpty || credentialsPath.isEmpty)
+                    .disabled(label.isEmpty)
             }
         }
         .padding(16)
-        .frame(width: 380)
+        .frame(width: 400)
     }
 }
