@@ -9,7 +9,7 @@ struct TopPanesView: View {
 
         GeometryReader { geo in
             HStack(spacing: 0) {
-                EditorPanePlaceholder()
+                EditorPaneView()
                     .frame(width: geo.size.width * (1 - layout.pdfPaneWidthFraction))
 
                 ResizableDivider(axis: .vertical) { delta in
