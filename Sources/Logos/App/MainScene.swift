@@ -24,7 +24,9 @@ struct MainScene: Scene {
                     minHeight: 600,
                     idealHeight: 900
                 )
-                // E-Task 7 adds .onAppear { FirstLaunchAccountImport.runIfNeeded(...) }
+                .onAppear {
+                    FirstLaunchAccountImport.runIfNeeded(into: accountManager)
+                }
         }
         .windowResizability(.contentSize)
     }
