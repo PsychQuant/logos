@@ -8,12 +8,22 @@ public final class AutoHandleEngine {
     @ObservationIgnored private let rules: [AutoHandleRule]
     @ObservationIgnored private var lastFiredAt: [String: Date] = [:]
     @ObservationIgnored private var fireHistory: [String: [Date]] = [:]
+    @ObservationIgnored private let persistence: SettingsPersistence?
+    private static let filename = "autohandle.json"
 
     public private(set) var disabledRuleIDs: Set<String> = []
     public private(set) var lastFiredRule: AutoHandleRule?
 
-    public init(rules: [AutoHandleRule] = AutoHandleRule.defaultRuleset) {
+    public init(
+        rules: [AutoHandleRule] = AutoHandleRule.defaultRuleset,
+        persistence: SettingsPersistence? = SettingsPersistence()
+    ) {
         self.rules = rules
+        self.persistence = persistence
+        if let p = persistence,
+           let dto: PersistedDTO = try? p.load(from: Self.filename) {
+            self.disabledRuleIDs = Set(dto.disabledRuleIDs)
+        }
     }
 
     /// Process a new chunk of PTY output. Returns bytes to inject back
@@ -31,9 +41,10 @@ public final class AutoHandleEngine {
             fireHistory[rule.id, default: []].append(now)
             // Prune fire history older than 30s
             fireHistory[rule.id] = fireHistory[rule.id]?.filter { now.timeIntervalSince($0) < 30 }
-            // Runaway check: 3+ fires within 30s → disable
+            // Runaway check: 3+ fires within 30s → transient disable (NOT persisted)
             if (fireHistory[rule.id]?.count ?? 0) >= 3 {
                 disabledRuleIDs.insert(rule.id)
+                // Intentionally no save here — runaway disables reset on relaunch
             }
             lastFiredRule = rule
             return rule.responseBytes
@@ -41,12 +52,16 @@ public final class AutoHandleEngine {
         return nil
     }
 
+    /// User-initiated disable. Persists across launches.
     public func disableRule(id: String) {
         disabledRuleIDs.insert(id)
+        saveUserToggleState()
     }
 
+    /// User-initiated enable. Persists across launches.
     public func enableRule(id: String) {
         disabledRuleIDs.remove(id)
+        saveUserToggleState()
     }
 
     public var rulesCount: Int { rules.count }
@@ -60,5 +75,14 @@ public final class AutoHandleEngine {
         } else {
             return .partial
         }
+    }
+
+    private func saveUserToggleState() {
+        let dto = PersistedDTO(disabledRuleIDs: Array(disabledRuleIDs).sorted())
+        try? persistence?.save(dto, to: Self.filename)
+    }
+
+    private struct PersistedDTO: Codable {
+        let disabledRuleIDs: [String]
     }
 }
