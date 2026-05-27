@@ -27,7 +27,7 @@ bundle: build ## Build + assemble .app bundle (ad-hoc signed)
 	@cp $(RELEASE_BIN) $(APP_BUNDLE)/Contents/MacOS/$(BINARY_NAME)
 	@cp Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
-	@codesign --force --deep --entitlements Logos.entitlements --sign - $(APP_BUNDLE)
+	@codesign --force --deep --sign - $(APP_BUNDLE)
 	@echo "✓ Bundle ready at $(APP_BUNDLE)"
 
 run: bundle ## Build + bundle + open
@@ -74,7 +74,6 @@ release-signed: build ## Build + Developer ID sign + notarize + create .dmg
 	@cp Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
 	@codesign --force --deep --options runtime \
-		--entitlements Logos.entitlements \
 		--sign "$(DEVELOPER_ID)" \
 		--timestamp \
 		$(APP_BUNDLE)
