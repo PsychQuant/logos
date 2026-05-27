@@ -61,24 +61,23 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 - claude not in `$PATH`? App shows `ClaudeNotFoundBanner` with install link
 - No active account? App shows `NoActiveAccountBanner` directing to status bar
 
-**How to run:**
+**How to install + run:**
 
 ```bash
-# Tests
-swift test
+# One-time install to /Applications (then launch via Spotlight: cmd+space → Logos)
+make install
 
-# Dev launch (window may not activate cleanly without .app bundle)
-swift run Logos
-
-# Production launch (proper .app bundle)
-swift build -c release
-mkdir -p .build/Logos.app/Contents/MacOS
-cp .build/release/Logos .build/Logos.app/Contents/MacOS/Logos
-cp Info.plist .build/Logos.app/Contents/Info.plist
-echo "APPL????" > .build/Logos.app/Contents/PkgInfo
-codesign --force --deep --sign - .build/Logos.app
-open .build/Logos.app
+# Other useful targets
+make run               # Build + bundle + open (dev iteration)
+make tests             # Run all unit tests
+make uninstall         # Remove from /Applications
+make release-signed    # Developer ID sign + notarize + .dmg (for distribution)
+make help              # List all targets
 ```
+
+First launch from /Applications may show "unidentified developer" warning since the local install uses ad-hoc signature. Right-click → Open once to permanently trust.
+
+For distribution to others, `make release-signed` produces a notarized `.dmg` (requires the `che-mcps-notary` keychain profile and Developer ID cert per `~/.claude/CLAUDE.md`).
 
 **Next**:
 - Merge [PR #1](https://github.com/PsychQuant/logos/pull/1) (sub-plan C.1) into main after review
