@@ -16,6 +16,12 @@ extension SwiftTermReplay {
         @Option(name: .shortAndLong, help: "Speed multiplier (1.0 = real-time, 0 = instant)")
         var speed: Double = 1.0
 
+        @Option(
+            name: .long,
+            help: "Sample frames every N ms during replay and print mid-state cluster analysis at exit (C.2.0 baseline metric)"
+        )
+        var sampleFrames: Double?
+
         mutating func run() throws {
             let inputURL = URL(fileURLWithPath: input)
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
@@ -45,6 +51,22 @@ extension SwiftTermReplay {
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
 
+            // C.2.0: start frame sampler if requested.
+            // Holder class so we can capture across the global DispatchQueue
+            // closure without tripping Swift 6 sending-data-race diagnostics.
+            // FrameSampler is @MainActor; only touched inside MainActor.run.
+            final class SamplerHolder: @unchecked Sendable {
+                var sampler: FrameSampler?
+            }
+            let holder = SamplerHolder()
+            if let intervalMs = sampleFrames {
+                MainActor.assumeIsolated {
+                    let s = FrameSampler(view: view)
+                    s.start(intervalSeconds: intervalMs / 1000.0)
+                    holder.sampler = s
+                }
+            }
+
             // Schedule chunk feeds
             let speedCopy = speed
             DispatchQueue.global().async {
@@ -61,6 +83,24 @@ extension SwiftTermReplay {
                     lastTime = chunk.timestamp
                 }
                 FileHandle.standardError.write(Data("Replay complete.\n".utf8))
+
+                // C.2.0: print sampler results then exit cleanly
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    MainActor.assumeIsolated {
+                        guard let s = holder.sampler else { return }
+                        s.stop()
+                        let r = s.analyze()
+                        let longClusters = r.midStateClusters.filter { $0 > 0.016 }
+                        print("--- C.2.0 Baseline Metric ---")
+                        print("Total frames sampled: \(r.total)")
+                        print("Mid-state clusters (any duration): \(r.midStateClusters.count)")
+                        print("Mid-state clusters > 16ms (visually perceptible): \(longClusters.count)")
+                        if let longest = r.midStateClusters.max() {
+                            print(String(format: "Longest cluster: %.0fms", longest * 1000))
+                        }
+                        NSApp.terminate(nil)
+                    }
+                }
             }
 
             app.run()

@@ -1,0 +1,47 @@
+C.2.0 Baseline Metric — 02-edit-tool.ttyrec on upstream SwiftTerm
+==================================================================
+
+Date: 2026-05-28
+Capture: Tools/SwiftTermReplay/Sources/SwiftTermReplay/Captures/02-edit-tool.ttyrec
+Renderer: PsychQuant/SwiftTerm @ logos-renderer-base (== upstream main, no modifications)
+Tool: swiftterm-replay v0.1 + FrameSampler @ 8ms sampling
+
+Command:
+  swift run swiftterm-replay replay \
+    --input 02-edit-tool.ttyrec \
+    --speed 1.0 \
+    --sample-frames 8
+
+Result:
+  Total frames sampled: 2752
+  Mid-state clusters (any duration): 0
+  Mid-state clusters > 16ms (visually perceptible): 0
+  Longest cluster: N/A
+
+Interpretation:
+  The current 02-edit-tool.ttyrec capture is only 4 PTY chunks long (~claude
+  startup, before any actual Edit tool flow). It doesn't exercise enough redraw
+  for tearing to manifest. THIS IS NOT A SIGNAL that SwiftTerm renders perfectly
+  — it's a signal that we need richer captures.
+
+Action for C.2.1+:
+  1. Re-capture 02-edit-tool.ttyrec with a real claude session that actually
+     runs Edit tool (file modification → diff propose → approve cycle).
+  2. Re-run this baseline metric to get a non-zero starting number.
+  3. THEN renderer modifications are measurable.
+
+Other captures planned (sub-plan C.1 deferred):
+  - 03-plan-mode.ttyrec
+  - 04-rate-limit.ttyrec (best effort — hard to reproduce on demand)
+  - 05-permission.ttyrec
+
+Baseline metric infrastructure (FrameSampler + --sample-frames flag) is now
+in place. C.2.1 work can begin against richer captures whenever they're collected.
+
+Threshold parameters (in FrameSampler.swift):
+  - intervalSeconds: 0.008 (8ms = 120Hz oversampling)
+  - pixelChangeThreshold: 0.2 (>20% of 200 random samples differ → "changed")
+  - perceptible cutoff: 16ms (one 60Hz display refresh)
+
+These thresholds may need calibration against richer captures. If real tearing
+patterns produce too few "clusters" with threshold 0.2, lower to 0.1.
