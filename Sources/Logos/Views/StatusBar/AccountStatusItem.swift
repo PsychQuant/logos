@@ -1,11 +1,19 @@
 import SwiftUI
 
 struct AccountStatusItem: View {
-    @Environment(StatusBarViewModel.self) private var vm
+    @Environment(AccountManager.self) private var mgr
+    @State private var showSwitcher = false
 
     var body: some View {
-        Label(vm.accountName, systemImage: "person.crop.circle")
-            .font(.caption)
-            .help("Click to switch account (sub-plan E)")
+        Button(action: { showSwitcher = true }) {
+            Label(mgr.active?.label ?? "no account", systemImage: "person.crop.circle")
+                .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .help("Click to switch / manage accounts (⌘K)")
+        .keyboardShortcut("k", modifiers: .command)
+        .sheet(isPresented: $showSwitcher) {
+            AccountSwitcherSheet()
+        }
     }
 }
