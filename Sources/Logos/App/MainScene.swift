@@ -65,11 +65,27 @@ struct MainScene: Scene {
         // Validate path still exists before attempting load; stale entries
         // (workspace deleted / moved) clear persistence so user sees welcome
         // empty state on next launch instead of repeated load failures.
-        guard FileManager.default.fileExists(atPath: lastPath) else {
+        //
+        // Per #5: validation MUST run off MainActor. `FileManager.fileExists`
+        // does a sync `stat(2)` which can block 5-30s for unreachable network
+        // mounts, iCloud placeholder evictions, or recently-ejected USB drives
+        // — same bug class as #2 (just smaller surface). `Self.pathExistsOffMain`
+        // wraps the call in `Task.detached(.userInitiated)` so the launch path
+        // stays responsive regardless of how slow the persisted path resolves.
+        guard await Self.pathExistsOffMain(lastPath) else {
             persistence.clear()
             return
         }
         await workspace.openWorkspaceAsync(at: lastPath)
+    }
+
+    /// Reports whether `path` exists, evaluated off MainActor so a slow
+    /// `stat(2)` (network mount unreachable, iCloud placeholder, ejected USB)
+    /// doesn't block the UI thread. Per #5.
+    static func pathExistsOffMain(_ path: String) async -> Bool {
+        await Task.detached(priority: .userInitiated) {
+            FileManager.default.fileExists(atPath: path)
+        }.value
     }
 
     private func openWorkspaceViaDialog() {
