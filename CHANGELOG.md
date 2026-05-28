@@ -58,6 +58,14 @@ All notable changes to Logos are documented here. Format loosely follows
   filter resolves symlinks, so a symlink pointing at a TCC path is caught
   too. 3 new tests; full suite 131/131 pass.
 
+  Scope note: this fixes the common entry point (opening `~`). The skip set
+  holds top-level home directories only, and the chosen root is never
+  filtered — so explicitly opening a TCC directory (or a directory whose
+  deeper subtree holds TCC content, e.g. `~/Library` or `~/Pictures`) as the
+  workspace root can still cascade. A TCC-resilient walk that handles
+  protected directories at any depth and surfaces skipped dirs to the user
+  is tracked as a follow-up.
+
 ### Changed
 
 - **No more auto-import of `claude` credentials on first launch**

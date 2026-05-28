@@ -127,12 +127,14 @@ struct WorkspaceLoaderTests {
 
     // MARK: - User-relative TCC skip (Issue #7)
 
-    @Test("skips TCC-protected children when walking home")
+    @Test("skips every TCC-protected child name when walking home")
     func walk_skipsTCCChildrenOfHome() throws {
         let home = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: home) }
 
-        for tcc in ["Documents", "Desktop", "Library"] {
+        // Iterate the production set so a future addition is auto-covered and a
+        // typo in any name is caught (not just the 3 originally tested).
+        for tcc in WorkspaceLoader.userRelativeTCCNames {
             try FileManager.default.createDirectory(atPath: "\(home)/\(tcc)", withIntermediateDirectories: true)
         }
         try FileManager.default.createDirectory(atPath: "\(home)/code", withIntermediateDirectories: true)
