@@ -125,6 +125,54 @@ struct WorkspaceLoaderTests {
         #expect(names == ["keep.txt"])
     }
 
+    // MARK: - User-relative TCC skip (Issue #7)
+
+    @Test("skips TCC-protected children when walking home")
+    func walk_skipsTCCChildrenOfHome() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+
+        for tcc in ["Documents", "Desktop", "Library"] {
+            try FileManager.default.createDirectory(atPath: "\(home)/\(tcc)", withIntermediateDirectories: true)
+        }
+        try FileManager.default.createDirectory(atPath: "\(home)/code", withIntermediateDirectories: true)
+        try "n".write(toFile: "\(home)/notes.txt", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: home)
+        let names = tree.children?.map(\.displayName).sorted() ?? []
+        #expect(names == ["code", "notes.txt"])
+    }
+
+    @Test("walks a TCC path when it is the explicit root")
+    func walk_allowsTCCPathAsExplicitRoot() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+
+        let documents = "\(home)/Documents"
+        try FileManager.default.createDirectory(atPath: "\(documents)/proj", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(documents)/proj/main.swift", atomically: true, encoding: .utf8)
+
+        // Documents is the chosen root → must be walked, not skipped.
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: documents)
+        #expect(tree.children?.map(\.displayName) == ["proj"])
+    }
+
+    @Test("skips a symlink resolving to a TCC path")
+    func walk_skipsSymlinkedTCCChild() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+
+        try FileManager.default.createDirectory(atPath: "\(home)/Documents", withIntermediateDirectories: true)
+        let work = "\(home)/work"
+        try FileManager.default.createDirectory(atPath: work, withIntermediateDirectories: true)
+        try "x".write(toFile: "\(work)/keep.txt", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: "\(work)/docs_link", withDestinationPath: "\(home)/Documents")
+
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: work)
+        let names = tree.children?.map(\.displayName).sorted() ?? []
+        #expect(names == ["keep.txt"])
+    }
+
     // MARK: - Async loader (Issue #2 Prong C)
 
     @Test("loadAsync does not block its caller's actor")

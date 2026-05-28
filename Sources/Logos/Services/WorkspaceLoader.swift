@@ -13,12 +13,40 @@ public struct WorkspaceLoader: Sendable {
         "/dev", "/etc", "/var", "/bin", "/sbin", "/cores"
     ]
 
+    /// First-level home children that are TCC-protected or pure app-data.
+    /// Walking into these during a recursive descent triggers a modal macOS
+    /// consent dialog per directory (Issue #7). Skipped only as *children* —
+    /// see `tccSkipPaths` and the child filter in `walk`.
+    static let userRelativeTCCNames: Set<String> = [
+        "Documents", "Desktop", "Downloads", "Pictures", "Music", "Movies",
+        "Library", ".Trash"
+    ]
+
     public let maxDepth: Int
     public let maxFiles: Int
 
-    public init(maxDepth: Int = 10, maxFiles: Int = 50_000) {
+    /// Home directory used to derive the user-relative TCC skip set. Injectable
+    /// so tests can substitute a temp dir without touching the real home.
+    public let homeDirectory: String
+
+    public init(maxDepth: Int = 10, maxFiles: Int = 50_000, homeDirectory: String = NSHomeDirectory()) {
         self.maxDepth = maxDepth
         self.maxFiles = maxFiles
+        self.homeDirectory = homeDirectory
+    }
+
+    /// Absolute, normalized TCC-protected paths under `homeDirectory`. A walk
+    /// descending into any of these would trip macOS's per-directory consent
+    /// dialog, so they are filtered out as children. The explicit `rootPath` is
+    /// never run through this filter, so opening e.g. `~/Documents` directly
+    /// still works (one expected prompt for the user-chosen folder).
+    private var tccSkipPaths: Set<String> {
+        // Resolve symlinks so comparison matches the resolved child path the
+        // walk filter computes (macOS temp dirs live under /var → /private/var,
+        // and the home itself may be symlinked).
+        Set(Self.userRelativeTCCNames.map {
+            Self.normalize(URL(fileURLWithPath: "\(homeDirectory)/\($0)").resolvingSymlinksInPath().path)
+        })
     }
 
     public func load(rootPath: String) throws -> FileNode {
@@ -71,10 +99,13 @@ public struct WorkspaceLoader: Sendable {
             .filter { !Self.skipNames.contains($0) }
             .filter { name -> Bool in
                 // Drop any child whose resolved real path matches a system root
-                // (defense-in-depth: catches symlinks pointing at /Library etc.)
+                // or a user-relative TCC path (defense-in-depth: catches symlinks
+                // pointing at /Library or ~/Documents etc.). Per #7, descending
+                // into TCC dirs triggers a per-directory macOS consent dialog.
                 let childPath = "\(path)/\(name)"
-                let resolved = URL(fileURLWithPath: childPath).resolvingSymlinksInPath().path
-                return !Self.absoluteSkipPaths.contains(Self.normalize(resolved))
+                let resolved = Self.normalize(URL(fileURLWithPath: childPath).resolvingSymlinksInPath().path)
+                return !Self.absoluteSkipPaths.contains(resolved)
+                    && !tccSkipPaths.contains(resolved)
             }
             .sorted { lhs, rhs in
                 let lhsPath = "\(path)/\(lhs)"

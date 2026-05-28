@@ -39,6 +39,25 @@ All notable changes to Logos are documented here. Format loosely follows
   11 new tests; full suite 125/125 pass. Smoke-verified against the
   Developer-ID-signed + notarized v0.1.0 build.
 
+- **TCC dialog cascade when opening home (`~`) as a workspace**
+  ([#7](https://github.com/PsychQuant/logos/issues/7)). Selecting `~` at
+  Cmd+O made `WorkspaceLoader` recurse into `~/Documents`, `~/Desktop`,
+  `~/Library/*` etc.; each TCC-protected directory's first
+  `contentsOfDirectory` call triggered a modal macOS consent dialog,
+  producing a cascade of prompts and an indefinitely-stuck loading spinner.
+  `absoluteSkipPaths` only covered system roots, never user-home-relative
+  paths.
+
+  `WorkspaceLoader` now derives a user-relative TCC skip set
+  (`Documents`, `Desktop`, `Downloads`, `Pictures`, `Music`, `Movies`,
+  `Library`, `.Trash`) from an injectable `homeDirectory` (default
+  `NSHomeDirectory()`) and drops those directories **as children** during
+  the walk — so opening `~` no longer cascades, while explicitly choosing a
+  protected directory as the workspace root (e.g. `~/Documents`) still walks
+  it normally (one expected prompt for the user-chosen folder). The skip
+  filter resolves symlinks, so a symlink pointing at a TCC path is caught
+  too. 3 new tests; full suite 131/131 pass.
+
 ### Changed
 
 - **No more auto-import of `claude` credentials on first launch**
