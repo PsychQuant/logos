@@ -29,22 +29,24 @@ public struct WorkspaceLoader: Sendable {
     /// so tests can substitute a temp dir without touching the real home.
     public let homeDirectory: String
 
-    public init(maxDepth: Int = 10, maxFiles: Int = 50_000, homeDirectory: String = NSHomeDirectory()) {
-        self.maxDepth = maxDepth
-        self.maxFiles = maxFiles
-        self.homeDirectory = homeDirectory
-    }
-
     /// Absolute, normalized TCC-protected paths under `homeDirectory`. A walk
     /// descending into any of these would trip macOS's per-directory consent
     /// dialog, so they are filtered out as children. The explicit `rootPath` is
     /// never run through this filter, so opening e.g. `~/Documents` directly
     /// still works (one expected prompt for the user-chosen folder).
-    private var tccSkipPaths: Set<String> {
-        // Resolve symlinks so comparison matches the resolved child path the
-        // walk filter computes (macOS temp dirs live under /var → /private/var,
-        // and the home itself may be symlinked).
-        Set(Self.userRelativeTCCNames.map {
+    ///
+    /// Computed once at init — symlinks resolved here so the comparison matches
+    /// the resolved child path the walk filter computes (macOS temp dirs live
+    /// under /var → /private/var, and the home itself may be symlinked).
+    /// Kept off the per-child hot path: a computed property would re-run the
+    /// symlink resolution for every entry walked.
+    private let tccSkipPaths: Set<String>
+
+    public init(maxDepth: Int = 10, maxFiles: Int = 50_000, homeDirectory: String = NSHomeDirectory()) {
+        self.maxDepth = maxDepth
+        self.maxFiles = maxFiles
+        self.homeDirectory = homeDirectory
+        self.tccSkipPaths = Set(Self.userRelativeTCCNames.map {
             Self.normalize(URL(fileURLWithPath: "\(homeDirectory)/\($0)").resolvingSymlinksInPath().path)
         })
     }
