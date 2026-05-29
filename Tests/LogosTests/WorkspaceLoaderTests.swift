@@ -334,6 +334,59 @@ struct WorkspaceLoaderTests {
         }
     }
 
+    // MARK: - Cooperative cancellation (Issue #4)
+
+    @Test("load throws CancellationError immediately when isCancelled is true")
+    func load_cancelsWhenFlagSet() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        // A deep-ish tree; with isCancelled always true, the walk must throw
+        // before producing a tree (no timing dependency — deterministic).
+        var cur = tmp
+        for label in ["a", "b", "c"] {
+            cur = "\(cur)/\(label)"
+            try FileManager.default.createDirectory(atPath: cur, withIntermediateDirectories: true)
+        }
+        for i in 0..<50 { try "x".write(toFile: "\(tmp)/f\(i).txt", atomically: true, encoding: .utf8) }
+
+        #expect(throws: CancellationError.self) {
+            try WorkspaceLoader().load(rootPath: tmp, isCancelled: { true })
+        }
+    }
+
+    @Test("load completes when isCancelled is false")
+    func load_completesWhenNotCancelled() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader().load(rootPath: tmp, isCancelled: { false })
+        #expect(tree.children?.map(\.displayName) == ["a.txt"])
+    }
+
+    // MARK: - Per-child error policy (Issue #9)
+
+    @Test("a permission-denied child is skipped, siblings still loaded")
+    func walk_skipsPermissionDeniedChildKeepsSiblings() throws {
+        let tmp = try makeTempDir()
+        let denied = "\(tmp)/denied"
+        try FileManager.default.createDirectory(atPath: "\(denied)/inside", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(tmp)/keep.txt", atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(atPath: "\(tmp)/normal", withIntermediateDirectories: true)
+        // Deny traversal so descending into `denied` errors out.
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: denied)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: denied)
+            try? FileManager.default.removeItem(atPath: tmp)
+        }
+
+        // The whole load must NOT abort — siblings (keep.txt, normal) remain.
+        let tree = try WorkspaceLoader().load(rootPath: tmp)
+        let names = tree.children?.map(\.displayName).sorted() ?? []
+        #expect(names.contains("keep.txt"))
+        #expect(names.contains("normal"))
+    }
+
     // MARK: - Async loader (Issue #2 Prong C)
 
     @Test("loadAsync does not block its caller's actor")

@@ -69,22 +69,25 @@ struct MainScene: Scene {
         // Per #5: validation MUST run off MainActor. `FileManager.fileExists`
         // does a sync `stat(2)` which can block 5-30s for unreachable network
         // mounts, iCloud placeholder evictions, or recently-ejected USB drives
-        // — same bug class as #2 (just smaller surface). `Self.pathExistsOffMain`
-        // wraps the call in `Task.detached(.userInitiated)` so the launch path
-        // stays responsive regardless of how slow the persisted path resolves.
-        guard await Self.pathExistsOffMain(lastPath) else {
+        // — same bug class as #2 (just smaller surface). Per #9 it also checks
+        // directory-ness: a persisted path that became a regular file would
+        // otherwise load as a single-file root (nonsensical UI).
+        guard await Self.directoryExistsOffMain(lastPath) else {
             persistence.clear()
             return
         }
         await workspace.openWorkspaceAsync(at: lastPath)
     }
 
-    /// Reports whether `path` exists, evaluated off MainActor so a slow
-    /// `stat(2)` (network mount unreachable, iCloud placeholder, ejected USB)
-    /// doesn't block the UI thread. Per #5.
-    static func pathExistsOffMain(_ path: String) async -> Bool {
+    /// Reports whether `path` exists **and is a directory**, evaluated off
+    /// MainActor so a slow `stat(2)` (network mount unreachable, iCloud
+    /// placeholder, ejected USB) doesn't block the UI thread (#5). The
+    /// directory check guards against a persisted path that became a file (#9).
+    static func directoryExistsOffMain(_ path: String) async -> Bool {
         await Task.detached(priority: .userInitiated) {
-            FileManager.default.fileExists(atPath: path)
+            var isDir: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+            return exists && isDir.boolValue
         }.value
     }
 

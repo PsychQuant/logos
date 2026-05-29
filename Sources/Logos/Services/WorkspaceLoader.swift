@@ -1,5 +1,25 @@
 import Foundation
 
+/// Thread-safe cancellation flag bridging a parent `Task`'s cancellation into
+/// the cancellation-orphaned `Task.detached` compute (Issue #4). `Task.detached`
+/// has no parent-cancellation link, so `loadAsync` wires `withTaskCancellationHandler`
+/// to flip this flag, which the sync `walk` polls cooperatively.
+public final class CancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    public init() {}
+
+    public var isCancelled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return cancelled
+    }
+
+    public func cancel() {
+        lock.lock(); cancelled = true; lock.unlock()
+    }
+}
+
 public struct WorkspaceLoader: Sendable {
 
     static let skipNames: Set<String> = [
@@ -85,7 +105,10 @@ public struct WorkspaceLoader: Sendable {
         }
     }
 
-    public func load(rootPath: String) throws -> FileNode {
+    /// Synchronous walk. `isCancelled` is polled cooperatively so a caller can
+    /// halt an in-flight walk's I/O (Issue #4); defaults to never-cancelled so
+    /// existing sync callers are unaffected.
+    public func load(rootPath: String, isCancelled: @escaping @Sendable () -> Bool = { false }) throws -> FileNode {
         let canonical = Self.canonical(rootPath)
         if Self.isSystemPath(canonical) {
             throw LoaderError.refusedSystemPath(canonical)
@@ -94,7 +117,7 @@ public struct WorkspaceLoader: Sendable {
         // opening e.g. `~/Documents` directly should still walk (one expected
         // prompt for the user-chosen folder). TCC filtering applies to children.
         var counter = 0
-        return try walk(path: rootPath, depth: 1, counter: &counter)
+        return try walk(path: rootPath, depth: 1, counter: &counter, isCancelled: isCancelled)
     }
 
     /// True if `canonical` is a system path that must never be walked into.
@@ -116,12 +139,21 @@ public struct WorkspaceLoader: Sendable {
     }
 
     /// Off-main-actor variant — wraps sync `load` in a detached Task so callers
-    /// on `MainActor` don't block the UI thread during recursive walks.
+    /// on `MainActor` don't block the UI thread during recursive walks. The
+    /// detached task is cancellation-orphaned, so a `CancelFlag` bridges the
+    /// awaiting task's cancellation into the walk via `withTaskCancellationHandler`
+    /// (Issue #4): when the awaiting task is cancelled, `onCancel` flips the flag
+    /// and the walk throws `CancellationError` at its next poll point.
     public func loadAsync(rootPath: String) async throws -> FileNode {
         let loader = self
-        return try await Task.detached(priority: .userInitiated) {
-            try loader.load(rootPath: rootPath)
-        }.value
+        let flag = CancelFlag()
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                try loader.load(rootPath: rootPath, isCancelled: { flag.isCancelled })
+            }.value
+        } onCancel: {
+            flag.cancel()
+        }
     }
 
     /// Canonical absolute path: resolves symlinks, collapses `//`, resolves
@@ -140,7 +172,11 @@ public struct WorkspaceLoader: Sendable {
         let isDir: Bool
     }
 
-    private func walk(path: String, depth: Int, counter: inout Int) throws -> FileNode {
+    private func walk(path: String, depth: Int, counter: inout Int,
+                      isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode {
+        // Cooperative cancellation poll (#4): halts an in-flight walk between
+        // entries when the awaiting task is cancelled (rapid Cmd+O).
+        if isCancelled() { throw CancellationError() }
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: path, isDirectory: &isDir) else {
@@ -189,6 +225,7 @@ public struct WorkspaceLoader: Sendable {
 
         var children: [FileNode] = []
         for entry in entries {
+            if isCancelled() { throw CancellationError() }
             if counter >= maxFiles {
                 throw LoaderError.tooManyFiles(found: counter, cap: maxFiles)
             }
@@ -201,9 +238,20 @@ public struct WorkspaceLoader: Sendable {
                                          children: nil, isProtected: true))
                 continue
             }
+            // Per-child error policy (#9): propagate the fatal ones
+            // (`tooManyFiles`, `CancellationError`); skip everything else
+            // (notFound, permission-denied, EIO) so one bad child doesn't abort
+            // the whole load — restores #2's permissive walk.
             do {
-                children.append(try walk(path: entry.path, depth: depth + 1, counter: &counter))
-            } catch LoaderError.notFound {
+                children.append(try walk(path: entry.path, depth: depth + 1, counter: &counter,
+                                         isCancelled: isCancelled))
+            } catch let e as LoaderError {
+                if case .tooManyFiles = e { throw e }
+                continue
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // permission denied / EIO / any other per-child error → skip child
                 continue
             }
         }

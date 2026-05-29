@@ -39,5 +39,38 @@ struct MainView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
+        .overlay(alignment: .top) {
+            // #9: surface load failures instead of a silent blank state.
+            if let error = workspace.lastError {
+                errorBanner(error.message)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.caption)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+            Button {
+                workspace.clearError()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }

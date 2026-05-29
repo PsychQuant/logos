@@ -113,6 +113,34 @@ All notable changes to Logos are documented here. Format loosely follows
   TCC tests now assert the dirs are present with `isProtected == true` rather
   than absent. 8 net new tests; full suite 139/139.
 
+- **Workspace-load cancellation now actually stops the walk** ([#4](https://github.com/PsychQuant/logos/issues/4)).
+  `loadAsync` ran the walk in a `Task.detached`, which is cancellation-orphaned
+  — `currentLoadTask.cancel()` only flipped the outer flag while the detached
+  walk kept consuming disk I/O to completion (rapid Cmd+O queued unbounded I/O).
+  A lock-guarded `CancelFlag` now bridges the awaiting task's cancellation into
+  the walk via `withTaskCancellationHandler`; `walk` polls it between entries
+  and throws `CancellationError`. The `isLoading` spinner's `defer` is
+  epoch-guarded so a superseded load can't flip it off mid-walk (no flicker).
+
+- **Workspace-load errors are surfaced, not silently swallowed** ([#9](https://github.com/PsychQuant/logos/issues/9)).
+  `performLoad` previously `catch { return }` — TCC denial, permission errors,
+  `refusedSystemPath`, `tooManyFiles` all produced a silent blank state with
+  the broken path still persisted (repeating next launch). Now: a new
+  observable `WorkspaceModel.lastError` (typed `WorkspaceLoadError` with a
+  user-facing message) drives a dismissable banner in `MainView`; `os_log`
+  records the failure; persistence is cleared only for definitively-stale
+  errors (`notFound`/`notADirectory`/`refused`), not transient ones.
+  `CancellationError` stays silent (not a failure). The per-child walk loop now
+  skips non-fatal child errors (permission/EIO) instead of aborting the whole
+  load — only `tooManyFiles`/`CancellationError` propagate. Persisted-path
+  validation also checks **directory-ness** (`directoryExistsOffMain`) so a
+  path that became a regular file is cleared instead of loading as a
+  single-file root.
+
+  9 net new tests; full suite 148/148. #4's cancellation test intent is
+  satisfied deterministically via the `isCancelled` closure (no timing-based
+  slow-loader stub).
+
 ### Changed
 
 - **No more auto-import of `claude` credentials on first launch**

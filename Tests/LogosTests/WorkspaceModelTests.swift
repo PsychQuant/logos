@@ -120,6 +120,53 @@ struct WorkspaceModelTests {
         #expect(m.isLoading == false)
     }
 
+    // MARK: - Error surfacing (Issue #9)
+
+    @Test("openWorkspaceAsync surfaces lastError on a refused system path")
+    func openWorkspaceAsync_surfacesError() async {
+        let m = WorkspaceModel()
+        #expect(m.lastError == nil)
+
+        await m.openWorkspaceAsync(at: "/")   // refusedSystemPath
+
+        #expect(m.lastError == .refused)
+        #expect(m.rootNode == nil)
+        #expect(m.isLoading == false)
+    }
+
+    @Test("a successful load clears a prior lastError")
+    func openWorkspaceAsync_successClearsError() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
+
+        let m = WorkspaceModel()
+        await m.openWorkspaceAsync(at: "/")     // sets lastError
+        #expect(m.lastError != nil)
+
+        await m.openWorkspaceAsync(at: tmp)      // healthy → clears
+        #expect(m.lastError == nil)
+        #expect(m.rootNode?.path == tmp)
+    }
+
+    @Test("clearError dismisses the banner state")
+    func clearError_dismisses() async {
+        let m = WorkspaceModel()
+        await m.openWorkspaceAsync(at: "/")
+        #expect(m.lastError != nil)
+        m.clearError()
+        #expect(m.lastError == nil)
+    }
+
+    @Test("WorkspaceLoadError stale classification")
+    func loadError_staleClassification() {
+        #expect(WorkspaceLoadError.notFound.isStale == true)
+        #expect(WorkspaceLoadError.notADirectory.isStale == true)
+        #expect(WorkspaceLoadError.refused.isStale == true)
+        #expect(WorkspaceLoadError.unknown.isStale == false)        // transient — keep path
+        #expect(WorkspaceLoadError.tooLarge(found: 1, cap: 1).isStale == false)
+    }
+
     private func makeTempDir() throws -> String {
         let dir = NSTemporaryDirectory() + "logos-wm-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)

@@ -2,22 +2,35 @@ import Testing
 import Foundation
 @testable import Logos
 
-@Suite("MainScene.pathExistsOffMain", .serialized)
+@Suite("MainScene.directoryExistsOffMain", .serialized)
 struct MainScenePathExistsTests {
 
-    @Test("returns true for an existing path")
-    func returnsTrueForExisting() async throws {
+    @Test("returns true for an existing directory")
+    func returnsTrueForExistingDir() async throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: tmp) }
 
-        let exists = await MainScene.pathExistsOffMain(tmp)
+        let exists = await MainScene.directoryExistsOffMain(tmp)
         #expect(exists == true)
     }
 
     @Test("returns false for a non-existing path")
     func returnsFalseForMissing() async {
         let bogus = "/tmp/logos-test-does-not-exist-\(UUID().uuidString)"
-        let exists = await MainScene.pathExistsOffMain(bogus)
+        let exists = await MainScene.directoryExistsOffMain(bogus)
+        #expect(exists == false)
+    }
+
+    @Test("returns false for an existing FILE (not a directory) — #9")
+    func returnsFalseForFile() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let file = "\(tmp)/became-a-file.txt"
+        try "x".write(toFile: file, atomically: true, encoding: .utf8)
+
+        // A persisted path that turned into a regular file must NOT validate —
+        // otherwise the loader would return a single-file root (nonsensical UI).
+        let exists = await MainScene.directoryExistsOffMain(file)
         #expect(exists == false)
     }
 
@@ -27,9 +40,6 @@ struct MainScenePathExistsTests {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: tmp) }
 
-        // MainActor sentinel — same pattern as WorkspaceLoaderTests.loadAsync_doesNotBlockCaller.
-        // If `pathExistsOffMain` accidentally runs sync on MainActor, the
-        // sentinel can't tick during the stat call.
         var sentinelTicks = 0
         let sentinel = Task { @MainActor in
             for _ in 0..<5 {
@@ -38,14 +48,14 @@ struct MainScenePathExistsTests {
             }
         }
 
-        _ = await MainScene.pathExistsOffMain(tmp)
+        _ = await MainScene.directoryExistsOffMain(tmp)
 
         try await sentinel.value
         #expect(sentinelTicks >= 4) // allow 1 jitter slot
     }
 
     private func makeTempDir() throws -> String {
-        let dir = NSTemporaryDirectory() + "logos-pathexists-\(UUID().uuidString)"
+        let dir = NSTemporaryDirectory() + "logos-direxists-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         return dir
     }

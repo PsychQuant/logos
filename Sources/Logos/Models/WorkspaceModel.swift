@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
@@ -8,12 +9,20 @@ public final class WorkspaceModel {
     @ObservationIgnored private let loader: WorkspaceLoader
     @ObservationIgnored private let persistence: WorkspacePersistence
     @ObservationIgnored private var currentLoadTask: Task<Void, Never>?
+    /// Monotonic per-load token. Guards the `isLoading` defer so a stale load's
+    /// exit doesn't flip the spinner off while a newer load is in flight (#4).
+    @ObservationIgnored private var loadEpoch: Int = 0
+
+    @ObservationIgnored private static let log = Logger(subsystem: "app.getlogos.logos", category: "workspace")
 
     public private(set) var rootNode: FileNode?
     public private(set) var openTabs: [OpenFileTab] = []
     public private(set) var activeTab: OpenFileTab?
     public private(set) var showHidden: Bool = false
     public private(set) var isLoading: Bool = false
+    /// Surfaced load failure for the UI banner (#9). `nil` while healthy;
+    /// cleared on the next successful load or via `clearError()`.
+    public private(set) var lastError: WorkspaceLoadError?
 
     public init(
         loader: WorkspaceLoader = WorkspaceLoader(),
@@ -51,18 +60,36 @@ public final class WorkspaceModel {
         path: String,
         model: WorkspaceModel
     ) async {
+        model.loadEpoch += 1
+        let myEpoch = model.loadEpoch
         model.isLoading = true
-        defer { model.isLoading = false }
+        // Only the latest load clears the spinner — a stale load's defer must
+        // not flip `isLoading` off while a newer load is mid-walk (#4).
+        defer { if model.loadEpoch == myEpoch { model.isLoading = false } }
         do {
             let node = try await loader.loadAsync(rootPath: path)
             guard !Task.isCancelled else { return }
             model.rootNode = node
+            model.lastError = nil          // healthy load clears any prior error (#9)
             persistence.saveLastPath(path)
         } catch is CancellationError {
+            // Superseded by a newer load — not a failure, surface nothing (#4/#9).
             return
         } catch {
-            return
+            // Surface the failure instead of swallowing it (#9). Clear the
+            // persisted path only when it's definitively stale (not transient).
+            let loadError = WorkspaceLoadError(from: error)
+            model.lastError = loadError
+            log.error("workspace load failed for \(path, privacy: .public): \(String(describing: error), privacy: .public)")
+            if loadError.isStale {
+                persistence.clear()
+            }
         }
+    }
+
+    /// Dismiss the current load-error banner (#9).
+    public func clearError() {
+        lastError = nil
     }
 
     public func openFile(at path: String) {
