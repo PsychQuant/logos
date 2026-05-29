@@ -4,18 +4,18 @@ import Foundation
 /// the cancellation-orphaned `Task.detached` compute (Issue #4). `Task.detached`
 /// has no parent-cancellation link, so `loadAsync` wires `withTaskCancellationHandler`
 /// to flip this flag, which the sync `walk` polls cooperatively.
-public final class CancelFlag: @unchecked Sendable {
+final class CancelFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
 
-    public init() {}
+    init() {}
 
-    public var isCancelled: Bool {
+    var isCancelled: Bool {
         lock.lock(); defer { lock.unlock() }
         return cancelled
     }
 
-    public func cancel() {
+    func cancel() {
         lock.lock(); cancelled = true; lock.unlock()
     }
 }
