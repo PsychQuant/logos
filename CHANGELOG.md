@@ -141,6 +141,24 @@ All notable changes to Logos are documented here. Format loosely follows
   satisfied deterministically via the `isCancelled` closure (no timing-based
   slow-loader stub).
 
+- **Terminal launch workspace argument** ([#8](https://github.com/PsychQuant/logos/issues/8)).
+  #2 removed cwd-based auto-load (the cwd=`/` walk was its root cause), which
+  broke the dev convention of launching an editor in a project directory.
+  Restored via an explicit launch argument — `Logos --workspace <path>` (or
+  `open -a Logos --args --workspace <path>`) — plus a guarded current-directory
+  fallback for direct-binary launches. Both the argument and the cwd are routed
+  through `WorkspaceLoader.isSystemPath`, so a system path (notably cwd=`/` on
+  GUI launch) is refused — it is structurally impossible to re-introduce #2's
+  walk. Precedence: `--workspace` arg → persisted → guarded cwd → welcome. The
+  resolver (`MainScene.resolveLaunchWorkspace`) is a pure, injectable function;
+  10 deterministic tests, suite 158/158. An ergonomic `logos .` CLI shim
+  (mirroring `code .`) is noted as future work — `open <app>` does not propagate
+  cwd, so the argument, not cwd-sniffing, is the robust mechanism.
+
+  Note: this revises #2's "`cwd` is no longer consulted at any point" — cwd is
+  now consulted only as a last-resort fallback for direct-binary launches, and
+  only when it is a non-system directory.
+
 ### Changed
 
 - **No more auto-import of `claude` credentials on first launch**

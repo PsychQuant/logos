@@ -55,7 +55,14 @@ VS Code-like shell (activity bar + file explorer + main area with PDF live-rende
 - Drag-resize between all panes with persistence (UserDefaults)
 - Multi-tab Settings stub (⌘,)
 - **113 unit tests passing** in 24 suites (covers all models + services across A/B/D/E/F/G/H)
-- **File explorer**: workspace tree in sidebar (DisclosureGroup recursive), hidden-files toggle, `⌘O` opens NSOpenPanel for workspace switch, last-opened workspace auto-loaded on relaunch via UserDefaults (`logos.lastWorkspacePath`); welcome empty state on first launch. Loader has `maxDepth=10` / `maxFiles=50_000` safety limits and refuses system roots (`/`, `/System`, `/Library`, etc.) — see [#2](https://github.com/PsychQuant/logos/issues/2)
+- **File explorer**: workspace tree in sidebar (DisclosureGroup recursive), hidden-files toggle, `⌘O` opens NSOpenPanel for workspace switch, last-opened workspace auto-loaded on relaunch via UserDefaults (`logos.lastWorkspacePath`); welcome empty state on first launch. Loader has `maxDepth=10` / `maxFiles=50_000` safety limits and refuses system roots (`/`, `/System`, `/Library`, etc.) — see [#2](https://github.com/PsychQuant/logos/issues/2). TCC-protected dirs (`~/Documents`, `~/Library`, photo libraries) are shown as locked, non-expandable nodes rather than walked (no consent-dialog cascade) — see [#7](https://github.com/PsychQuant/logos/issues/7)/[#13](https://github.com/PsychQuant/logos/issues/13)
+- **Launching in a project directory** ([#8](https://github.com/PsychQuant/logos/issues/8)): pass `--workspace <path>` to open a specific folder at launch:
+  ```bash
+  open -a Logos --args --workspace ~/Developer/logos
+  # or, launching the binary directly (inherits cwd as a fallback):
+  cd ~/Developer/logos && /Applications/Logos.app/Contents/MacOS/Logos
+  ```
+  Precedence: `--workspace` arg → last-opened (persisted) → current directory (direct-binary launch only; system paths like `/` are refused so a normal GUI launch is unaffected) → welcome. An ergonomic `logos .` CLI shim is future work.
 - **Read-only viewer**: tabbed editor pane, Highlightr xcode-theme syntax highlighting (~250 languages), Markdown rendered via AttributedString, 5MB file size cap with `Open in external editor` fallback
 - Tearing/flicker still inherited from upstream SwiftTerm — fix lives in sub-plan C.2+ (renderer rewrite)
 - claude not in `$PATH`? App shows `ClaudeNotFoundBanner` with install link

@@ -61,22 +61,69 @@ struct MainScene: Scene {
     private func autoLoadWorkspaceIfNeeded() async {
         guard workspace.rootNode == nil else { return }
         let persistence = WorkspacePersistence()
-        guard let lastPath = persistence.loadLastPath() else { return }
-        // Validate path still exists before attempting load; stale entries
-        // (workspace deleted / moved) clear persistence so user sees welcome
-        // empty state on next launch instead of repeated load failures.
-        //
-        // Per #5: validation MUST run off MainActor. `FileManager.fileExists`
-        // does a sync `stat(2)` which can block 5-30s for unreachable network
-        // mounts, iCloud placeholder evictions, or recently-ejected USB drives
-        // — same bug class as #2 (just smaller surface). Per #9 it also checks
-        // directory-ness: a persisted path that became a regular file would
-        // otherwise load as a single-file root (nonsensical UI).
-        guard await Self.directoryExistsOffMain(lastPath) else {
-            persistence.clear()
+        let persisted = persistence.loadLastPath()
+
+        // Resolve which workspace to auto-load at launch (#8). Precedence:
+        // explicit `--workspace <path>` arg → persisted → guarded cwd → welcome.
+        // Both arg and cwd are routed through WorkspaceLoader.isSystemPath so a
+        // system path (notably cwd=`/` on GUI launch) is refused — structurally
+        // cannot re-introduce #2's cwd=`/` walk.
+        guard let target = Self.resolveLaunchWorkspace(
+            arguments: CommandLine.arguments,
+            persisted: persisted,
+            cwd: FileManager.default.currentDirectoryPath,
+            isSystem: { WorkspaceLoader.isSystemPath(WorkspaceLoader.canonical($0)) }
+        ) else { return }
+
+        // Validate the chosen path is an existing directory, off MainActor (#5/#9).
+        guard await Self.directoryExistsOffMain(target) else {
+            // Only the persisted path is cleared on a stale/invalid result — an
+            // invalid arg/cwd shouldn't nuke a (different) persisted workspace.
+            if target == persisted { persistence.clear() }
             return
         }
-        await workspace.openWorkspaceAsync(at: lastPath)
+        await workspace.openWorkspaceAsync(at: target)
+    }
+
+    /// Pure precedence resolver for the launch workspace (#8). Injected inputs
+    /// + `isSystem` predicate keep it deterministically testable without reading
+    /// the real `CommandLine` / cwd. Returns nil → welcome state.
+    static func resolveLaunchWorkspace(
+        arguments: [String],
+        persisted: String?,
+        cwd: String,
+        isSystem: (String) -> Bool
+    ) -> String? {
+        // 1. Explicit --workspace arg (user's clear intent) — refused if system.
+        if let arg = parseWorkspaceArgument(arguments), !isSystem(arg) {
+            return arg
+        }
+        // 2. Persisted workspace (current default behavior).
+        if let persisted { return persisted }
+        // 3. Guarded cwd fallback — only when no arg + no persisted. cwd=`/`
+        //    (GUI launch) and system paths are refused → cannot re-introduce #2.
+        if !isSystem(cwd) {
+            return cwd
+        }
+        return nil
+    }
+
+    /// Extracts the value of `--workspace <path>` / `--workspace=<path>` from
+    /// launch arguments. No positional support: macOS injects positional and
+    /// `-psn_*` args on GUI launch, which a positional reader would misread (#8 D1).
+    static func parseWorkspaceArgument(_ args: [String]) -> String? {
+        var i = 1   // skip arg[0] (binary path)
+        while i < args.count {
+            let a = args[i]
+            if a == "--workspace", i + 1 < args.count {
+                return args[i + 1]
+            }
+            if a.hasPrefix("--workspace=") {
+                return String(a.dropFirst("--workspace=".count))
+            }
+            i += 1
+        }
+        return nil
     }
 
     /// Reports whether `path` exists **and is a directory**, evaluated off
