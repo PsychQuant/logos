@@ -1,6 +1,13 @@
 C.2.0 Baseline Metric — 02-edit-tool.ttyrec on upstream SwiftTerm
 ==================================================================
 
+SUPERSEDED (2026-05-30): this capture is invalid (4 chunks of claude shutdown
+noise, no screen draw). A real CG-vs-Metal mid-state measurement now lives in
+docs/renderer-baselines/cg-vs-metal-edit-tool.md using the synthetic
+03-edit-tool-synthetic.ttyrec corpus. Keep this file only as the record of WHY
+02-edit-tool was discarded.
+
+
 Date: 2026-05-28
 Capture: Tools/SwiftTermReplay/Sources/SwiftTermReplay/Captures/02-edit-tool.ttyrec
 Renderer: PsychQuant/SwiftTerm @ logos-renderer-base (== upstream main, no modifications)
