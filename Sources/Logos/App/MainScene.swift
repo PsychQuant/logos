@@ -43,6 +43,13 @@ struct MainScene: Scene {
                         // unsandboxed Developer-ID apps. The user-facing flow
                         // is now: open Settings → Accounts → "Capture current
                         // login" button (existing UI in AccountSwitcherSheet).
+
+                        // #12: one-time, non-destructive migration to the
+                        // isolated-credential model. Ensures per-account config
+                        // dirs exist and flags accounts needs-reauth from
+                        // promptless signals only — no Keychain read or write.
+                        accountManager.migrateToIsolatedCredentialsIfNeeded()
+
                         await autoLoadWorkspaceIfNeeded()
                     }
                 }

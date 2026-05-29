@@ -17,6 +17,16 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         return "\(home)/.logos/accounts/\(id)"
     }
 
+    /// Per-account claude config directory. claude keys its credential Keychain
+    /// service name on this directory (service `Claude Code-credentials-<hash>`,
+    /// where `<hash>` is the first 8 hex chars of `sha256` over the NFC-normalized
+    /// path), so giving each account its own config dir isolates its credentials
+    /// into claude's own per-directory Keychain item — Logos never writes the
+    /// shared `Claude Code-credentials` entry (PsychQuant/logos#12).
+    public var configDirPath: String {
+        "\(homeDirectoryPath)/.claude"
+    }
+
     public enum ValidationError: Error, Equatable {
         case emptyLabel
         case labelTooLong

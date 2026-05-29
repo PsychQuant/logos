@@ -5,6 +5,32 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (internal): multi-account credential isolation** ([#12](https://github.com/PsychQuant/logos/issues/12)).
+  Account switching no longer writes the shared system Keychain entry
+  (`Claude Code-credentials`). The cross-identity `SecItem` write that could
+  trigger the macOS 26 "找不到鑰匙圈" reset dialog is removed entirely —
+  `SystemKeychainBridge` is now read-only (`write`/`delete` deleted), and
+  `AccountManager.setActive` / `remove` perform no Keychain access at all.
+  Instead, each account spawns `claude` with its own `CLAUDE_CONFIG_DIR` and
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` (both set to `~/.logos/accounts/<id>/.claude`),
+  so claude stores that account's credentials in its OWN per-directory Keychain
+  item (`Claude Code-credentials-<hash>`) and Logos never touches the shared
+  entry. Switching is now pure local state.
+
+  needs-reauth is surfaced per account in the switcher from promptless signals
+  only — a Logos-owned authenticated flag plus a `.credentials.json` file check,
+  never a Keychain read. A one-time, non-destructive migration on first launch
+  ensures each account's config dir exists and marks existing accounts
+  needs-reauth; the bare `Claude Code-credentials` entry is left untouched so a
+  plain-terminal `claude` keeps working.
+
+  **Migration**: existing multi-account users re-run `claude login` once per
+  account to populate its per-directory credential. The credential service-name
+  scheme was confirmed by source-level inspection of claude v2.1.156 (see #12).
+  Suite 170/170.
+
 ### Internal
 
 - **Test hygiene** ([#10](https://github.com/PsychQuant/logos/issues/10)). (a)

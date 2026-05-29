@@ -3,6 +3,9 @@ import SwiftUI
 struct AccountRow: View {
     let account: Account
     let isActive: Bool
+    /// Whether this account has no credential yet for its own config dir (#12).
+    /// Surfaced as a non-blocking indicator that directs the user to `claude login`.
+    let needsReauth: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
 
@@ -13,6 +16,12 @@ struct AccountRow: View {
             Text(account.label)
                 .font(.body)
                 .fontWeight(isActive ? .semibold : .regular)
+            if needsReauth {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help("Needs login — run `claude login` in this account's terminal session to authenticate it.")
+                    .accessibilityLabel("Needs login")
+            }
             Spacer()
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")

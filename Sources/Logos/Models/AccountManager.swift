@@ -8,14 +8,27 @@ public final class AccountManager {
     @ObservationIgnored private let store: AccountCredentialStore
     @ObservationIgnored private let systemBridge: SystemKeychainBridge
     @ObservationIgnored private let defaults: UserDefaults
+    /// Promptless filesystem probe for a path's existence. Injected so the
+    /// needs-reauth / migration logic is unit-testable without touching the real
+    /// filesystem. Defaults to the real `FileManager`.
+    @ObservationIgnored private let fileExists: (String) -> Bool
+    /// Promptless directory creator (migration ensures per-account config dirs
+    /// exist without writing any credentials). Injected for the same reason.
+    @ObservationIgnored private let ensureDirectory: (String) throws -> Void
 
     private enum DefaultsKey {
         static let accounts = "logos.accounts"
         static let activeId = "logos.accounts.activeId"
+        static let authenticatedIds = "logos.accounts.authenticatedIds"
+        static let migratedIsolated = "logos.accounts.migratedIsolatedCredentials"
     }
 
     public private(set) var accounts: [Account] = []
     public private(set) var activeAccountId: String?
+    /// Ids of accounts Logos considers authenticated. This is Logos's OWN
+    /// promptless signal (#12) — Logos never reads the system Keychain to decide
+    /// needs-reauth. Best-effort: may drift if the user logs in/out outside Logos.
+    public private(set) var authenticatedAccountIds: Set<String> = []
 
     public var active: Account? {
         guard let id = activeAccountId else { return nil }
@@ -25,11 +38,17 @@ public final class AccountManager {
     public init(
         store: AccountCredentialStore,
         systemBridge: SystemKeychainBridge = RealSystemKeychainBridge(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        fileExists: @escaping (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
+        ensureDirectory: @escaping (String) throws -> Void = {
+            try FileManager.default.createDirectory(atPath: $0, withIntermediateDirectories: true)
+        }
     ) {
         self.store = store
         self.systemBridge = systemBridge
         self.defaults = defaults
+        self.fileExists = fileExists
+        self.ensureDirectory = ensureDirectory
         loadFromDefaults()
     }
 
@@ -45,11 +64,10 @@ public final class AccountManager {
         try store.save(accountId: account.id, credentials: credentials)
         accounts.append(account)
         if activeAccountId == nil {
+            // First account becomes active immediately. No system-Keychain write
+            // (#12): activation is local state only; claude reads each account's
+            // credentials from its own per-`CLAUDE_CONFIG_DIR` entry at spawn time.
             activeAccountId = account.id
-            // First account becomes active immediately. If there's no existing
-            // system entry yet (e.g. cold start), we DON'T overwrite system —
-            // we treat the just-added creds as the source of truth and write
-            // them to system on next swap.
         }
         persistToDefaults()
     }
@@ -71,50 +89,33 @@ public final class AccountManager {
     }
 
     public func remove(accountId: String) throws {
+        // store.delete removes Logos's OWN per-account backup (service
+        // "app.getlogos.logos.credentials"), not the shared system entry.
         try store.delete(accountId: accountId)
         accounts.removeAll { $0.id == accountId }
         if activeAccountId == accountId {
+            // Reassign active locally only. No system-Keychain swap (#12): the
+            // newly-active account reads its own per-`CLAUDE_CONFIG_DIR`
+            // credentials at spawn time. claude's per-account entries and the
+            // shared bare entry are never written or deleted by Logos.
             activeAccountId = accounts.first?.id
-            // If a new account is now active, swap its creds into system.
-            if let newActive = active {
-                try? swapIntoSystem(account: newActive)
-            }
         }
         persistToDefaults()
     }
 
-    // MARK: - Switch active (the real swap!)
+    // MARK: - Switch active
 
-    /// E.2: Switching active = (1) optionally capture current system entry into
-    /// the previously-active account (refresh stored creds) → (2) write target
-    /// account's stored creds to system Keychain → (3) update local state.
-    ///
-    /// captureCurrent should be `true` in normal UI use (so we don't lose
-    /// refreshed tokens), and `false` in tests where we want deterministic state.
-    public func setActive(_ accountId: String, captureCurrent: Bool = true) {
+    /// Switch the active account. With per-account credential isolation (#12),
+    /// switching is purely local state: each account's claude credentials live in
+    /// claude's own per-`CLAUDE_CONFIG_DIR` Keychain item (set at spawn time by
+    /// `ClaudeProcessConfig`), so there is nothing to swap in the shared system
+    /// Keychain. This method performs NO Keychain read or write, which is what
+    /// eliminates the cross-identity `SecItem` write that could trigger the
+    /// macOS "找不到鑰匙圈" reset dialog.
+    public func setActive(_ accountId: String) {
         guard accounts.contains(where: { $0.id == accountId }) else { return }
-
-        // Step 1: re-capture current creds into the previously-active account
-        // (claude may have refreshed tokens since we last stored them).
-        if captureCurrent,
-           let prevId = activeAccountId,
-           let currentSystemData = try? systemBridge.read() {
-            try? store.save(accountId: prevId, credentials: currentSystemData)
-        }
-
-        // Step 2: write target account creds to system.
-        if let target = accounts.first(where: { $0.id == accountId }) {
-            try? swapIntoSystem(account: target)
-        }
-
-        // Step 3: update local state.
         activeAccountId = accountId
         persistToDefaults()
-    }
-
-    private func swapIntoSystem(account: Account) throws {
-        let creds = try store.load(accountId: account.id)
-        try systemBridge.write(creds)
     }
 
     /// Re-capture current system Claude credentials into the currently-active
@@ -123,6 +124,58 @@ public final class AccountManager {
         guard let activeId = activeAccountId else { return }
         guard let data = try systemBridge.read() else { return }
         try store.save(accountId: activeId, credentials: data)
+    }
+
+    // MARK: - Authentication state (needs-reauth, promptless — #12)
+
+    /// Path of claude's file-based credential fallback for `account`.
+    private func credentialsFilePath(for account: Account) -> String {
+        "\(account.configDirPath)/.credentials.json"
+    }
+
+    /// Whether `account` should be surfaced as needing re-authentication. Uses
+    /// ONLY promptless signals (#12): true UNLESS Logos's own authenticated flag
+    /// is set OR a `.credentials.json` file exists in the account's config dir.
+    /// Never reads the system Keychain — a cross-identity read can surface an
+    /// access prompt and re-couples Logos to the keychain this change removes.
+    public func needsReauth(_ account: Account) -> Bool {
+        if authenticatedAccountIds.contains(account.id) { return false }
+        if fileExists(credentialsFilePath(for: account)) { return false }
+        return true
+    }
+
+    /// Record that `accountId` is authenticated (e.g. after the user completes
+    /// `claude login` under its config dir). Does not touch the Keychain.
+    public func markAuthenticated(_ accountId: String) {
+        guard accounts.contains(where: { $0.id == accountId }) else { return }
+        authenticatedAccountIds.insert(accountId)
+        persistToDefaults()
+    }
+
+    /// Clear the authenticated flag for `accountId` (force needs-reauth).
+    public func markNeedsReauth(_ accountId: String) {
+        guard authenticatedAccountIds.contains(accountId) else { return }
+        authenticatedAccountIds.remove(accountId)
+        persistToDefaults()
+    }
+
+    // MARK: - Migration to isolated credentials (#12)
+
+    /// One-time, idempotent, NON-DESTRUCTIVE migration to the isolated-credential
+    /// model. For each existing account: ensures its config dir exists (no
+    /// credentials written) and marks it needs-reauth unless a promptless
+    /// credential signal (`.credentials.json`) is already present. Never writes
+    /// or deletes the system Keychain or the bare `Claude Code-credentials` entry.
+    public func migrateToIsolatedCredentialsIfNeeded() {
+        guard !defaults.bool(forKey: DefaultsKey.migratedIsolated) else { return }
+        for account in accounts {
+            try? ensureDirectory(account.configDirPath)
+            if !fileExists(credentialsFilePath(for: account)) {
+                authenticatedAccountIds.remove(account.id)
+            }
+        }
+        defaults.set(true, forKey: DefaultsKey.migratedIsolated)
+        persistToDefaults()
     }
 
     // MARK: - HOME tree (deprecated for credentials; kept for per-account history)
@@ -147,6 +200,9 @@ public final class AccountManager {
         if active == nil, let first = accounts.first {
             self.activeAccountId = first.id
         }
+        if let ids = defaults.array(forKey: DefaultsKey.authenticatedIds) as? [String] {
+            self.authenticatedAccountIds = Set(ids)
+        }
     }
 
     private func persistToDefaults() {
@@ -158,5 +214,6 @@ public final class AccountManager {
         } else {
             defaults.removeObject(forKey: DefaultsKey.activeId)
         }
+        defaults.set(Array(authenticatedAccountIds), forKey: DefaultsKey.authenticatedIds)
     }
 }

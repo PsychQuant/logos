@@ -13,38 +13,9 @@ struct SystemKeychainBridgeTests {
         #expect(bridge.exists() == false)
     }
 
-    @Test("write then read returns same data")
-    func writeRead() throws {
-        let bridge = InMemorySystemKeychainBridge()
-        let blob = Data("{\"claudeAiOauth\":{}}".utf8)
-        try bridge.write(blob)
-        #expect(try bridge.read() == blob)
-        #expect(bridge.exists() == true)
-    }
-
-    @Test("write overwrites previous")
-    func writeOverwrites() throws {
-        let bridge = InMemorySystemKeychainBridge()
-        try bridge.write(Data("v1".utf8))
-        try bridge.write(Data("v2".utf8))
-        #expect(try bridge.read() == Data("v2".utf8))
-    }
-
-    @Test("delete clears entry")
-    func deleteClear() throws {
-        let bridge = InMemorySystemKeychainBridge()
-        try bridge.write(Data("x".utf8))
-        try bridge.delete()
-        #expect(try bridge.read() == nil)
-    }
-
-    @Test("delete missing throws notFound")
-    func deleteMissing() {
-        let bridge = InMemorySystemKeychainBridge()
-        #expect(throws: AccountCredentialStoreError.notFound) {
-            try bridge.delete()
-        }
-    }
+    // NOTE: write/delete tests were removed with the write/delete methods
+    // (PsychQuant/logos#12) — the bridge is now read-only. Seeding for read
+    // tests is done via `init(initial:)`.
 
     @Test("initial value seeded via init")
     func initialSeed() throws {

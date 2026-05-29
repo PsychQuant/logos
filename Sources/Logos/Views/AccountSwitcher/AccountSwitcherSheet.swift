@@ -42,6 +42,7 @@ struct AccountSwitcherSheet: View {
                             AccountRow(
                                 account: acc,
                                 isActive: acc.id == mgr.activeAccountId,
+                                needsReauth: mgr.needsReauth(acc),
                                 onSelect: { mgr.setActive(acc.id) },
                                 onDelete: { try? mgr.remove(accountId: acc.id) }
                             )
