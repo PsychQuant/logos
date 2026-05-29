@@ -8,27 +8,33 @@ struct WorkspaceModelTests {
 
     @Test("starts without workspace")
     func noWorkspace() {
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         #expect(m.rootNode == nil)
         #expect(m.openTabs.isEmpty)
         #expect(m.activeTab == nil)
     }
 
-    @Test("openWorkspace sets root")
+    @Test("openWorkspace sets root and persists last path")
     func openWorkspace() throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: tmp) }
         try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
 
-        let m = WorkspaceModel()
+        // #10: isolated defaults so the save side-effect doesn't pollute
+        // UserDefaults.standard (which other tests read).
+        let persistence = WorkspacePersistence(defaults: Self.isolatedDefaults())
+        let m = WorkspaceModel(persistence: persistence)
         try m.openWorkspace(at: tmp)
         #expect(m.rootNode?.path == tmp)
         #expect(m.rootNode?.children?.first?.displayName == "a.txt")
+        // #10: assert the previously-untested side effect — sync openWorkspace
+        // persists the opened path.
+        #expect(persistence.loadLastPath() == tmp)
     }
 
     @Test("openFile adds tab and activates")
     func openFile() {
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         m.openFile(at: "/tmp/x.swift")
         #expect(m.openTabs.count == 1)
         #expect(m.activeTab?.path == "/tmp/x.swift")
@@ -36,7 +42,7 @@ struct WorkspaceModelTests {
 
     @Test("openFile twice doesn't duplicate")
     func openFileNoDuplicate() {
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         m.openFile(at: "/tmp/x.swift")
         m.openFile(at: "/tmp/x.swift")
         #expect(m.openTabs.count == 1)
@@ -44,7 +50,7 @@ struct WorkspaceModelTests {
 
     @Test("closeTab removes and reactivates next")
     func closeTab() {
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         m.openFile(at: "/tmp/a")
         m.openFile(at: "/tmp/b")
         m.closeTab(path: "/tmp/b")
@@ -54,7 +60,7 @@ struct WorkspaceModelTests {
 
     @Test("toggleHidden updates flag")
     func toggleHidden() {
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         #expect(m.showHidden == false)
         m.toggleHidden()
         #expect(m.showHidden == true)
@@ -68,7 +74,7 @@ struct WorkspaceModelTests {
         defer { try? FileManager.default.removeItem(atPath: tmp) }
         try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
 
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         #expect(m.isLoading == false)
 
         await m.openWorkspaceAsync(at: tmp)
@@ -87,7 +93,7 @@ struct WorkspaceModelTests {
             try "x".write(toFile: "\(tmp)/file-\(i).txt", atomically: true, encoding: .utf8)
         }
 
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         async let loadAwait: Void = m.openWorkspaceAsync(at: tmp)
 
         var sawLoading = false
@@ -112,7 +118,7 @@ struct WorkspaceModelTests {
         try "x".write(toFile: "\(tmp1)/a.txt", atomically: true, encoding: .utf8)
         try "x".write(toFile: "\(tmp2)/b.txt", atomically: true, encoding: .utf8)
 
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         await m.openWorkspaceAsync(at: tmp1)
         await m.openWorkspaceAsync(at: tmp2)
 
@@ -124,7 +130,7 @@ struct WorkspaceModelTests {
 
     @Test("openWorkspaceAsync surfaces lastError on a refused system path")
     func openWorkspaceAsync_surfacesError() async {
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         #expect(m.lastError == nil)
 
         await m.openWorkspaceAsync(at: "/")   // refusedSystemPath
@@ -140,7 +146,7 @@ struct WorkspaceModelTests {
         defer { try? FileManager.default.removeItem(atPath: tmp) }
         try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
 
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         await m.openWorkspaceAsync(at: "/")     // sets lastError
         #expect(m.lastError != nil)
 
@@ -151,7 +157,7 @@ struct WorkspaceModelTests {
 
     @Test("clearError dismisses the banner state")
     func clearError_dismisses() async {
-        let m = WorkspaceModel()
+        let m = Self.makeModel()
         await m.openWorkspaceAsync(at: "/")
         #expect(m.lastError != nil)
         m.clearError()
@@ -165,6 +171,16 @@ struct WorkspaceModelTests {
         #expect(WorkspaceLoadError.refused.isStale == true)
         #expect(WorkspaceLoadError.unknown.isStale == false)        // transient — keep path
         #expect(WorkspaceLoadError.tooLarge(found: 1, cap: 1).isStale == false)
+    }
+
+    // #10: isolated UserDefaults suite so model tests don't pollute
+    // UserDefaults.standard (saveLastPath writes during open*).
+    private static func isolatedDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "logos.test.\(UUID().uuidString)")!
+    }
+
+    private static func makeModel() -> WorkspaceModel {
+        WorkspaceModel(persistence: WorkspacePersistence(defaults: isolatedDefaults()))
     }
 
     private func makeTempDir() throws -> String {

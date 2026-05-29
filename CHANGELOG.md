@@ -5,6 +5,19 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Internal
+
+- **Test hygiene** ([#10](https://github.com/PsychQuant/logos/issues/10)). (a)
+  `WorkspaceModelTests` no longer write to `UserDefaults.standard` — model
+  construction now goes through an isolated-suite helper, so a save side-effect
+  in one test can't bleed into another's `loadLastPath()` assertion. (b) The
+  sync `openWorkspace` test now asserts its previously-untested persistence
+  side-effect (`loadLastPath() == openedPath`). (c) `loadAsync_doesNotBlockCaller`
+  was a placebo — its 200-flat-file fixture walked in <5ms, so a main-blocking
+  loader would have passed too; it now uses a ~2500-entry/5-level tree and
+  snapshots the MainActor sentinel's tick count *at load completion* (the real
+  off-main discriminator). Suite 161/161.
+
 ### Fixed
 
 - **Launch hang on Finder/Spotlight start** ([#2](https://github.com/PsychQuant/logos/issues/2))

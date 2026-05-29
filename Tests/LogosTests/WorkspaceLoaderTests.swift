@@ -397,24 +397,42 @@ struct WorkspaceLoaderTests {
     func loadAsync_doesNotBlockCaller() async throws {
         let tmp = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: tmp) }
-        for i in 0..<200 {
-            try "x".write(toFile: "\(tmp)/file-\(i).txt", atomically: true, encoding: .utf8)
+
+        // #10: catastrophic-ish fixture — a deep, wide tree (~2500 entries over
+        // 5 nested levels) whose walk takes long enough (well over the sentinel
+        // tick interval, since each entry does a resolvingSymlinksInPath) that a
+        // MainActor sentinel can make visible progress DURING the walk. #2's
+        // original 200-flat-file fixture finished in <5ms — a placebo: the walk
+        // ended before the sentinel noticed, so even a main-blocking loader
+        // passed. Here we ALSO snapshot the tick count at load completion (the
+        // real discriminator): if the walk ran off-MainActor, the sentinel
+        // ticked while `await loadAsync` was suspended; a blocking loader would
+        // leave the snapshot at ~0.
+        var dir = tmp
+        for level in 0..<5 {
+            for f in 0..<500 {
+                try "x".write(toFile: "\(dir)/f-\(level)-\(f).txt", atomically: true, encoding: .utf8)
+            }
+            dir = "\(dir)/sub-\(level)"
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         }
 
-        var sentinelTicks = 0
+        var ticks = 0
         let sentinel = Task { @MainActor in
-            // Run 5 ticks of 10ms each on MainActor; if MainActor is blocked
-            // by the loader, the ticks won't fire.
-            for _ in 0..<5 {
-                try await Task.sleep(nanoseconds: 10_000_000)
-                sentinelTicks += 1
+            for _ in 0..<400 {                                   // generous cap; we snapshot, not drain
+                try await Task.sleep(nanoseconds: 5_000_000)     // 5ms
+                ticks += 1
             }
         }
+        defer { sentinel.cancel() }
 
         _ = try await WorkspaceLoader().loadAsync(rootPath: tmp)
+        let ticksDuringWalk = ticks  // snapshot AT load completion — the discriminator
 
-        try await sentinel.value
-        #expect(sentinelTicks >= 4)  // allow 1 jitter slot
+        // Off-MainActor walk (correct) → sentinel ticked freely while suspended.
+        // A MainActor-blocking loader would leave this at ~0. The walk is far
+        // longer than 4×5ms, so >= 4 is a strong, non-placebo signal.
+        #expect(ticksDuringWalk >= 4)
     }
 
     private static func treeDepth(_ node: FileNode) -> Int {
