@@ -76,11 +76,20 @@ public final class WorkspaceModel {
             // Superseded by a newer load — not a failure, surface nothing (#4/#9).
             return
         } catch {
+            // A superseded (cancelled) load must NOT clobber the winner's state:
+            // without this guard a stale failing load could paint a phantom error
+            // banner over a newer successful load and `persistence.clear()` could
+            // wipe the path the winner just saved (verify DA finding). Symmetric
+            // with the `!Task.isCancelled` guard on the success branch above.
+            guard !Task.isCancelled else { return }
             // Surface the failure instead of swallowing it (#9). Clear the
             // persisted path only when it's definitively stale (not transient).
             let loadError = WorkspaceLoadError(from: error)
             model.lastError = loadError
-            log.error("workspace load failed for \(path, privacy: .public): \(String(describing: error), privacy: .public)")
+            // Log the classification only — never the raw path / underlying error,
+            // which carry the username + project names. Forcing `.public` on those
+            // would un-redact PII in sysdiagnose / Console exports (verify finding).
+            log.error("workspace load failed: \(String(describing: loadError), privacy: .public)")
             if loadError.isStale {
                 persistence.clear()
             }
