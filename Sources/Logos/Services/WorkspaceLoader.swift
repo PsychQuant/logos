@@ -54,8 +54,13 @@ public struct WorkspaceLoader: Sendable {
     /// caught here; storing `/private/var` instead would be dead code that the
     /// canonicalizer never produces (regression caught in #6/#13 verify).
     static let exactBlockPaths: Set<String> = [
-        "/", "/Volumes", "/private", "/var", "/tmp", "/etc"
+        "/", "/Volumes", "/private", "/var", "/tmp", "/etc", "/Users"
     ]
+    // `/Users` is exact-blocked (not prefix): opening the all-users container as
+    // a workspace walks every user's home tree (#2's class of bug at a different
+    // root), but `/Users/<name>/proj` must still be openable — so exact, not
+    // prefix. Surfaced by #8 verify (reachable via `--workspace /Users` or a
+    // direct-binary launch with cwd there).
 
     /// Bundle/package extensions that are TCC-protected or opaque app data —
     /// treated as protected leaves at any depth (Issue #13).

@@ -219,6 +219,9 @@ struct WorkspaceLoaderTests {
         #expect(WorkspaceLoader.isSystemPath(c("/Volumes/Disk/proj")) == false)  // regression guard
         #expect(WorkspaceLoader.isSystemPath(c("/Users/che/code")) == false)
         #expect(WorkspaceLoader.isSystemPath(c("/Users/che/optimizer")) == false) // not /opt prefix
+        // /Users (all-users container) exact-blocked but a user's home subtree allowed (#8 verify M1)
+        #expect(WorkspaceLoader.isSystemPath(c("/Users")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/Users/che")) == false)
     }
 
     @Test("canonical collapses // and resolves ..")

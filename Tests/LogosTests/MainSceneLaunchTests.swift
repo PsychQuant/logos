@@ -94,6 +94,41 @@ struct MainSceneLaunchTests {
         #expect(chosen == nil)              // welcome state, no walk of /
     }
 
+    @Test("relative --workspace arg is rejected (must be absolute) — #8 verify M1")
+    func resolve_rejectsRelativeArg() {
+        for rel in ["Sources", ".", "..", "proj/sub"] {
+            let chosen = MainScene.resolveLaunchWorkspace(
+                arguments: ["Logos", "--workspace", rel],
+                persisted: "/Users/x/persisted",
+                cwd: "/Users/x/cwd",
+                isSystem: Self.isSystem
+            )
+            #expect(chosen == "/Users/x/persisted")   // relative refused → persisted
+        }
+    }
+
+    @Test("--workspace /Users (all-users tree) is refused — #8 verify M1")
+    func resolve_refusesUsersRoot() {
+        let chosen = MainScene.resolveLaunchWorkspace(
+            arguments: ["Logos", "--workspace", "/Users"],
+            persisted: nil,
+            cwd: "/",
+            isSystem: Self.isSystem
+        )
+        #expect(chosen == nil)   // /Users refused, cwd=/ refused → welcome
+    }
+
+    @Test("a relative cwd cannot be used as fallback")
+    func resolve_rejectsRelativeCwd() {
+        let chosen = MainScene.resolveLaunchWorkspace(
+            arguments: ["Logos"],
+            persisted: nil,
+            cwd: "relative-cwd",       // never happens in practice, but guarded
+            isSystem: Self.isSystem
+        )
+        #expect(chosen == nil)
+    }
+
     @Test("nothing resolves → nil (welcome)")
     func resolve_nothing() {
         let chosen = MainScene.resolveLaunchWorkspace(

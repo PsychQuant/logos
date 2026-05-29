@@ -146,10 +146,14 @@ All notable changes to Logos are documented here. Format loosely follows
   broke the dev convention of launching an editor in a project directory.
   Restored via an explicit launch argument — `Logos --workspace <path>` (or
   `open -a Logos --args --workspace <path>`) — plus a guarded current-directory
-  fallback for direct-binary launches. Both the argument and the cwd are routed
-  through `WorkspaceLoader.isSystemPath`, so a system path (notably cwd=`/` on
-  GUI launch) is refused — it is structurally impossible to re-introduce #2's
-  walk. Precedence: `--workspace` arg → persisted → guarded cwd → welcome. The
+  fallback for direct-binary launches. Both the argument and the cwd must be
+  **absolute** paths (a relative arg like `Sources` / `..` is rejected — it would
+  resolve against the process cwd unpredictably) and are routed through
+  `WorkspaceLoader.isSystemPath`, so `/`, `/Users` (the all-users container), and
+  system roots are refused — a normal GUI launch (cwd=`/`) is unaffected and the
+  unintended-large-tree walk class behind #2 stays closed. (`/Users` was added to
+  the exact-block set here, which also hardens Cmd+O.) Precedence: `--workspace`
+  arg → persisted → guarded cwd → welcome. The
   resolver (`MainScene.resolveLaunchWorkspace`) is a pure, injectable function;
   10 deterministic tests, suite 158/158. An ergonomic `logos .` CLI shim
   (mirroring `code .`) is noted as future work — `open <app>` does not propagate

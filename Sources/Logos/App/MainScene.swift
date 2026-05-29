@@ -94,15 +94,25 @@ struct MainScene: Scene {
         cwd: String,
         isSystem: (String) -> Bool
     ) -> String? {
-        // 1. Explicit --workspace arg (user's clear intent) — refused if system.
-        if let arg = parseWorkspaceArgument(arguments), !isSystem(arg) {
+        // A candidate is acceptable only if it's an ABSOLUTE, non-system path.
+        // Absolute: a relative arg (`.`, `..`, `Sources`) would resolve against
+        // the process cwd unpredictably and slip past the system guard (#8 verify
+        // M1). Non-system: routes through WorkspaceLoader.isSystemPath so `/`,
+        // `/Users` (all-users tree), and system roots are refused.
+        func acceptable(_ path: String) -> Bool {
+            path.hasPrefix("/") && !isSystem(path)
+        }
+        // 1. Explicit --workspace arg (user's clear intent).
+        if let arg = parseWorkspaceArgument(arguments), acceptable(arg) {
             return arg
         }
-        // 2. Persisted workspace (current default behavior).
+        // 2. Persisted workspace (current default behavior). Persisted paths
+        //    were validated when first opened, so they're trusted as-is.
         if let persisted { return persisted }
         // 3. Guarded cwd fallback — only when no arg + no persisted. cwd=`/`
-        //    (GUI launch) and system paths are refused → cannot re-introduce #2.
-        if !isSystem(cwd) {
+        //    (GUI launch), `/Users`, and system paths are refused → cannot
+        //    re-introduce #2's unintended-large-tree walk.
+        if acceptable(cwd) {
             return cwd
         }
         return nil
