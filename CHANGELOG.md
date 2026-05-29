@@ -155,7 +155,7 @@ All notable changes to Logos are documented here. Format loosely follows
   the exact-block set here, which also hardens Cmd+O.) Precedence: `--workspace`
   arg → persisted → guarded cwd → welcome. The
   resolver (`MainScene.resolveLaunchWorkspace`) is a pure, injectable function;
-  10 deterministic tests, suite 158/158. An ergonomic `logos .` CLI shim
+  13 deterministic tests, suite 161/161. An ergonomic `logos .` CLI shim
   (mirroring `code .`) is noted as future work — `open <app>` does not propagate
   cwd, so the argument, not cwd-sniffing, is the robust mechanism.
 
