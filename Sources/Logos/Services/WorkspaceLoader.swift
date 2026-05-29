@@ -21,14 +21,20 @@ public struct WorkspaceLoader: Sendable {
     /// descending into a chosen path *beneath* it is allowed. Two reasons a path
     /// belongs here rather than prefix-block (Issue #6 D1):
     ///   - `/`, `/Volumes`: a user may legitimately open `/Volumes/MyDrive/code`.
-    ///   - `/private` (+ resolved `/private/var`, `/private/tmp`, `/private/etc`):
-    ///     `/private` holds both system dirs AND the per-user temp tree
-    ///     (`/private/var/folders/…`). Exact-blocking the system dirs + their
-    ///     canonical-resolved forms catches a symlink→`/var` (which resolves to
-    ///     `/private/var`) while still allowing scratch/temp workspaces. Prefix-
-    ///     blocking `/private` would refuse every temp directory.
+    ///   - `/private`, `/var`, `/tmp`, `/etc`: these hold both system dirs AND
+    ///     the per-user temp tree (`/var/folders/…`). Exact-blocking the system
+    ///     dirs while allowing scratch/temp workspaces beneath them.
+    ///
+    /// IMPORTANT — these are stored in their **canonical** form (what
+    /// `canonical(_:)` produces), because every comparison runs the input
+    /// through `canonical()` first. On macOS `/var`,`/tmp`,`/etc` are symlinks
+    /// to `/private/*`, and `resolvingSymlinksInPath()` collapses to the
+    /// **shortest** equivalent — so `canonical("/private/var") == "/var"`, NOT
+    /// the reverse. A symlink→`/var` therefore canonicalizes to `/var` and is
+    /// caught here; storing `/private/var` instead would be dead code that the
+    /// canonicalizer never produces (regression caught in #6/#13 verify).
     static let exactBlockPaths: Set<String> = [
-        "/", "/Volumes", "/private", "/private/var", "/private/tmp", "/private/etc"
+        "/", "/Volumes", "/private", "/var", "/tmp", "/etc"
     ]
 
     /// Bundle/package extensions that are TCC-protected or opaque app data —

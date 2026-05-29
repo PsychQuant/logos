@@ -194,20 +194,31 @@ struct WorkspaceLoaderTests {
 
     @Test("isSystemPath: prefix-block catches resolved + firmlink + /opt, exact-block stays exact")
     func isSystemPath_classification() {
+        // IMPORTANT: production always runs the path through `canonical()` BEFORE
+        // isSystemPath. These assertions go through `canonical()` too so the test
+        // input space matches production — the earlier literal-string version
+        // masked a regression where `canonical()` collapses /private/var → /var
+        // (verify finding). `c()` mirrors the real call path.
+        func c(_ p: String) -> String { WorkspaceLoader.canonical(p) }
+
         // prefix-block — caught at any depth
-        #expect(WorkspaceLoader.isSystemPath("/private/var") == true)   // resolved /var
-        #expect(WorkspaceLoader.isSystemPath("/usr/local") == true)     // firmlink (not a symlink)
-        #expect(WorkspaceLoader.isSystemPath("/opt/homebrew") == true)
-        #expect(WorkspaceLoader.isSystemPath("/opt") == true)           // prefix item also exact
-        #expect(WorkspaceLoader.isSystemPath("/System/Library/X") == true)
-        #expect(WorkspaceLoader.isSystemPath("/Network/foo") == true)
-        // exact-block — only the literal path, descend allowed
-        #expect(WorkspaceLoader.isSystemPath("/") == true)
-        #expect(WorkspaceLoader.isSystemPath("/Volumes") == true)
-        #expect(WorkspaceLoader.isSystemPath("/Volumes/Disk/proj") == false)  // regression guard
-        // ordinary user paths
-        #expect(WorkspaceLoader.isSystemPath("/Users/che/code") == false)
-        #expect(WorkspaceLoader.isSystemPath("/Users/che/optimizer") == false) // not /opt prefix
+        #expect(WorkspaceLoader.isSystemPath(c("/usr/local")) == true)     // firmlink (not a symlink)
+        #expect(WorkspaceLoader.isSystemPath(c("/opt/homebrew")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/opt")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/System/Library/X")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/Network/foo")) == true)
+        // exact-block — incl the /var,/tmp,/etc system symlinks (canonical short form)
+        #expect(WorkspaceLoader.isSystemPath(c("/")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/Volumes")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/private")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/var")) == true)          // regression guard
+        #expect(WorkspaceLoader.isSystemPath(c("/etc")) == true)          // regression guard
+        #expect(WorkspaceLoader.isSystemPath(c("/tmp")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/private/var")) == true)  // symlink→/var canonicalizes to /var
+        // allowed: descend into a chosen mount + per-user temp under /var/folders
+        #expect(WorkspaceLoader.isSystemPath(c("/Volumes/Disk/proj")) == false)  // regression guard
+        #expect(WorkspaceLoader.isSystemPath(c("/Users/che/code")) == false)
+        #expect(WorkspaceLoader.isSystemPath(c("/Users/che/optimizer")) == false) // not /opt prefix
     }
 
     @Test("canonical collapses // and resolves ..")
@@ -222,6 +233,20 @@ struct WorkspaceLoaderTests {
         let loader = WorkspaceLoader()
         #expect(throws: WorkspaceLoader.LoaderError.refusedSystemPath("/opt")) {
             try loader.load(rootPath: "/opt")
+        }
+    }
+
+    @Test("refuses system symlink roots /var, /etc, /tmp (end-to-end regression guard)")
+    func load_refusesSystemSymlinkRoots() {
+        // End-to-end through load() → canonical() → isSystemPath, the production
+        // path. Guards the #6 regression where /var/etc/tmp became walkable
+        // because the skip set held /private/var (which canonical never emits).
+        let loader = WorkspaceLoader()
+        for sysPath in ["/var", "/etc", "/tmp"] {
+            let canonical = WorkspaceLoader.canonical(sysPath)
+            #expect(throws: WorkspaceLoader.LoaderError.refusedSystemPath(canonical)) {
+                try loader.load(rootPath: sysPath)
+            }
         }
     }
 

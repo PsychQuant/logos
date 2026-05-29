@@ -76,12 +76,15 @@ All notable changes to Logos are documented here. Format loosely follows
   **prefix-block** pure-system trees (`/System`, `/Library`, `/usr`, `/bin`,
   `/sbin`, `/dev`, `/cores`, `/Network`, `/opt`) at any depth — catching
   `/usr/local` firmlinks and `/opt/homebrew`; **exact-block** `/`, `/Volumes`,
-  and `/private` plus its canonical-resolved system forms (`/private/var`,
-  `/private/tmp`, `/private/etc`) — so a symlink→`/var` is caught while
+  `/private`, `/var`, `/tmp`, `/etc` — so a symlink→`/var` (which `canonical()`
+  collapses to `/var`, the short form macOS standardizes to) is caught while
   legitimate descents (`/Volumes/MyDrive/code`, scratch dirs under
-  `/private/var/folders`) are still allowed. `normalize()` replaced by
-  `canonical()` (`resolvingSymlinksInPath().standardizedFileURL` — collapses
-  `//`, resolves `.`/`..`).
+  `/var/folders`) are still allowed. `normalize()` replaced by `canonical()`
+  (`resolvingSymlinksInPath().standardizedFileURL` — collapses `//`, resolves
+  `.`/`..`). The exact-block stores **canonical short forms** (`/var`, not
+  `/private/var`) because every comparison runs `canonical()` first, and on
+  macOS `canonical("/private/var") == "/var"` (collapse to shortest), not the
+  reverse — an end-to-end regression test guards `load("/var"|"/etc"|"/tmp")`.
 
   Scoped out (per plan): generalized firmlink volume-boundary detection via
   `.volumeIdentifierKey`. The prefix-block covers the known firmlink roots
