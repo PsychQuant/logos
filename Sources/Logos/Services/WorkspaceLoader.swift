@@ -75,7 +75,16 @@ public struct WorkspaceLoader: Sendable {
         "Library", ".Trash"
     ]
 
+    /// Maximum directory nesting walked, counting the root as depth 1
+    /// (root = 1, its children = 2, …). Subtrees deeper than this are returned
+    /// as opaque, un-expanded directory nodes rather than recursed into.
     public let maxDepth: Int
+
+    /// Upper bound on the number of filesystem ENTRIES visited during a walk —
+    /// directories plus files, and including entries that vanish mid-walk
+    /// (missing-file races count against it). This is NOT a strict leaf-file
+    /// count; the name is historical. Exceeding it fails fast with
+    /// `LoaderError.tooManyFiles` to bound catastrophic inputs.
     public let maxFiles: Int
 
     /// Home directory used to derive the user-relative TCC skip set. Injectable

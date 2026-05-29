@@ -27,17 +27,19 @@ struct MainView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxHeight: .infinity)
+            // #11: confine the loading indicator to the content area so it never
+            // overlaps the status bar (previously attached to the outer VStack).
+            .overlay {
+                if workspace.isLoading {
+                    ProgressView("Loading workspace…")
+                        .padding(24)
+                        .background(.thinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
 
             Divider()
             StatusBarView()
-        }
-        .overlay {
-            if workspace.isLoading {
-                ProgressView("Loading workspace…")
-                    .padding(24)
-                    .background(.thinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
         }
         .overlay(alignment: .top) {
             // #9: surface load failures instead of a silent blank state.

@@ -60,7 +60,9 @@ struct MainScene: Scene {
 
     private func autoLoadWorkspaceIfNeeded() async {
         guard workspace.rootNode == nil else { return }
-        let persistence = WorkspacePersistence()
+        // #11: use the model's persistence (one source of truth) rather than
+        // constructing a second WorkspacePersistence instance here.
+        let persistence = workspace.workspacePersistence
         let persisted = persistence.loadLastPath()
 
         // Resolve which workspace to auto-load at launch (#8). Precedence:

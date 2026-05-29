@@ -18,6 +18,21 @@ All notable changes to Logos are documented here. Format loosely follows
   snapshots the MainActor sentinel's tick count *at load completion* (the real
   off-main discriminator). Suite 161/161.
 
+- **Docs/cosmetic cleanup** ([#11](https://github.com/PsychQuant/logos/issues/11)).
+  (a) `WorkspaceLoader.maxFiles`/`maxDepth` gained doc-comments clarifying that
+  `maxFiles` counts *entries visited* (dirs + missing-file races), not strict
+  leaf-file count, and `maxDepth` counts the root as depth 1 (no rename — the
+  names are load-bearing across callers). (b) The loading `ProgressView` overlay
+  is confined to the editor content area so it no longer overlaps the status
+  bar; the `#9` error banner is unchanged. (c) `WorkspacePersistence`'s
+  `@unchecked Sendable` doc now states the safety is in-process only. (d)
+  `MainScene` reads workspace persistence through the shared `WorkspaceModel`
+  (`workspacePersistence`) instead of constructing a second instance — one
+  source of truth. (e) README gained a "Local data & privacy" note (the
+  `UserDefaults` plist is readable by other unsandboxed local processes;
+  standard macOS behaviour, no secrets stored there). Behaviour-preserving;
+  suite 161/161.
+
 ### Fixed
 
 - **Launch hang on Finder/Spotlight start** ([#2](https://github.com/PsychQuant/logos/issues/2))
@@ -49,7 +64,7 @@ All notable changes to Logos are documented here. Format loosely follows
     welcome empty state when nothing is stored. `cwd` is no longer
     consulted at any point.
 
-  11 new tests; full suite 125/125 pass. Smoke-verified against the
+  12 new tests; full suite 125/125 pass. Smoke-verified against the
   Developer-ID-signed + notarized v0.1.0 build.
 
 - **TCC dialog cascade when opening home (`~`) as a workspace**

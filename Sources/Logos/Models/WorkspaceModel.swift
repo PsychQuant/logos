@@ -32,6 +32,11 @@ public final class WorkspaceModel {
         self.persistence = persistence
     }
 
+    /// The workspace-path persistence this model reads/writes. Exposed so the
+    /// launch path (`MainScene`) shares this single instance instead of
+    /// constructing its own — one source of truth (#11).
+    public var workspacePersistence: WorkspacePersistence { persistence }
+
     public func openWorkspace(at path: String) throws {
         rootNode = try loader.load(rootPath: path)
         persistence.saveLastPath(path)

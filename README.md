@@ -95,6 +95,17 @@ For distribution to others, `make release-signed` produces a notarized `.dmg` (r
 Design doc: [`docs/design/2026-05-25-logos-design.md`](docs/design/2026-05-25-logos-design.md)
 All plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
 
+## Local data & privacy
+
+Logos stores window layout and non-secret app preferences in a standard macOS
+`UserDefaults` plist at `~/Library/Preferences/app.getlogos.logos.plist`
+(e.g. the last-opened workspace path under `logos.lastWorkspacePath`). Because
+Logos is **not sandboxed**, this file is readable by other unsandboxed processes
+running as your user account — this is standard macOS behaviour for non-sandboxed
+apps, not a defect. No credentials or tokens are written there: account secrets
+live in the macOS Keychain (service `app.getlogos.logos.credentials`), guarded by
+the system's per-item access controls.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

@@ -10,6 +10,12 @@ import Foundation
 // class but not formally Sendable in the Swift overlay. The wrapping struct
 // only reads/writes string-or-nil for one key, so the unchecked assertion is
 // safe per UserDefaults's own concurrency contract.
+//
+// NOTE: this safety is IN-PROCESS only. UserDefaults serializes access within
+// a process, but its backing plist is not written atomically across multiple
+// PROCESSES sharing the same bundle id; concurrent writers in different
+// processes can race. Logos is a single-process app, so this is not a concern
+// here — but do not treat this type as a cross-process coordination point.
 public struct WorkspacePersistence: @unchecked Sendable {
 
     static let lastPathKey = "logos.lastWorkspacePath"
