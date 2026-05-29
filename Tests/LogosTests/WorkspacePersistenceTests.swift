@@ -3,7 +3,12 @@ import Foundation
 @testable import Logos
 
 @Suite("WorkspacePersistence", .serialized)
-struct WorkspacePersistenceTests {
+final class WorkspacePersistenceTests {
+
+    // #16: a class suite so `deinit` can release the isolated UserDefaults
+    // suites built during each test (no orphan plists in ~/Library/Preferences).
+    private let tracker = IsolatedDefaultsTracker()
+    deinit { tracker.teardown() }
 
     @Test("save and load round-trip")
     func saveAndLoadRoundtrip() throws {
@@ -34,7 +39,6 @@ struct WorkspacePersistenceTests {
     }
 
     private func isolatedDefaults() -> UserDefaults {
-        let suiteName = "logos.test.\(UUID().uuidString)"
-        return UserDefaults(suiteName: suiteName)!
+        tracker.make(prefix: "logos.test")
     }
 }

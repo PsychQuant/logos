@@ -7,7 +7,12 @@ import Foundation
 /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` emission and the no-write account switch.
 @Suite("AccountCredentialIsolation", .serialized)
 @MainActor
-struct AccountCredentialIsolationTests {
+final class AccountCredentialIsolationTests {
+
+    // #16: a class suite so `deinit` can release the isolated UserDefaults
+    // suites built during each test (no orphan plists in ~/Library/Preferences).
+    private let tracker = IsolatedDefaultsTracker()
+    deinit { tracker.teardown() }
 
     // MARK: - 2.1 Per-account isolated config directory
 
@@ -225,7 +230,7 @@ struct AccountCredentialIsolationTests {
     // MARK: - Helpers
 
     private func makeDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "ACI_\(UUID().uuidString)")!
+        tracker.make(prefix: "ACI")
     }
 
     private func makeManager(fs: FSDouble, bridge: CountingSystemKeychainBridge) -> AccountManager {

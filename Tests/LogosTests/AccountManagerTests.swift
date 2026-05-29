@@ -4,7 +4,12 @@ import Foundation
 
 @Suite("AccountManager", .serialized)
 @MainActor
-struct AccountManagerTests {
+final class AccountManagerTests {
+
+    // #16: a class suite so `deinit` can release the isolated UserDefaults
+    // suites built during each test (no orphan plists in ~/Library/Preferences).
+    private let tracker = IsolatedDefaultsTracker()
+    deinit { tracker.teardown() }
 
     @Test("starts empty")
     func startsEmpty() {
@@ -149,6 +154,6 @@ struct AccountManagerTests {
     }
 
     private func makeTransientDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "LogosE2_\(UUID().uuidString)")!
+        tracker.make(prefix: "LogosE2")
     }
 }

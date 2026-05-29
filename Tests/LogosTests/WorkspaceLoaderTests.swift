@@ -224,6 +224,51 @@ struct WorkspaceLoaderTests {
         #expect(WorkspaceLoader.isSystemPath(c("/Users/che")) == false)
     }
 
+    // MARK: - #14 system /var subtree any-depth block (with /var/folders carve-out)
+
+    @Test("isSystemPath: listed /var system subtrees blocked any-depth, /var/folders stays open")
+    func isSystemPath_varSubtreeBlocking() {
+        func c(_ p: String) -> String { WorkspaceLoader.canonical(p) }
+
+        // Listed system subtrees under /var are blocked as roots (exact) …
+        #expect(WorkspaceLoader.isSystemPath(c("/var/db")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/var/log")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/var/root")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/var/vm")) == true)
+        // … and at any depth beneath them.
+        #expect(WorkspaceLoader.isSystemPath(c("/var/db/foo")) == true)
+        #expect(WorkspaceLoader.isSystemPath(c("/var/log/system.log")) == true)
+        // Critical carve-out: the per-user temp tree must stay openable.
+        #expect(WorkspaceLoader.isSystemPath(c("/var/folders")) == false)
+        #expect(WorkspaceLoader.isSystemPath(c("/var/folders/ab/cd/T/proj")) == false)
+        // Regression guard: /var itself is still exact-blocked (existing behavior).
+        #expect(WorkspaceLoader.isSystemPath(c("/var")) == true)
+    }
+
+    @Test("load refuses /var system subtree roots (end-to-end)")
+    func load_refusesVarSystemSubtreeRoots() {
+        let loader = WorkspaceLoader()
+        for sysPath in ["/var/db", "/var/log", "/var/root"] {
+            let canonical = WorkspaceLoader.canonical(sysPath)
+            #expect(throws: WorkspaceLoader.LoaderError.refusedSystemPath(canonical)) {
+                try loader.load(rootPath: sysPath)
+            }
+        }
+    }
+
+    @Test("load allows a workspace under /var/folders (carve-out stays open)")
+    func load_allowsVarFoldersSubtree() throws {
+        // NSTemporaryDirectory() resolves under /var/folders; a dir created there
+        // must NOT be refused as a system path — guards the carve-out.
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        #expect(WorkspaceLoader.canonical(tmp).hasPrefix("/var/folders/"))
+        try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader().load(rootPath: tmp)
+        #expect(tree.children?.map(\.displayName) == ["a.txt"])
+    }
+
     @Test("canonical collapses // and resolves ..")
     func canonical_normalizes() {
         #expect(WorkspaceLoader.canonical("/System//") == "/System")
@@ -302,6 +347,62 @@ struct WorkspaceLoaderTests {
         #expect(pkg?.children == nil)
     }
 
+    // MARK: - #14 package real-vs-fake structural discrimination
+
+    @Test("a plain dir named *.photoslibrary (no bundle markers) is walked normally, not locked")
+    func walk_doesNotLockFakePackageDir() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        // Same name as a TCC package extension, but contains no bundle signature
+        // children (no originals/database/Photos.sqlite) → a plain folder.
+        let fake = "\(dir)/Foo.photoslibrary"
+        try FileManager.default.createDirectory(atPath: "\(fake)/src", withIntermediateDirectories: true)
+        try "r".write(toFile: "\(fake)/README.md", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: dir)
+        let node = tree.children?.first { $0.displayName == "Foo.photoslibrary" }
+        #expect(node?.isProtected == false)
+        #expect(node?.children != nil)
+        #expect(node?.children?.map(\.displayName).sorted() == ["src", "README.md"].sorted())
+    }
+
+    @Test("an unreadable real-marker package stays locked (fail-safe on read error)")
+    func walk_locksUnreadableRealPackage() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let pkg = "\(dir)/Locked.photoslibrary"
+        try FileManager.default.createDirectory(atPath: "\(pkg)/originals", withIntermediateDirectories: true)
+        // chmod 0o000 so looksLikeRealPackage's contentsOfDirectory read fails →
+        // must default to true (keep locking) rather than exposing contents.
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: pkg)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pkg)
+        }
+
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: dir)
+        let node = tree.children?.first { $0.displayName == "Locked.photoslibrary" }
+        #expect(node?.isProtected == true)
+        #expect(node?.children == nil)
+    }
+
+    @Test("isTCCPath discriminates real package (true) from same-named plain dir (false)")
+    func isTCCPath_realVsFakePackage() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let real = "\(dir)/Real.photoslibrary"
+        try FileManager.default.createDirectory(atPath: "\(real)/originals", withIntermediateDirectories: true)
+        let fake = "\(dir)/Fake.photoslibrary"
+        try FileManager.default.createDirectory(atPath: "\(fake)/src", withIntermediateDirectories: true)
+
+        let loader = WorkspaceLoader()
+        #expect(loader.isTCCPath(WorkspaceLoader.canonical(real)) == true)
+        #expect(loader.isTCCPath(WorkspaceLoader.canonical(fake)) == false)
+    }
+
     @Test("a permission-denied directory becomes an opaque protected leaf")
     func walk_protectsPermissionDeniedDir() throws {
         let home = try makeTempDir()
@@ -355,6 +456,89 @@ struct WorkspaceLoaderTests {
         #expect(throws: CancellationError.self) {
             try WorkspaceLoader().load(rootPath: tmp, isCancelled: { true })
         }
+    }
+
+    @Test("load halts a RUNNING walk between siblings after one was visited, not at the entry guard")
+    func load_cancelStopsRunningWalk() throws {
+        // #15 (2): the existing load_cancelsWhenFlagSet passes `isCancelled:{true}`,
+        // which throws at the ROOT entry-guard having visited ZERO entries. This
+        // test instead lets the walk make progress — the root entry guard and the
+        // first child subtree (d0) are walked with the flag false — and only flips
+        // the flag once d0 has been entered, so the running walk is cancelled
+        // BETWEEN siblings. Deterministic (no Task.sleep): the flag is driven by
+        // the childWalkHook firing for d0, not by timing.
+        //
+        // Mutation-detectable: if cooperative cancellation were not polled while
+        // the walk runs, it would visit d1 and d2 too — the assertions below would
+        // fail because their hooks would have fired and load() would have returned
+        // a full tree instead of throwing.
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        // Sibling subdirectories (dirs sort first); each holds a file so it is
+        // genuinely walked. Entering d0 flips the cancel flag; d1/d2 must then be
+        // skipped because the running walk is cancelled before reaching them.
+        for d in ["d0", "d1", "d2"] {
+            try FileManager.default.createDirectory(atPath: "\(tmp)/\(d)", withIntermediateDirectories: true)
+            try "x".write(toFile: "\(tmp)/\(d)/inner.txt", atomically: true, encoding: .utf8)
+        }
+        let d0 = WorkspaceLoader.canonical("\(tmp)/d0")
+        let d1 = WorkspaceLoader.canonical("\(tmp)/d1")
+        let d2 = WorkspaceLoader.canonical("\(tmp)/d2")
+
+        // Shared, lock-guarded state so the @Sendable closures are safe under
+        // Swift 6 strict concurrency. The probe records which directory frames
+        // were entered (the hook fires once per walked directory).
+        let box = CancelProbe()
+        let hook: @Sendable (String) throws -> Void = { canonical in
+            box.recordEntered(canonical)
+        }
+        // Flag flips true only once d0's frame has been entered.
+        let isCancelled: @Sendable () -> Bool = { box.entered(d0) }
+
+        let loader = WorkspaceLoader(childWalkHook: hook)
+        #expect(throws: CancellationError.self) {
+            try loader.load(rootPath: tmp, isCancelled: isCancelled)
+        }
+        // Proof the walk was RUNNING (had made progress) when cancelled: d0 was
+        // fully entered before the throw …
+        #expect(box.entered(d0) == true)
+        // … and the later siblings were NEVER reached — the running walk halted
+        // between siblings rather than running to completion.
+        #expect(box.entered(d1) == false)
+        #expect(box.entered(d2) == false)
+    }
+
+    @Test("walk drops one child whose recursive frame throws a generic error, keeps siblings (line 339)")
+    func walk_perChildGenericCatchSkipsOneChildKeepsSiblings() throws {
+        // #15 (3): the per-child generic `catch { continue }` is distinct from the
+        // line-292 contentsOfDirectory protected-leaf path. A real permission
+        // denied child is turned into a protected leaf by its own frame BEFORE the
+        // parent's per-child catch is reached, so this branch is unreachable from a
+        // filesystem fixture. The injected childWalkHook throws a generic
+        // (non-LoaderError, non-CancellationError) error for ONE child frame; the
+        // throw escapes that frame and lands in the parent's per-child catch,
+        // dropping only that child while its siblings survive and load() returns
+        // normally (no throw).
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        for d in ["alpha", "beta", "gamma"] {
+            try FileManager.default.createDirectory(atPath: "\(tmp)/\(d)", withIntermediateDirectories: true)
+            try "x".write(toFile: "\(tmp)/\(d)/inner.txt", atomically: true, encoding: .utf8)
+        }
+        let betaCanonical = WorkspaceLoader.canonical("\(tmp)/beta")
+
+        struct GenericChildError: Error {}
+        let hook: @Sendable (String) throws -> Void = { canonical in
+            if canonical == betaCanonical { throw GenericChildError() }
+        }
+
+        let loader = WorkspaceLoader(childWalkHook: hook)
+        // load() must NOT throw — the generic child error is swallowed per-child.
+        let tree = try loader.load(rootPath: tmp)
+        let names = tree.children?.map(\.displayName).sorted() ?? []
+        // beta dropped; alpha and gamma survive.
+        #expect(names == ["alpha", "gamma"])
+        #expect(tree.children?.contains { $0.displayName == "beta" } == false)
     }
 
     @Test("load completes when isCancelled is false")
@@ -437,6 +621,22 @@ struct WorkspaceLoaderTests {
 
     private static func treeDepth(_ node: FileNode) -> Int {
         1 + (node.children?.map { treeDepth($0) }.max() ?? 0)
+    }
+
+    /// Lock-guarded shared state for the running-walk cancel test (#15). The
+    /// `childWalkHook` and `isCancelled` closures are `@Sendable` and run on the
+    /// same synchronous walk thread, but Swift 6 requires the captured state to
+    /// be safe to share regardless. Records which directory frames were entered.
+    private final class CancelProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var enteredPaths: Set<String> = []
+
+        func recordEntered(_ canonical: String) {
+            lock.lock(); enteredPaths.insert(canonical); lock.unlock()
+        }
+        func entered(_ canonical: String) -> Bool {
+            lock.lock(); defer { lock.unlock() }; return enteredPaths.contains(canonical)
+        }
     }
 
     private func makeTempDir() throws -> String {

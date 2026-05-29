@@ -6,7 +6,7 @@ import os
 @MainActor
 public final class WorkspaceModel {
 
-    @ObservationIgnored private let loader: WorkspaceLoader
+    @ObservationIgnored private let loader: any WorkspaceLoading
     @ObservationIgnored private let persistence: WorkspacePersistence
     @ObservationIgnored private var currentLoadTask: Task<Void, Never>?
     /// Monotonic per-load token. Guards the `isLoading` defer so a stale load's
@@ -25,7 +25,7 @@ public final class WorkspaceModel {
     public private(set) var lastError: WorkspaceLoadError?
 
     public init(
-        loader: WorkspaceLoader = WorkspaceLoader(),
+        loader: any WorkspaceLoading = WorkspaceLoader(),
         persistence: WorkspacePersistence = WorkspacePersistence()
     ) {
         self.loader = loader
@@ -60,7 +60,7 @@ public final class WorkspaceModel {
     }
 
     private static func performLoad(
-        loader: WorkspaceLoader,
+        loader: any WorkspaceLoading,
         persistence: WorkspacePersistence,
         path: String,
         model: WorkspaceModel
