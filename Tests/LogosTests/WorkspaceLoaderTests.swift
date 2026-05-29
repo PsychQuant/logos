@@ -127,13 +127,13 @@ struct WorkspaceLoaderTests {
 
     // MARK: - User-relative TCC skip (Issue #7)
 
-    @Test("skips every TCC-protected child name when walking home")
-    func walk_skipsTCCChildrenOfHome() throws {
+    @Test("surfaces TCC-protected children of home as protected leaves (not dropped)")
+    func walk_surfacesTCCChildrenOfHomeAsProtected() throws {
+        // #13 (supersedes #7's drop-behavior, D4): TCC dirs are now SURFACED as
+        // opaque protected leaves rather than silently removed — no silent omission.
         let home = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: home) }
 
-        // Iterate the production set so a future addition is auto-covered and a
-        // typo in any name is caught (not just the 3 originally tested).
         for tcc in WorkspaceLoader.userRelativeTCCNames {
             try FileManager.default.createDirectory(atPath: "\(home)/\(tcc)", withIntermediateDirectories: true)
         }
@@ -141,8 +141,19 @@ struct WorkspaceLoaderTests {
         try "n".write(toFile: "\(home)/notes.txt", atomically: true, encoding: .utf8)
 
         let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: home)
-        let names = tree.children?.map(\.displayName).sorted() ?? []
-        #expect(names == ["code", "notes.txt"])
+        let children = tree.children ?? []
+        let names = children.map(\.displayName).sorted()
+        // All present — TCC ones surfaced, not dropped.
+        #expect(Set(names) == WorkspaceLoader.userRelativeTCCNames.union(["code", "notes.txt"]))
+        // TCC dirs are protected opaque leaves.
+        for tcc in WorkspaceLoader.userRelativeTCCNames {
+            let node = children.first { $0.displayName == tcc }
+            #expect(node?.isProtected == true)
+            #expect(node?.children == nil)
+        }
+        // Non-TCC siblings are normal.
+        #expect(children.first { $0.displayName == "code" }?.isProtected == false)
+        #expect(children.first { $0.displayName == "notes.txt" }?.isProtected == false)
     }
 
     @Test("walks a TCC path when it is the explicit root")
@@ -159,8 +170,10 @@ struct WorkspaceLoaderTests {
         #expect(tree.children?.map(\.displayName) == ["proj"])
     }
 
-    @Test("skips a symlink resolving to a TCC path")
-    func walk_skipsSymlinkedTCCChild() throws {
+    @Test("surfaces a symlink resolving to a TCC path as protected")
+    func walk_surfacesSymlinkedTCCChild() throws {
+        // #13 (D4): a symlink whose resolved path is TCC is surfaced as protected,
+        // not dropped (consistent with surface-don't-drop for TCC).
         let home = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: home) }
 
@@ -171,8 +184,129 @@ struct WorkspaceLoaderTests {
         try FileManager.default.createSymbolicLink(atPath: "\(work)/docs_link", withDestinationPath: "\(home)/Documents")
 
         let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: work)
-        let names = tree.children?.map(\.displayName).sorted() ?? []
-        #expect(names == ["keep.txt"])
+        let children = tree.children ?? []
+        #expect(children.map(\.displayName).sorted() == ["docs_link", "keep.txt"])
+        #expect(children.first { $0.displayName == "docs_link" }?.isProtected == true)
+        #expect(children.first { $0.displayName == "keep.txt" }?.isProtected == false)
+    }
+
+    // MARK: - #6 path-classification (system path defence + canonicalize)
+
+    @Test("isSystemPath: prefix-block catches resolved + firmlink + /opt, exact-block stays exact")
+    func isSystemPath_classification() {
+        // prefix-block — caught at any depth
+        #expect(WorkspaceLoader.isSystemPath("/private/var") == true)   // resolved /var
+        #expect(WorkspaceLoader.isSystemPath("/usr/local") == true)     // firmlink (not a symlink)
+        #expect(WorkspaceLoader.isSystemPath("/opt/homebrew") == true)
+        #expect(WorkspaceLoader.isSystemPath("/opt") == true)           // prefix item also exact
+        #expect(WorkspaceLoader.isSystemPath("/System/Library/X") == true)
+        #expect(WorkspaceLoader.isSystemPath("/Network/foo") == true)
+        // exact-block — only the literal path, descend allowed
+        #expect(WorkspaceLoader.isSystemPath("/") == true)
+        #expect(WorkspaceLoader.isSystemPath("/Volumes") == true)
+        #expect(WorkspaceLoader.isSystemPath("/Volumes/Disk/proj") == false)  // regression guard
+        // ordinary user paths
+        #expect(WorkspaceLoader.isSystemPath("/Users/che/code") == false)
+        #expect(WorkspaceLoader.isSystemPath("/Users/che/optimizer") == false) // not /opt prefix
+    }
+
+    @Test("canonical collapses // and resolves ..")
+    func canonical_normalizes() {
+        #expect(WorkspaceLoader.canonical("/System//") == "/System")
+        #expect(WorkspaceLoader.canonical("/a/b/../c") == "/a/c")
+        #expect(WorkspaceLoader.canonical("/x/") == "/x")
+    }
+
+    @Test("refuses /opt as root even when nonexistent")
+    func load_refusesOptRoot() {
+        let loader = WorkspaceLoader()
+        #expect(throws: WorkspaceLoader.LoaderError.refusedSystemPath("/opt")) {
+            try loader.load(rootPath: "/opt")
+        }
+    }
+
+    @Test("a /Volumes child root is not refused as a system path")
+    func load_volumesChildNotRefused() {
+        let bogus = "/Volumes/NoSuchDisk-\(UUID().uuidString)/x"
+        let loader = WorkspaceLoader()
+        do {
+            _ = try loader.load(rootPath: bogus)
+            Issue.record("expected an error")
+        } catch let e as WorkspaceLoader.LoaderError {
+            // Must be notFound (passed system check), NOT refusedSystemPath.
+            if case .refusedSystemPath = e {
+                Issue.record("/Volumes child wrongly refused as system path")
+            }
+        } catch {
+            Issue.record("unexpected error type: \(error)")
+        }
+    }
+
+    // MARK: - #13 TCC any-depth + graceful catch + degenerate home
+
+    @Test("depth-2 TCC descendant (~/Library/Mail) is a protected leaf, not descended")
+    func walk_protectsDepth2TCCDescendant() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let library = "\(home)/Library"
+        try FileManager.default.createDirectory(atPath: "\(library)/Mail/V10", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: "\(library)/Developer", withIntermediateDirectories: true)
+
+        // Open ~/Library as explicit root (root exempt) → its children walked one level.
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: library)
+        let mail = tree.children?.first { $0.displayName == "Mail" }
+        #expect(mail?.isProtected == true)
+        #expect(mail?.children == nil)   // NOT descended → no cascade into Mail/V10
+    }
+
+    @Test("a .photoslibrary package is an opaque protected leaf")
+    func walk_protectsPhotoLibraryPackage() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try FileManager.default.createDirectory(atPath: "\(dir)/Photos.photoslibrary/originals", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(dir)/readme.txt", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: dir)
+        let pkg = tree.children?.first { $0.displayName == "Photos.photoslibrary" }
+        #expect(pkg?.isProtected == true)
+        #expect(pkg?.children == nil)
+    }
+
+    @Test("a permission-denied directory becomes an opaque protected leaf")
+    func walk_protectsPermissionDeniedDir() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let dir = try makeTempDir()
+        let locked = "\(dir)/locked"
+        try FileManager.default.createDirectory(atPath: locked, withIntermediateDirectories: true)
+        try "secret".write(toFile: "\(locked)/inside.txt", atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked)
+            try? FileManager.default.removeItem(atPath: dir)
+        }
+
+        let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: dir)
+        let node = tree.children?.first { $0.displayName == "locked" }
+        // On a non-root test runner, contentsOfDirectory throws → opaque protected leaf.
+        #expect(node?.isProtected == true)
+        #expect(node?.children == nil)
+    }
+
+    @Test("degenerate homeDirectory disables TCC filtering without crashing")
+    func init_degenerateHomeNoTCCFiltering() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try FileManager.default.createDirectory(atPath: "\(dir)/Documents", withIntermediateDirectories: true)
+
+        for home in ["", "/"] {
+            let tree = try WorkspaceLoader(homeDirectory: home).load(rootPath: dir)
+            let docs = tree.children?.first { $0.displayName == "Documents" }
+            // No home → "Documents" is NOT treated as TCC → walked normally.
+            #expect(docs?.isProtected == false)
+        }
     }
 
     // MARK: - Async loader (Issue #2 Prong C)

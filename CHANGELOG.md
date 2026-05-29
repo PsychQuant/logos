@@ -66,6 +66,50 @@ All notable changes to Logos are documented here. Format loosely follows
   protected directories at any depth and surfaces skipped dirs to the user
   is tracked as a follow-up.
 
+- **Path-safety hardening: resolved/firmlink forms, `/opt`, canonicalization**
+  ([#6](https://github.com/PsychQuant/logos/issues/6)). `WorkspaceLoader`'s
+  system-path defence used exact-set membership, so a symlink resolving to
+  `/private/var` (the canonical form of `/var`) or a firmlink like `/usr/local`
+  slipped past, and `/opt/homebrew` (100k+ files) hit the `maxFiles` fail-fast.
+
+  Replaced exact-match with a two-class classifier (`isSystemPath`):
+  **prefix-block** pure-system trees (`/System`, `/Library`, `/usr`, `/bin`,
+  `/sbin`, `/dev`, `/cores`, `/Network`, `/opt`) at any depth — catching
+  `/usr/local` firmlinks and `/opt/homebrew`; **exact-block** `/`, `/Volumes`,
+  and `/private` plus its canonical-resolved system forms (`/private/var`,
+  `/private/tmp`, `/private/etc`) — so a symlink→`/var` is caught while
+  legitimate descents (`/Volumes/MyDrive/code`, scratch dirs under
+  `/private/var/folders`) are still allowed. `normalize()` replaced by
+  `canonical()` (`resolvingSymlinksInPath().standardizedFileURL` — collapses
+  `//`, resolves `.`/`..`).
+
+  Scoped out (per plan): generalized firmlink volume-boundary detection via
+  `.volumeIdentifierKey`. The prefix-block covers the known firmlink roots
+  (`/usr/local` etc.); a full cross-volume-boundary refuse is a separate,
+  riskier mechanism (could block legitimate user data on a secondary APFS
+  volume) deferred until there's a demonstrated need.
+
+- **TCC-resilient walk at any depth; protected dirs surfaced not dropped**
+  ([#13](https://github.com/PsychQuant/logos/issues/13)). #7 only stopped the
+  cascade for opening `~`; opening `~/Library` (or `~/Pictures`) directly as a
+  root still descended into `~/Library/Mail` etc. And #7 *silently dropped*
+  the skipped dirs.
+
+  `WorkspaceLoader` now (a) matches TCC paths at any depth — the depth-1 home
+  set, the whole `~/Library` subtree, and package extensions
+  (`.photoslibrary`/`.musiclibrary`/`.tvlibrary`); (b) **surfaces** TCC dirs as
+  opaque protected leaves (`FileNode.isProtected`, shown dimmed + locked +
+  non-expandable in the sidebar) instead of dropping them — no silent omission;
+  (c) wraps `contentsOfDirectory` in a graceful catch so any unforeseen
+  permission-denied directory also becomes a protected leaf; (d) guards a
+  degenerate `homeDirectory` (`""` / `"/"`) by disabling TCC filtering rather
+  than poisoning the skip set. System paths (#6) are still dropped (never user
+  content).
+
+  This **supersedes #7's drop behavior with surface behavior** — the two #7
+  TCC tests now assert the dirs are present with `isProtected == true` rather
+  than absent. 8 net new tests; full suite 139/139.
+
 ### Changed
 
 - **No more auto-import of `claude` credentials on first launch**

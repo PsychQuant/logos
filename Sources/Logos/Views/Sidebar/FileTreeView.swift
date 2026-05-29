@@ -20,6 +20,16 @@ struct FileTreeView: View {
     private func nodeView(_ node: FileNode, depth: Int) -> AnyView {
         let isActive = workspace.activeTab?.path == node.path
 
+        // #13: protected directories are opaque leaves — render as a plain,
+        // non-expandable row (no DisclosureGroup, no descend) so they show but
+        // can't trigger a TCC consent prompt on expansion.
+        if node.isProtected {
+            return AnyView(
+                FileNodeRow(node: node, isSelected: false)
+                    .padding(.leading, CGFloat(depth) * 4 + 18)
+            )
+        }
+
         if node.kind == .directory {
             return AnyView(
                 DisclosureGroup {

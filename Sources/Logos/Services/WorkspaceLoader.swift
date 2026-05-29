@@ -8,10 +8,32 @@ public struct WorkspaceLoader: Sendable {
         ".vscode", ".superpowers"
     ]
 
-    static let absoluteSkipPaths: Set<String> = [
-        "/", "/System", "/Library", "/private", "/usr", "/Volumes",
-        "/dev", "/etc", "/var", "/bin", "/sbin", "/cores"
+    /// Pure-system roots blocked at **any depth** — `p == X` or `p.hasPrefix(X + "/")`.
+    /// These never contain user workspaces. Catches firmlinks (`/usr/local`, not a
+    /// symlink so left unresolved, caught by `/usr`) and `/opt/homebrew`. Never
+    /// user content — dropped, not surfaced (Issue #6).
+    static let prefixBlockPaths: [String] = [
+        "/System", "/Library", "/usr", "/bin", "/sbin",
+        "/dev", "/cores", "/Network", "/opt"
     ]
+
+    /// Blocked **only as an exact match** — the path itself is refused, but
+    /// descending into a chosen path *beneath* it is allowed. Two reasons a path
+    /// belongs here rather than prefix-block (Issue #6 D1):
+    ///   - `/`, `/Volumes`: a user may legitimately open `/Volumes/MyDrive/code`.
+    ///   - `/private` (+ resolved `/private/var`, `/private/tmp`, `/private/etc`):
+    ///     `/private` holds both system dirs AND the per-user temp tree
+    ///     (`/private/var/folders/…`). Exact-blocking the system dirs + their
+    ///     canonical-resolved forms catches a symlink→`/var` (which resolves to
+    ///     `/private/var`) while still allowing scratch/temp workspaces. Prefix-
+    ///     blocking `/private` would refuse every temp directory.
+    static let exactBlockPaths: Set<String> = [
+        "/", "/Volumes", "/private", "/private/var", "/private/tmp", "/private/etc"
+    ]
+
+    /// Bundle/package extensions that are TCC-protected or opaque app data —
+    /// treated as protected leaves at any depth (Issue #13).
+    static let tccPackageExtensions: Set<String> = ["photoslibrary", "musiclibrary", "tvlibrary"]
 
     /// First-level home children that are TCC-protected or pure app-data.
     /// Walking into these during a recursive descent triggers a modal macOS
@@ -29,35 +51,62 @@ public struct WorkspaceLoader: Sendable {
     /// so tests can substitute a temp dir without touching the real home.
     public let homeDirectory: String
 
-    /// Absolute, normalized TCC-protected paths under `homeDirectory`. A walk
-    /// descending into any of these would trip macOS's per-directory consent
-    /// dialog, so they are filtered out as children. The explicit `rootPath` is
-    /// never run through this filter, so opening e.g. `~/Documents` directly
-    /// still works (one expected prompt for the user-chosen folder).
-    ///
-    /// Computed once at init — symlinks resolved here so the comparison matches
-    /// the resolved child path the walk filter computes (macOS temp dirs live
-    /// under /var → /private/var, and the home itself may be symlinked).
-    /// Kept off the per-child hot path: a computed property would re-run the
-    /// symlink resolution for every entry walked.
+    /// Canonical, depth-1 TCC-protected paths under `homeDirectory`. Computed
+    /// once at init (canonicalized so the comparison matches the resolved child
+    /// path the walk computes — /var → /private/var, symlinked home, etc.).
+    /// Empty when `homeDirectory` is degenerate (see `init`).
     private let tccSkipPaths: Set<String>
+
+    /// Canonical `~/Library`, used for **any-depth** subtree matching so opening
+    /// `~/Library` directly as a root doesn't cascade into `~/Library/Mail` etc.
+    /// (Issue #13). `nil` for a degenerate home.
+    private let homeLibrary: String?
 
     public init(maxDepth: Int = 10, maxFiles: Int = 50_000, homeDirectory: String = NSHomeDirectory()) {
         self.maxDepth = maxDepth
         self.maxFiles = maxFiles
         self.homeDirectory = homeDirectory
-        self.tccSkipPaths = Set(Self.userRelativeTCCNames.map {
-            Self.normalize(URL(fileURLWithPath: "\(homeDirectory)/\($0)").resolvingSymlinksInPath().path)
-        })
+        // Degenerate home (`""` / `"/"`) → no reliable TCC paths; disable TCC
+        // filtering rather than poisoning the set with `/Documents` etc. (#13).
+        if homeDirectory.isEmpty || homeDirectory == "/" {
+            self.tccSkipPaths = []
+            self.homeLibrary = nil
+        } else {
+            self.tccSkipPaths = Set(Self.userRelativeTCCNames.map {
+                Self.canonical("\(homeDirectory)/\($0)")
+            })
+            self.homeLibrary = Self.canonical("\(homeDirectory)/Library")
+        }
     }
 
     public func load(rootPath: String) throws -> FileNode {
-        let normalized = Self.normalize(rootPath)
-        if Self.absoluteSkipPaths.contains(normalized) {
-            throw LoaderError.refusedSystemPath(normalized)
+        let canonical = Self.canonical(rootPath)
+        if Self.isSystemPath(canonical) {
+            throw LoaderError.refusedSystemPath(canonical)
         }
+        // NOTE: the root is intentionally NOT checked against `isTCCPath` —
+        // opening e.g. `~/Documents` directly should still walk (one expected
+        // prompt for the user-chosen folder). TCC filtering applies to children.
         var counter = 0
         return try walk(path: rootPath, depth: 1, counter: &counter)
+    }
+
+    /// True if `canonical` is a system path that must never be walked into.
+    /// Two classes: prefix-block (any depth) + exact-block (root only). (#6)
+    static func isSystemPath(_ canonical: String) -> Bool {
+        if exactBlockPaths.contains(canonical) { return true }
+        return prefixBlockPaths.contains { canonical == $0 || canonical.hasPrefix($0 + "/") }
+    }
+
+    /// True if `canonical` is a TCC-protected path whose contents we must not
+    /// enumerate (would trigger a macOS consent dialog). Matches the depth-1
+    /// home set, the whole `~/Library` subtree (any depth), and known TCC
+    /// package extensions. (#13)
+    func isTCCPath(_ canonical: String) -> Bool {
+        if tccSkipPaths.contains(canonical) { return true }
+        if let lib = homeLibrary, canonical == lib || canonical.hasPrefix(lib + "/") { return true }
+        let ext = (canonical as NSString).pathExtension.lowercased()
+        return Self.tccPackageExtensions.contains(ext)
     }
 
     /// Off-main-actor variant — wraps sync `load` in a detached Task so callers
@@ -69,11 +118,20 @@ public struct WorkspaceLoader: Sendable {
         }.value
     }
 
-    static func normalize(_ p: String) -> String {
-        if p.count > 1 && p.hasSuffix("/") {
-            return String(p.dropLast())
-        }
-        return p
+    /// Canonical absolute path: resolves symlinks, collapses `//`, resolves
+    /// `.`/`..`. One canonical form used by the root check, the child filter,
+    /// and the TCC skip-set init so all comparisons are apples-to-apples (#6).
+    static func canonical(_ p: String) -> String {
+        URL(fileURLWithPath: p).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    /// A child entry with its expensive lookups (canonical path + isDirectory)
+    /// computed exactly once — kept off the recursion hot path.
+    private struct WalkEntry {
+        let name: String
+        let path: String
+        let canonical: String
+        let isDir: Bool
     }
 
     private func walk(path: String, depth: Int, counter: inout Int) throws -> FileNode {
@@ -97,40 +155,48 @@ public struct WorkspaceLoader: Sendable {
             return FileNode(path: path, kind: .directory, children: nil)
         }
 
-        let entries = try fm.contentsOfDirectory(atPath: path)
+        // Graceful catch (#13): a permission-denied directory becomes an opaque
+        // protected leaf rather than aborting the walk. Belt-and-suspenders for
+        // TCC paths not in the static set that prompt-then-deny.
+        let rawEntries: [String]
+        do {
+            rawEntries = try fm.contentsOfDirectory(atPath: path)
+        } catch {
+            return FileNode(path: path, kind: .directory, children: nil, isProtected: true)
+        }
+
+        let entries: [WalkEntry] = rawEntries
             .filter { !Self.skipNames.contains($0) }
-            .filter { name -> Bool in
-                // Drop any child whose resolved real path matches a system root
-                // or a user-relative TCC path (defense-in-depth: catches symlinks
-                // pointing at /Library or ~/Documents etc.). Per #7, descending
-                // into TCC dirs triggers a per-directory macOS consent dialog.
+            .map { name -> WalkEntry in
                 let childPath = "\(path)/\(name)"
-                let resolved = Self.normalize(URL(fileURLWithPath: childPath).resolvingSymlinksInPath().path)
-                return !Self.absoluteSkipPaths.contains(resolved)
-                    && !tccSkipPaths.contains(resolved)
+                var d: ObjCBool = false
+                fm.fileExists(atPath: childPath, isDirectory: &d)
+                return WalkEntry(name: name, path: childPath,
+                                 canonical: Self.canonical(childPath), isDir: d.boolValue)
             }
+            // System paths are never user content → dropped entirely (#6).
+            .filter { !Self.isSystemPath($0.canonical) }
             .sorted { lhs, rhs in
-                let lhsPath = "\(path)/\(lhs)"
-                let rhsPath = "\(path)/\(rhs)"
-                var lhsDir: ObjCBool = false
-                var rhsDir: ObjCBool = false
-                fm.fileExists(atPath: lhsPath, isDirectory: &lhsDir)
-                fm.fileExists(atPath: rhsPath, isDirectory: &rhsDir)
-                if lhsDir.boolValue != rhsDir.boolValue {
-                    return lhsDir.boolValue
-                }
-                return lhs.localizedStandardCompare(rhs) == .orderedAscending
+                if lhs.isDir != rhs.isDir { return lhs.isDir }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
 
         var children: [FileNode] = []
-        for name in entries {
+        for entry in entries {
             if counter >= maxFiles {
                 throw LoaderError.tooManyFiles(found: counter, cap: maxFiles)
             }
             counter += 1
-            let childPath = "\(path)/\(name)"
+            // TCC paths are SURFACED as opaque protected leaves (#13, D3): the
+            // user sees the dir but we never descend → no consent-dialog cascade,
+            // no silent omission.
+            if isTCCPath(entry.canonical) {
+                children.append(FileNode(path: entry.path, kind: .directory,
+                                         children: nil, isProtected: true))
+                continue
+            }
             do {
-                children.append(try walk(path: childPath, depth: depth + 1, counter: &counter))
+                children.append(try walk(path: entry.path, depth: depth + 1, counter: &counter))
             } catch LoaderError.notFound {
                 continue
             }
