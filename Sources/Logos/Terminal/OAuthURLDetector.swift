@@ -41,23 +41,32 @@ public struct OAuthURLDetector {
     public mutating func detect(in buffer: String) -> URL? {
         guard let startRange = buffer.range(of: Self.startToken) else { return nil }
 
-        // Accumulate URL-valid characters from the start of the token. Single
-        // whitespace runs (terminal wrap artifacts) are skipped; a blank line
-        // (>= 2 newlines) is the structural end-of-URL boundary — stopping there
-        // avoids swallowing the following "Paste code here >" prompt, whose
-        // letters are themselves URL-valid characters.
+        // Accumulate URL-valid characters from the start of the token. The
+        // terminal hard-wraps the long URL with `\r\r\n` (CR CR LF) every ~78
+        // columns, so only the LINE FEED (`\n`) counts as a line break — a single
+        // `\n` is a wrap (skip), a blank line (>= 2 `\n`) is the structural
+        // end-of-URL boundary. `\r`, spaces and tabs are wrap padding and are
+        // skipped without ending the URL. Counting `\r` toward the boundary would
+        // truncate the URL at the first wrap (the two `\r`s in `\r\r\n` alone
+        // reach the >= 2 threshold). Stopping at the blank line avoids swallowing
+        // the following "Paste code here >" prompt, whose letters are themselves
+        // URL-valid characters (and whose spaces the terminal renders as cursor
+        // moves, so they vanish after ANSI stripping).
         var reassembled = ""
-        var pendingNewlines = 0
+        var pendingLineFeeds = 0
         var idx = startRange.lowerBound
         while idx < buffer.endIndex {
             let ch = buffer[idx]
-            if ch == "\n" || ch == "\r" {
-                pendingNewlines += 1
-                if pendingNewlines >= 2 { break }   // blank line → URL ended
+            // NOTE: Swift clusters CR+LF into one `Character` ("\r\n"), so the
+            // real `\r\r\n` wrap iterates as a lone `\r` then the `\r\n` grapheme
+            // — both must be recognised as a line feed here.
+            if ch == "\n" || ch == "\r\n" {
+                pendingLineFeeds += 1
+                if pendingLineFeeds >= 2 { break }   // blank line → URL ended
             } else if ch.isWhitespace {
-                // spaces / tabs: wrap padding — skip without ending the URL
+                // lone \r, spaces, tabs: wrap padding — skip without ending the URL
             } else if Self.urlChars.contains(ch) {
-                pendingNewlines = 0
+                pendingLineFeeds = 0
                 reassembled.append(ch)
             } else {
                 break   // a real non-URL, non-whitespace boundary

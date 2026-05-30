@@ -57,15 +57,38 @@ struct OAuthURLDetectorTests {
         #expect(detector.detect(in: buffer) == nil)    // re-scan of accumulating buffer: no re-open
     }
 
-    @Test("reassembles a URL the terminal hard-wrapped across lines")
+    @Test("reassembles a URL the terminal hard-wrapped with CRLF across lines")
     func detectReassemblesWrappedURL() {
         var detector = OAuthURLDetector()
-        // Simulate Ink/terminal hard-wrap: single newlines inserted INSIDE the URL,
-        // then a blank line before the next prompt.
+        // The real terminal wrap is `\r\r\n` (CR CR LF), NOT a single `\n`.
         let wrapped =
-            "https://claude.com/cai/oauth/authorize?code=true&\nclient_id=abc-123&\nstate=xyz-789\n\nPaste code >"
+            "https://claude.com/cai/oauth/authorize?code=true&\r\r\nclient_id=abc-123&\r\r\nstate=xyz-789\r\r\n\r\r\nPaste code >"
         let url = detector.detect(in: wrapped)
         #expect(url?.absoluteString == authorizeURL)
+    }
+
+    /// Gold-standard fixture: the actual ANSI-stripped buffer captured from a real
+    /// `claude login` (v2.1.158) — `\r\r\n` wrapping the URL every ~78 cols, three
+    /// `\r\r\n` blank-line breaks, then the space-stripped "Paste code…" prompt.
+    @Test("reassembles the real captured claude-login URL block")
+    func detectRealCapturedURLBlock() {
+        var detector = OAuthURLDetector()
+        let captured =
+            "rl below to sign in (c to copy)\r\r\n\r\r\n" +
+            "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88\r\r\n" +
+            "ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.co\r\r\n" +
+            "m%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainf\r\r\n" +
+            "erence+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_\r\r\n" +
+            "challenge=SQtfq9eMXwJ0ezSJhh2_SlWgHzOV3JzNEUv5An0Zr78&code_challenge_method=S256\r\r\n" +
+            "&state=JXzYippVmAHWmvV__aN12VaUPRwT3JC050DRE9xnnGQ\r\r\n\r\r\n\r\r\nPastecodehereifprompted>"
+        let expected =
+            "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e" +
+            "&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback" +
+            "&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code" +
+            "+user%3Amcp_servers+user%3Afile_upload" +
+            "&code_challenge=SQtfq9eMXwJ0ezSJhh2_SlWgHzOV3JzNEUv5An0Zr78&code_challenge_method=S256" +
+            "&state=JXzYippVmAHWmvV__aN12VaUPRwT3JC050DRE9xnnGQ"
+        #expect(detector.detect(in: captured)?.absoluteString == expected)
     }
 
     @Test("returns nil when no authorize URL is present")
