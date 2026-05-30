@@ -5,6 +5,22 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- **Terminal exit-state overlay (no more frozen pane after `/quit`)** ([#18](https://github.com/PsychQuant/logos/issues/18)).
+  claude was spawned directly as the PTY leader with no termination handling, so
+  exiting it (`/quit` / `/exit`) left a frozen, unusable pane. The terminal now
+  overrides `processTerminated` and surfaces it through an `@Observable`
+  `TerminalSessionState`, overlaying a Ghostty-faithful exit state — "claude
+  exited (code N)" with **Restart claude** / **Close window** — over the last
+  output instead of freezing. Restart bumps a generation counter folded into the
+  terminal view's SwiftUI `.id`, re-spawning a fresh claude with a fresh
+  detector/parser and re-materialized per-account credentials (so #12 isolation
+  and #17 OAuth auto-open survive a restart). Clean-exit path only; a future crash
+  watchdog branches on `TerminalSessionState.isAbnormal`. The state machine is
+  unit-tested (`TerminalSessionStateTests`); the overlay/respawn wiring is
+  interactive-only (the SwiftTerm view cannot be instantiated in `swift test`).
+
 ### Changed
 
 - **Terminal adopts the fork's Metal GPU renderer (C.2 moat)** (`renderer-c2-metal-adoption`).

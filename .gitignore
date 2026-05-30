@@ -27,3 +27,6 @@ Package.resolved
 NOTES.md
 TODO.local.md
 openspec/.vector-search.db*
+
+# Reference repos (cloned for study, never committed)
+references/

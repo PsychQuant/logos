@@ -15,12 +15,16 @@ struct SwiftTermView: NSViewRepresentable {
     let processConfig: ClaudeProcessConfig
     let engine: AutoHandleEngine
     let accountManager: AccountManager
+    let sessionState: TerminalSessionState
 
     func makeNSView(context: Context) -> TeedLocalProcessTerminalView {
         let view = TeedLocalProcessTerminalView(frame: .zero)
         TerminalThemeApplier.apply(config: config, to: view)
         view.onChunk = { [weak coord = context.coordinator] chunk in
             coord?.handleChunk(chunk)
+        }
+        view.onProcessTerminated = { [weak coord = context.coordinator] code in
+            coord?.handleTermination(code)
         }
         context.coordinator.startIfNeeded(view)
         return view
@@ -35,7 +39,8 @@ struct SwiftTermView: NSViewRepresentable {
         Coordinator(
             processConfig: processConfig,
             engine: engine,
-            accountManager: accountManager
+            accountManager: accountManager,
+            sessionState: sessionState
         )
     }
 
@@ -46,6 +51,7 @@ struct SwiftTermView: NSViewRepresentable {
         let processConfig: ClaudeProcessConfig
         let engine: AutoHandleEngine
         let accountManager: AccountManager
+        let sessionState: TerminalSessionState
         let parser: PatternParser
         weak var view: TeedLocalProcessTerminalView?
         private var hasStarted = false
@@ -56,12 +62,22 @@ struct SwiftTermView: NSViewRepresentable {
         init(
             processConfig: ClaudeProcessConfig,
             engine: AutoHandleEngine,
-            accountManager: AccountManager
+            accountManager: AccountManager,
+            sessionState: TerminalSessionState
         ) {
             self.processConfig = processConfig
             self.engine = engine
             self.accountManager = accountManager
+            self.sessionState = sessionState
             self.parser = PatternParser()
+        }
+
+        /// The hosted claude process exited (#18). Flip session state to the
+        /// exited phase so the SwiftUI layer shows the exit-state overlay
+        /// instead of a frozen pane. CLEAN-exit path only — a future crash
+        /// watchdog must branch on `sessionState.isAbnormal`.
+        func handleTermination(_ exitCode: Int32?) {
+            sessionState.markExited(exitCode)
         }
 
         /// Called for each chunk the subprocess emits. Append to parser

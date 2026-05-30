@@ -1,10 +1,15 @@
 import SwiftUI
+import AppKit
 
 struct TerminalPaneView: View {
     @Environment(TerminalConfig.self) private var config
     @Environment(AdvancedSettings.self) private var advanced
     @Environment(AutoHandleEngine.self) private var engine
     @Environment(AccountManager.self) private var accountMgr
+    /// Lifecycle of the hosted claude session (#18). Drives the exit-state
+    /// overlay and the generation-based restart. Owned here so it survives the
+    /// view recreation that a restart triggers.
+    @State private var sessionState = TerminalSessionState()
 
     var body: some View {
         // H-Task 9: AdvancedSettings.claudePathOverride wins over PATH lookup.
@@ -20,10 +25,24 @@ struct TerminalPaneView: View {
                     config: config,
                     processConfig: processConfig,
                     engine: engine,
-                    accountManager: accountMgr
+                    accountManager: accountMgr,
+                    sessionState: sessionState
                 )
                 .background(Color.black)
-                .id("\(active.id)-\(claudePath)")  // Recreate on path or account change
+                // Recreate on path / account / restart. The generation suffix
+                // makes Restart re-spawn a fresh claude (fresh detector/parser +
+                // re-materialized creds) by changing the view identity (#18).
+                .id("\(active.id)-\(claudePath)-\(sessionState.generation)")
+                .overlay {
+                    if sessionState.hasExited {
+                        TerminalExitedOverlay(
+                            exitCode: sessionState.exitCode,
+                            isAbnormal: sessionState.isAbnormal,
+                            onRestart: { sessionState.restart() },
+                            onClose: { NSApplication.shared.keyWindow?.performClose(nil) }
+                        )
+                    }
+                }
             } else if effectivePath == nil {
                 ClaudeNotFoundBanner()
             } else {

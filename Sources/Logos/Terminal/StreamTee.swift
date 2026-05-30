@@ -18,6 +18,12 @@ public final class TeedLocalProcessTerminalView: LocalProcessTerminalView {
     /// Called for each byte chunk from the subprocess. Override point.
     public var onChunk: (([UInt8]) -> Void)?
 
+    /// Called when the hosted subprocess terminates (PsychQuant/logos#18).
+    /// Carries the exit code (nil if killed by a signal). Drives the
+    /// Ghostty-faithful exit-state overlay — claude `/quit` should show an
+    /// intentional state, never a frozen pane.
+    public var onProcessTerminated: ((Int32?) -> Void)?
+
     /// Injectable Metal-enable action (test seam, renderer-c2-metal-adoption).
     /// Defaults to the SwiftTerm fork's real `setUseMetal(true)`. A test can
     /// substitute a throwing closure to exercise the CoreGraphics fallback (D4)
@@ -35,6 +41,16 @@ public final class TeedLocalProcessTerminalView: LocalProcessTerminalView {
         // bytes, so auto-handle is unaffected by which renderer is active.
         onChunk?(Array(slice))
         super.dataReceived(slice: slice)
+    }
+
+    /// Fired when the hosted subprocess exits. SwiftTerm delivers this on its
+    /// dispatch queue (defaults to `DispatchQueue.main`, see SwiftTerm's
+    /// `LocalProcess`), so it runs on the main actor here. We call `super` to
+    /// preserve the fork's delegate-forward semantics, then notify our hook so
+    /// the SwiftUI layer can show the exit-state overlay (#18).
+    public override func processTerminated(_ source: LocalProcess, exitCode: Int32?) {
+        super.processTerminated(source, exitCode: exitCode)
+        onProcessTerminated?(exitCode)
     }
 
     public override func viewDidMoveToWindow() {
