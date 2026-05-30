@@ -231,6 +231,8 @@ Persistent strip at window bottom. Items left-to-right:
 
 ### 8.2 Terminal rendering — THE moat
 
+> **UPDATE (2026-05-30) — C.2 delivered by ADOPTION, not from-scratch rewrite.** The pinned SwiftTerm fork (v1.13.0) already ships a complete Metal renderer (vsync `draw(in:)`, glyph atlas, per-row damage tracking, frame-semaphore double-buffering, ~16.67 ms damage coalescing). The "3-4 month renderer rewrite" phase table below is therefore superseded: the moat is delivered by turning that renderer on (`setUseMetal(true)`) with a CoreGraphics fallback, tracked in the Spectra change `renderer-c2-metal-adoption`. The measured CoreGraphics tearing baseline (~22 mid-state clusters per 12 redraw cycles) is in `docs/renderer-baselines/cg-vs-metal-edit-tool.md`. The from-scratch plan (`docs/superpowers/plans/2026-05-26-renderer-rewrite-c2-frame-loop.md`) is marked superseded. Only the conditional "mid-redraw coalescing" heuristic (phase 4 below) might remain, and only if interactive validation shows the fork's built-in coalescing is insufficient.
+
 **The decision**: Fork SwiftTerm and rewrite the renderer to eliminate tearing entirely (Path A++++).
 
 **Why hard mode**:
@@ -375,9 +377,9 @@ Each numbered question needs explicit user answer before writing-plans phase.
 
 | # | Question | Why it blocks |
 |---|----------|---------------|
-| 10.1 | **Timeline acceptance**: 4-6 months MVP (with AI-assisted coding) — committed? | Determines roadmap aggressiveness |
-| 10.2 | **Renderer rewrite expertise**: (a) maintainer has terminal-emulator depth / (b) finding collaborator / (c) learn-on-the-way | Determines phase 1 ramp + risk profile |
-| 10.3 | **No vanilla SwiftTerm interim ship** — confirmed? | Affects launch narrative |
+| 10.1 | ~~**Timeline acceptance**: 4-6 months MVP~~ → **REVISED 2026-05-30**: the renderer "moat" is largely pre-built in the fork (see § 8.2 update), so the 3-4 month renderer line item collapses to adoption + interactive validation; MVP timeline is materially shorter | Determines roadmap aggressiveness |
+| 10.2 | ~~**Renderer rewrite expertise**~~ → **LOWERED 2026-05-30**: adopting the fork's existing Metal renderer needs far less terminal-emulator depth than a from-scratch rewrite; deep expertise is only needed if the conditional mid-redraw coalescing heuristic proves necessary | Determines phase 1 ramp + risk profile |
+| 10.3 | ~~**No vanilla SwiftTerm interim ship** — confirmed?~~ → **RESOLVED 2026-05-30** (via `renderer-c2-metal-adoption` D5): adopting the fork's GPU Metal renderer IS the differentiated zero-tearing moat, not a vanilla interim ship (vanilla = the upstream CoreGraphics path that tears) | Affects launch narrative |
 | 10.4 | **PDF pane**: always visible with empty state, OR conditional (only when PDF bound)? | Layout invariant |
 | 10.5 | ~~**Activity bar**: confirm inclusion~~ → **RESOLVED 2026-05-25**: Keep activity bar with icons Files / Search / Sessions / Settings / Account | Layout invariant |
 | 10.6 | ~~**Status bar items**~~ → **RESOLVED 2026-05-25**: All 4 items confirmed for v1.0 (Account, Cost, Auto-handle status, Token usage) | Layout invariant |

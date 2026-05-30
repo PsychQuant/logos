@@ -7,6 +7,20 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **Terminal adopts the fork's Metal GPU renderer (C.2 moat)** (`renderer-c2-metal-adoption`).
+  The terminal view now enables the SwiftTerm fork's existing Metal renderer
+  (`setUseMetal(true)` with per-row persistent buffering) once it is attached to a
+  window, routing output through the GPU vsync draw loop with damage coalescing
+  instead of the CoreGraphics draw-immediately path that presented a transient
+  blank frame between a Claude clear and its reprint (~22 mid-state clusters per
+  12 redraw cycles measured on CoreGraphics — see
+  `docs/renderer-baselines/cg-vs-metal-edit-tool.md`). Hardware without Metal
+  falls back to CoreGraphics (no regression). This supersedes the from-scratch
+  renderer-rewrite plan; the moat is delivered by adoption. The enable/skip/once/
+  fallback logic is unit-tested via `MetalAdoptionPolicy`; the live tearing-removal
+  result is confirmed by interactive validation on the running app (the SwiftTerm
+  view cannot be instantiated in `swift test`).
+
 - **BREAKING (internal): multi-account credential isolation** ([#12](https://github.com/PsychQuant/logos/issues/12)).
   Account switching no longer writes the shared system Keychain entry
   (`Claude Code-credentials`). The cross-identity `SecItem` write that could

@@ -1,5 +1,8 @@
 # Sub-plan C.2 — Frame-Rate Renderer Loop (The Moat, Phase 2)
 
+> **⚠️ SUPERSEDED (2026-05-30) — do NOT execute this plan.**
+> This plan predates the discovery that the pinned SwiftTerm fork (v1.13.0) **already ships a complete Metal renderer** (`MetalTerminalRenderer`: vsync `draw(in:)`, glyph atlas, per-row damage tracking, frame-semaphore double-buffering, ~16.67 ms damage coalescing). Logos simply never called `setUseMetal(true)`. Building the from-scratch CVDisplayLink + cell-grid damage buffer described below would reinvent that infrastructure. C.2 is now delivered by **adopting** the fork's renderer, tracked in the Spectra change `renderer-c2-metal-adoption` (openspec/changes/). The measured CoreGraphics tearing baseline that motivates it is in `docs/renderer-baselines/cg-vs-metal-edit-tool.md`. Kept below for historical context only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. **Do not attempt to compress this work into a single session** — phases of this sub-plan involve genuine systems programming risk. Stop and ask if uncertain.
 
 > **Prerequisites:** Sub-plan C.1 complete (fork in place, capture/replay harness working, retrospective filled). Read `docs/renderer-c1-retrospective.md` first.
