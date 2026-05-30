@@ -75,6 +75,16 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **`claude login` browser now opens automatically** ([#17](https://github.com/PsychQuant/logos/issues/17)).
+  claude prints the login OAuth URL but its own browser-open (npm `open` → macOS
+  `open`) does not foreground a browser from Logos's spawned-PTY launchd session,
+  so users had to copy a ~400-char URL by hand on every account login (every
+  account is needs-reauth after the #12 credential-isolation migration). Logos
+  now detects the claude authorize URL in its existing PTY stream-tee
+  (`OAuthURLDetector`) and opens it via `NSWorkspace`. The detector is locked to
+  `claude.com` + `/cai/oauth/authorize` (never a general URL opener), reassembles
+  a terminal-wrapped URL, and opens each distinct URL once.
+
 - **Launch hang on Finder/Spotlight start** ([#2](https://github.com/PsychQuant/logos/issues/2))
   — GUI-launched Logos froze on a loading spinner because
   `MainScene.autoLoadWorkspaceIfNeeded` used `FileManager.default.currentDirectoryPath`
