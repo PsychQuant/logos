@@ -49,6 +49,9 @@ struct SwiftTermView: NSViewRepresentable {
         let parser: PatternParser
         weak var view: TeedLocalProcessTerminalView?
         private var hasStarted = false
+        /// Opens the claude login OAuth URL natively (#17) — claude's own
+        /// browser-open fails inside Logos's spawned-PTY launchd context.
+        private var oauthDetector = OAuthURLDetector()
 
         init(
             processConfig: ClaudeProcessConfig,
@@ -66,6 +69,16 @@ struct SwiftTermView: NSViewRepresentable {
         func handleChunk(_ bytes: [UInt8]) {
             guard let text = String(bytes: bytes, encoding: .utf8) else { return }
             let buffered = parser.append(text)
+
+            // #17: open the claude login OAuth URL natively. claude prints the
+            // URL but its own browser-open (npm `open` → macOS `open`) does not
+            // foreground a browser from Logos's spawned-PTY launchd session.
+            // The detector is locked to the claude authorize URL and yields each
+            // distinct URL once.
+            if let loginURL = oauthDetector.detect(in: buffered) {
+                NSWorkspace.shared.open(loginURL)
+            }
+
             if let response = engine.processChunk(buffered) {
                 // Inject into PTY stdin via the LocalProcess.
                 view?.process.send(data: ArraySlice(response))
