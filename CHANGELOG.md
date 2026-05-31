@@ -100,6 +100,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **Settings window no longer crashes on open** ([#20](https://github.com/PsychQuant/logos/issues/20)).
+  The `Settings` scene is separate from the main `WindowGroup` and does not inherit
+  its environment, but `SettingsWindow`'s tabs read `@Environment(Type.self)`
+  (`GeneralSettings` / `TerminalConfig` / `AutoHandleEngine` / `AdvancedSettings` /
+  `WorkspaceModel`) with nothing injected — so opening Settings (⌘,) trapped
+  (`EnvironmentValues.subscript.getter` assertionFailure → `EXC_BREAKPOINT`/SIGTRAP).
+  The shared `@Observable` models are now owned by `LogosApp` (App-level `@State`)
+  and injected into BOTH scenes, so Settings opens and edits the same instances the
+  app uses. Pre-existing bug, surfaced by the first-ever Settings open (while testing
+  #19's toggle). Full env set is injected so adding an `@Environment` to a tab later
+  can't silently re-introduce the crash.
+
 - **`claude login` browser now opens automatically** ([#17](https://github.com/PsychQuant/logos/issues/17)).
   claude prints the login OAuth URL but its own browser-open (npm `open` → macOS
   `open`) does not foreground a browser from Logos's spawned-PTY launchd session,

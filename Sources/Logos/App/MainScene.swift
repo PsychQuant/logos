@@ -3,16 +3,20 @@ import AppKit
 
 struct MainScene: Scene {
 
-    @State private var layout = WindowLayoutState()
-    @State private var activityBar = ActivityBarSelection()
-    @State private var statusBar = StatusBarViewModel()
-    @State private var terminalConfig = TerminalConfig()
-    @State private var autoHandleEngine = AutoHandleEngine()
-    @State private var accountManager = AccountManager(store: KeychainCredentialStore())
-    @State private var workspace = WorkspaceModel()
-    @State private var pdfPreview = PDFLivePreviewModel()
-    @State private var generalSettings = GeneralSettings()
-    @State private var advancedSettings = AdvancedSettings()
+    // Owned by `LogosApp` as App-level `@State` and injected into BOTH the main
+    // WindowGroup and the `Settings` scene (#20). A separate `Settings` scene does
+    // NOT inherit the WindowGroup's environment — these must be the SAME instances
+    // shared across both scenes so Settings edits affect the running app.
+    let layout: WindowLayoutState
+    let activityBar: ActivityBarSelection
+    let statusBar: StatusBarViewModel
+    let terminalConfig: TerminalConfig
+    let autoHandleEngine: AutoHandleEngine
+    let accountManager: AccountManager
+    let workspace: WorkspaceModel
+    let pdfPreview: PDFLivePreviewModel
+    let generalSettings: GeneralSettings
+    let advancedSettings: AdvancedSettings
 
     var body: some Scene {
         WindowGroup("Logos") {
