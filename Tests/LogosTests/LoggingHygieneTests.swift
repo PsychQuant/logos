@@ -9,8 +9,8 @@ import Foundation
 @Suite("LoggingHygiene")
 struct LoggingHygieneTests {
 
-    @Test("no diagnostic NSLog or print in Sources/Logos (use Log.<category> os.Logger)")
-    func noNSLogOrStrayPrint() throws {
+    @Test("no diagnostic NSLog/print/os_log/debugPrint in Sources/Logos (use Log.<category> os.Logger)")
+    func noDiagnosticLoggingEscapeHatches() throws {
         let sourcesDir = Self.repoRoot()
             .appendingPathComponent("Sources")
             .appendingPathComponent("Logos")
@@ -22,9 +22,20 @@ struct LoggingHygieneTests {
             return
         }
 
-        // `print(` not preceded by an identifier char or `.` (avoids matching
-        // `debugPrint(`, `foo.print(`, `_printChanges(`).
-        let printPattern = #"(^|[^A-Za-z0-9_.])print\("#
+        // Diagnostic-logging escape hatches to forbid. The bare `print(` regex
+        // excludes a leading identifier char or `.` so method calls (`foo.print(`,
+        // `_printChanges(`) don't false-positive — but that same exclusion lets the
+        // fully-qualified free function `Swift.print(` slip through, so it (plus the
+        // `os_log(` C API and `debugPrint(`, which the lowercase-`print(` regex
+        // never matches) get explicit literal checks. PsychQuant/logos#22 verify
+        // (Devil's Advocate) proved `Swift.print(` evaded the original guard.
+        //
+        // Known limitation: the full-line `//` skip handles only leading-comment
+        // lines, not trailing inline comments or string literals — a benign
+        // `// print(` could false-positive. No such line exists in Sources/Logos
+        // today; if one appears, prefer rewording over weakening this guard.
+        let printRegex = #"(^|[^A-Za-z0-9_.])print\("#
+        let literalForbidden = ["NSLog(", "os_log(", "debugPrint(", "Swift.print("]
         var offenders: [String] = []
 
         for case let url as URL in enumerator where url.pathExtension == "swift" {
@@ -32,17 +43,17 @@ struct LoggingHygieneTests {
             for (idx, rawLine) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let line = String(rawLine)
                 if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
-                let hasNSLog = line.contains("NSLog(")
-                let hasPrint = line.range(of: printPattern, options: .regularExpression) != nil
-                if hasNSLog || hasPrint {
-                    offenders.append("\(url.lastPathComponent):\(idx + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                let hit: String? = literalForbidden.first(where: { line.contains($0) })
+                    ?? (line.range(of: printRegex, options: .regularExpression) != nil ? "print(" : nil)
+                if let hit {
+                    offenders.append("\(url.lastPathComponent):\(idx + 1): [\(hit)] \(line.trimmingCharacters(in: .whitespaces))")
                 }
             }
         }
 
         #expect(
             offenders.isEmpty,
-            "diagnostic NSLog/print found — use Log.<category> (os.Logger) instead:\n\(offenders.joined(separator: "\n"))"
+            "diagnostic NSLog/print/os_log/debugPrint found — use Log.<category> (os.Logger) instead:\n\(offenders.joined(separator: "\n"))"
         )
     }
 
