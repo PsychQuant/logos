@@ -43,17 +43,25 @@ struct ClaudeProcessConfigTests {
         #expect(cfg.arguments.contains("--help"))
     }
 
-    // E-Task 4: per-account HOME injection
-
-    @Test("HOME overridden when account provided")
-    func homeOverride() {
+    // #21: HOME must NOT be overridden to the per-account dir. macOS resolves the
+    // login keychain via $HOME ($HOME/Library/Keychains/login.keychain-db); a
+    // per-account home has none, so claude's credential SecItemAdd fails with
+    // 「找不到鑰匙圈來儲存」. Per-account isolation is via CLAUDE_CONFIG_DIR +
+    // CLAUDE_SECURESTORAGE_CONFIG_DIR (the keychain is per-login-user), NOT HOME.
+    @Test("account spawn keeps inherited HOME (keychain preserved) but isolates config dirs")
+    func homeNotOverriddenForAccount() {
         let account = Account(id: "test-acc", label: "work")
         let cfg = ClaudeProcessConfig(
             executablePath: "/usr/local/bin/claude",
-            account: account
+            account: account,
+            baseEnvironment: ["HOME": "/Users/realuser", "PATH": "/usr/bin"]
         )
-        #expect(cfg.environment["HOME"] == account.homeDirectoryPath)
-        #expect(cfg.environment["HOME"]?.hasSuffix("/.logos/accounts/test-acc") == true)
+        // HOME stays the inherited real home — NOT the per-account dir.
+        #expect(cfg.environment["HOME"] == "/Users/realuser")
+        #expect(cfg.environment["HOME"] != account.homeDirectoryPath)
+        // Isolation preserved via the config-dir env vars (independent of HOME).
+        #expect(cfg.environment["CLAUDE_CONFIG_DIR"] == account.configDirPath)
+        #expect(cfg.environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == account.configDirPath)
     }
 
     @Test("HOME unchanged when no account")

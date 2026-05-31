@@ -100,6 +100,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **`claude login` can save credentials again — no more 「找不到鑰匙圈來儲存」 dialog** ([#21](https://github.com/PsychQuant/logos/issues/21)).
+  For #12's per-account isolation, Logos spawned claude with `HOME` overridden to the
+  per-account dir (`~/.logos/accounts/<id>/`). But macOS resolves the login keychain via
+  `$HOME` (`$HOME/Library/Keychains/login.keychain-db`), and the per-account home has none —
+  so claude's credential `SecItemAdd` failed with the macOS "找不到鑰匙圈來儲存「<user>」"
+  reset dialog and the login couldn't persist. The HOME override is removed: the keychain is
+  per-login-user, so per-account isolation needs only `CLAUDE_CONFIG_DIR` +
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` (both unchanged) — never a per-account HOME. claude's
+  config/history stays isolated via `CLAUDE_CONFIG_DIR` regardless of HOME. Root cause
+  confirmed by reproduction (`HOME=<empty-dir> security add-generic-password` triggers the
+  exact dialog; real HOME succeeds).
+
 - **Settings window no longer crashes on open** ([#20](https://github.com/PsychQuant/logos/issues/20)).
   The `Settings` scene is separate from the main `WindowGroup` and does not inherit
   its environment, but `SettingsWindow`'s tabs read `@Environment(Type.self)`

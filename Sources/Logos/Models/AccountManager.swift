@@ -178,11 +178,14 @@ public final class AccountManager {
         persistToDefaults()
     }
 
-    // MARK: - HOME tree (deprecated for credentials; kept for per-account history)
+    // MARK: - Per-account config dir (the CLAUDE_CONFIG_DIR target)
 
-    /// Create per-account HOME tree at ~/.logos/accounts/<id>/.
-    /// E.2: No longer writes .credentials.json (claude reads Keychain, not file).
-    /// Still useful for per-account history isolation if HOME env override is used.
+    /// Create the per-account `.claude` directory at `~/.logos/accounts/<id>/.claude`.
+    /// This is the `CLAUDE_CONFIG_DIR` target that isolates each account's claude
+    /// config/history (see `ClaudeProcessConfig`). E.2: does NOT write
+    /// .credentials.json (claude uses the system Keychain). #21: HOME is no longer
+    /// overridden for the spawn, but this dir is still required as the
+    /// CLAUDE_CONFIG_DIR target.
     public func materializeHomeTree(for account: Account) throws {
         let fm = FileManager.default
         let homePath = account.homeDirectoryPath

@@ -47,10 +47,17 @@ public struct ClaudeProcessConfig: Sendable {
             // from CLAUDE_SECURESTORAGE_CONFIG_DIR first and CLAUDE_CONFIG_DIR
             // only as a fallback. Set BOTH to the same per-account dir so claude
             // stores/reads creds under `Claude Code-credentials-<hash>` instead
-            // of the shared bare entry. HOME stays per-account for history
-            // isolation; it does NOT affect the credential service name.
+            // of the shared bare entry.
+            //
+            // HOME is deliberately NOT overridden (#21). macOS resolves the login
+            // keychain via $HOME ($HOME/Library/Keychains/login.keychain-db); a
+            // per-account home has no keychain, so claude's credential SecItemAdd
+            // would fail with the macOS "找不到鑰匙圈來儲存" dialog and the login
+            // couldn't be saved. The keychain is per-login-user, so per-account
+            // isolation needs only the two CLAUDE_*_CONFIG_DIR vars below — never a
+            // per-account HOME. claude's config/history is isolated via
+            // CLAUDE_CONFIG_DIR regardless of HOME.
             let configDir = account.configDirPath
-            env["HOME"] = account.homeDirectoryPath
             env["CLAUDE_CONFIG_DIR"] = configDir
             env["CLAUDE_SECURESTORAGE_CONFIG_DIR"] = configDir
         }
