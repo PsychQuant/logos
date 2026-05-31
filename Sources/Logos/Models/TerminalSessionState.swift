@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Observable lifecycle state for the hosted claude session in a terminal pane
 /// (PsychQuant/logos#18). Drives the Ghostty-faithful exit-state overlay — when
@@ -53,6 +54,9 @@ public final class TerminalSessionState {
     /// Record that the hosted process terminated with the given exit code.
     public func markExited(_ code: Int32?) {
         phase = .exited(code: code)
+        // State-machine transition (#22), distinct from the PTY-level exit
+        // logged in SwiftTermView. exit code + abnormal flag are non-sensitive.
+        Log.session.notice("phase → exited — code=\(code.map { String($0) } ?? "signal", privacy: .public) abnormal=\(self.isAbnormal, privacy: .public)")
     }
 
     /// Restart the session: bump `generation` (recreates the terminal view →
@@ -60,5 +64,6 @@ public final class TerminalSessionState {
     public func restart() {
         generation += 1
         phase = .running
+        Log.session.notice("restart — generation=\(self.generation, privacy: .public)")
     }
 }

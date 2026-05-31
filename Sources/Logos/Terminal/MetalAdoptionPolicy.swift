@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Pure, view-independent decision for adopting the GPU Metal renderer
 /// (renderer-c2-metal-adoption).
@@ -29,7 +30,9 @@ struct MetalAdoptionPolicy {
             try enable()
             return true
         } catch {
-            NSLog("Logos: Metal renderer unavailable, staying on CoreGraphics: \(error)")
+            // Error may carry filesystem paths from the renderer init — keep the
+            // description default-redacted (#22 D3).
+            Log.renderer.error("Metal renderer unavailable, staying on CoreGraphics: \(String(describing: error))")
             return false
         }
     }

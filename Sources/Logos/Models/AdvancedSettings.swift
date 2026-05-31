@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
@@ -21,13 +22,19 @@ public final class AdvancedSettings {
             let trimmed = newValue?.trimmingCharacters(in: .whitespaces)
             _claudePathOverride = (trimmed?.isEmpty == false) ? trimmed : nil
             save()
+            // Log only whether an override is set, never the path (#22 D3).
+            Log.settings.notice("claudePathOverride changed — set=\(self._claudePathOverride != nil, privacy: .public)")
         }
     }
 
     @ObservationIgnored private var _logLevel: LogLevel = .info
     public var logLevel: LogLevel {
         get { _logLevel }
-        set { _logLevel = newValue; save() }
+        set {
+            _logLevel = newValue
+            save()
+            Log.settings.notice("logLevel changed — level=\(newValue.rawValue, privacy: .public)")
+        }
     }
 
     @ObservationIgnored private var _dangerouslySkipPermissions: Bool = false
@@ -35,7 +42,11 @@ public final class AdvancedSettings {
     /// Opt-in fallback that bypasses ALL permission prompts — default OFF.
     public var dangerouslySkipPermissions: Bool {
         get { _dangerouslySkipPermissions }
-        set { _dangerouslySkipPermissions = newValue; save() }
+        set {
+            _dangerouslySkipPermissions = newValue
+            save()
+            Log.settings.notice("dangerouslySkipPermissions changed — enabled=\(newValue, privacy: .public)")
+        }
     }
 
     /// Extra args fed into `ClaudeProcessConfig.extraArgs` at spawn. Single

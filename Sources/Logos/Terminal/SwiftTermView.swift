@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import SwiftTerm
+import os
 
 /// SwiftUI wrapper around SwiftTerm's LocalProcessTerminalView.
 /// Owns the NSView; configures theme + font; spawns subprocess on appear.
@@ -77,6 +78,9 @@ struct SwiftTermView: NSViewRepresentable {
         /// instead of a frozen pane. CLEAN-exit path only — a future crash
         /// watchdog must branch on `sessionState.isAbnormal`.
         func handleTermination(_ exitCode: Int32?) {
+            // PTY-level exit signal (#22). exit code is non-sensitive → public;
+            // a signal-kill yields nil, logged as "signal".
+            Log.terminal.notice("claude process exited — code=\(exitCode.map { String($0) } ?? "signal", privacy: .public)")
             sessionState.markExited(exitCode)
         }
 
@@ -115,10 +119,11 @@ struct SwiftTermView: NSViewRepresentable {
                 do {
                     try accountManager.materializeHomeTree(for: account)
                 } catch {
-                    // Could not write credentials — claude will likely fail to auth.
-                    // For v1, log and let claude show its own auth-failed message.
-                    // Future (sub-plan H): show in-app banner.
-                    print("Logos: failed to materialize HOME for account \(account.id): \(error)")
+                    // Could not write the per-account config dir — claude will
+                    // likely fail to auth. Previously a `print` whose stdout
+                    // vanished for a GUI app (#22 — the silent failure hole).
+                    // account id + error description stay default-redacted (D3).
+                    Log.terminal.error("failed to materialize config dir for account \(account.id): \(String(describing: error))")
                 }
             }
 
@@ -129,6 +134,10 @@ struct SwiftTermView: NSViewRepresentable {
                 execName: nil,
                 currentDirectory: processConfig.workingDirectory
             )
+            // Spawn lifecycle point (#22). Scalars only: arg count, dangerous-mode
+            // flag, account-present — all non-sensitive → public. The executable
+            // path and env stay off the log entirely (carry username / paths).
+            Log.terminal.notice("spawned claude — args=\(self.processConfig.arguments.count, privacy: .public) dangerous=\(self.processConfig.arguments.contains("--dangerously-skip-permissions"), privacy: .public) account=\(self.processConfig.account != nil, privacy: .public)")
         }
     }
 }

@@ -13,8 +13,6 @@ public final class WorkspaceModel {
     /// exit doesn't flip the spinner off while a newer load is in flight (#4).
     @ObservationIgnored private var loadEpoch: Int = 0
 
-    @ObservationIgnored private static let log = Logger(subsystem: "app.getlogos.logos", category: "workspace")
-
     public private(set) var rootNode: FileNode?
     public private(set) var openTabs: [OpenFileTab] = []
     public private(set) var activeTab: OpenFileTab?
@@ -94,7 +92,7 @@ public final class WorkspaceModel {
             // Log the classification only — never the raw path / underlying error,
             // which carry the username + project names. Forcing `.public` on those
             // would un-redact PII in sysdiagnose / Console exports (verify finding).
-            log.error("workspace load failed: \(String(describing: loadError), privacy: .public)")
+            Log.workspace.error("workspace load failed: \(String(describing: loadError), privacy: .public)")
             if loadError.isStale {
                 persistence.clear()
             }

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
@@ -116,6 +117,8 @@ public final class AccountManager {
         guard accounts.contains(where: { $0.id == accountId }) else { return }
         activeAccountId = accountId
         persistToDefaults()
+        // Account id is identifying — keep it redacted (#22 D3).
+        Log.account.notice("active account set — id=\(accountId, privacy: .private)")
     }
 
     /// Re-capture current system Claude credentials into the currently-active
@@ -168,6 +171,8 @@ public final class AccountManager {
     /// or deletes the system Keychain or the bare `Claude Code-credentials` entry.
     public func migrateToIsolatedCredentialsIfNeeded() {
         guard !defaults.bool(forKey: DefaultsKey.migratedIsolated) else { return }
+        // One-time migration — count is non-sensitive (#22 D3).
+        Log.account.notice("migrating to isolated credentials — accounts=\(self.accounts.count, privacy: .public)")
         for account in accounts {
             try? ensureDirectory(account.configDirPath)
             if !fileExists(credentialsFilePath(for: account)) {
@@ -192,6 +197,8 @@ public final class AccountManager {
         let claudePath = "\(homePath)/.claude"
         try fm.createDirectory(atPath: claudePath, withIntermediateDirectories: true)
         // E.2: no longer writes .credentials.json. claude reads system Keychain.
+        // Account id stays redacted; the path is never logged (#22 D3).
+        Log.account.notice("materialized config dir — account=\(account.id, privacy: .private)")
     }
 
     private func loadFromDefaults() {

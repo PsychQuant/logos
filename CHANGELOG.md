@@ -72,6 +72,22 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Internal
 
+- **Consolidated diagnostic logging onto `os.Logger` + lifecycle log points**
+  ([#22](https://github.com/PsychQuant/logos/issues/22)). Logging was split across
+  three mechanisms — `os.Logger` (1 site), `NSLog` (2 sites), and a `print`
+  (1 site, the `materializeHomeTree` failure path whose stdout vanishes for a GUI
+  app). All now route through a single `Log` factory (`Sources/Logos/Services/Log.swift`)
+  exposing one `Logger` per category (`terminal` / `account` / `session` /
+  `renderer` / `settings` / `workspace`) under the shared `app.getlogos.logos`
+  subsystem. Lifecycle events (claude spawn/exit, session phase/restart, account
+  switch/migrate/materialize, settings changes) are logged at `.notice` so they
+  persist to the unified-log store and are queryable with zero GUI / zero TCC:
+  `log show --predicate 'subsystem == "app.getlogos.logos"'`. Privacy follows
+  `os.Logger`'s default redaction — only non-sensitive scalars (exit code, bool,
+  enum case, counts, generation) are `.public`; account ids, paths, errors, and
+  env stay `<private>`. A `LoggingHygieneTests` source-scan guards against new
+  `NSLog`/`print` regressions. Suite 206/206.
+
 - **Test hygiene** ([#10](https://github.com/PsychQuant/logos/issues/10)). (a)
   `WorkspaceModelTests` no longer write to `UserDefaults.standard` — model
   construction now goes through an isolated-suite helper, so a save side-effect

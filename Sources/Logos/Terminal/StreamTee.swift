@@ -1,5 +1,6 @@
 import Foundation
 import SwiftTerm
+import os
 
 /// Subclass that taps bytes flowing from subprocess → terminal renderer.
 /// Each chunk is forwarded to the parser/engine for auto-handle scanning,
@@ -88,7 +89,7 @@ public final class TeedLocalProcessTerminalView: LocalProcessTerminalView {
             window?.makeFirstResponder(self)
             // Diagnostic for interactive validation: confirms the GPU path
             // engaged rather than silently falling back to CoreGraphics.
-            NSLog("Logos: terminal Metal renderer engaged")
+            Log.renderer.notice("terminal Metal renderer engaged")
         }
     }
 }
