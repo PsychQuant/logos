@@ -7,6 +7,15 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Dangerous-mode launch toggle** ([#19](https://github.com/PsychQuant/logos/issues/19)).
+  Settings → Advanced → Permissions adds a toggle that launches claude with
+  `--dangerously-skip-permissions` (bypass all permission prompts). Default OFF
+  with an inline warning. A persisted `AdvancedSettings.dangerouslySkipPermissions`
+  (back-compat: optional `PersistedDTO` field so a legacy `advanced.json` still
+  decodes — a non-optional field would reset all advanced settings) feeds the
+  existing `ClaudeProcessConfig.extraArgs` hook via a `claudeExtraArgs` computed
+  property; takes effect on new sessions / after a restart (#18).
+
 - **Terminal exit-state overlay (no more frozen pane after `/quit`)** ([#18](https://github.com/PsychQuant/logos/issues/18)).
   claude was spawned directly as the PTY leader with no termination handling, so
   exiting it (`/quit` / `/exit`) left a frozen, unusable pane. The terminal now

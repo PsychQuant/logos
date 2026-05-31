@@ -29,6 +29,22 @@ struct AdvancedSettingsTab: View {
                 }
             }
 
+            Section("Permissions") {
+                Toggle(
+                    "Skip all permission prompts (dangerous mode)",
+                    isOn: $settings.dangerouslySkipPermissions
+                )
+                Label(
+                    "Launches claude with --dangerously-skip-permissions: it runs tools, edits files, and executes commands without asking. Enable only in trusted directories.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(settings.dangerouslySkipPermissions ? Color.orange : Color.secondary)
+                Text("Applies to new sessions / after restart.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Logging") {
                 Picker("Log level", selection: $settings.logLevel) {
                     ForEach(AdvancedSettings.LogLevel.allCases) { l in

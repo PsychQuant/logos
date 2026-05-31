@@ -19,7 +19,8 @@ struct TerminalPaneView: View {
             if let active = accountMgr.active, let claudePath = effectivePath {
                 let processConfig = ClaudeProcessConfig(
                     executablePath: claudePath,
-                    account: active
+                    account: active,
+                    extraArgs: advanced.claudeExtraArgs  // #19: dangerous-mode toggle
                 )
                 SwiftTermView(
                     config: config,

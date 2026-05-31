@@ -30,18 +30,34 @@ public final class AdvancedSettings {
         set { _logLevel = newValue; save() }
     }
 
+    @ObservationIgnored private var _dangerouslySkipPermissions: Bool = false
+    /// Launch claude with `--dangerously-skip-permissions` (PsychQuant/logos#19).
+    /// Opt-in fallback that bypasses ALL permission prompts — default OFF.
+    public var dangerouslySkipPermissions: Bool {
+        get { _dangerouslySkipPermissions }
+        set { _dangerouslySkipPermissions = newValue; save() }
+    }
+
+    /// Extra args fed into `ClaudeProcessConfig.extraArgs` at spawn. Single
+    /// source of the dangerous-mode flag literal (#19).
+    public var claudeExtraArgs: [String] {
+        dangerouslySkipPermissions ? ["--dangerously-skip-permissions"] : []
+    }
+
     public init(persistence: SettingsPersistence = SettingsPersistence()) {
         self.persistence = persistence
         if let dto: PersistedDTO = try? persistence.load(from: Self.filename) {
             _claudePathOverride = dto.claudePathOverride
             _logLevel = dto.logLevel
+            _dangerouslySkipPermissions = dto.dangerouslySkipPermissions ?? false
         }
     }
 
     private func save() {
         let dto = PersistedDTO(
             claudePathOverride: _claudePathOverride,
-            logLevel: _logLevel
+            logLevel: _logLevel,
+            dangerouslySkipPermissions: _dangerouslySkipPermissions
         )
         try? persistence.save(dto, to: Self.filename)
     }
@@ -49,5 +65,8 @@ public final class AdvancedSettings {
     private struct PersistedDTO: Codable {
         let claudePathOverride: String?
         let logLevel: LogLevel
+        // Optional so a legacy advanced.json (predating this field) still decodes —
+        // a non-optional Bool would fail the decode and reset ALL settings (#19).
+        let dangerouslySkipPermissions: Bool?
     }
 }
