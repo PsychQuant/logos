@@ -39,22 +39,49 @@ public struct OAuthURLDetector {
     /// first time it appears (reassembling across terminal wrapping); `nil`
     /// otherwise. Idempotent per distinct URL.
     public mutating func detect(in buffer: String) -> URL? {
-        guard let startRange = buffer.range(of: Self.startToken) else { return nil }
+        // Scan EVERY authorize-URL token in the buffer, not just the first
+        // (#30 verify, codex P2). With the reset-immune `RollingTerminalBuffer`
+        // (#30) an already-`seen` URL lingers in the scan window, so returning
+        // `nil` on the first (stale) token would SHADOW a genuinely new URL that
+        // appears later in the same buffer — e.g. a failed login that re-prompts.
+        // Return the first token that reassembles to a valid, not-yet-seen URL;
+        // advance past stale/invalid tokens and keep looking.
+        var searchStart = buffer.startIndex
+        while let startRange = buffer.range(of: Self.startToken,
+                                            range: searchStart..<buffer.endIndex) {
+            let reassembled = Self.reassembleURL(in: buffer, from: startRange.lowerBound)
+            // `&&` short-circuits, so `seen.insert` only runs for a structurally
+            // valid authorize URL — invalid candidates never pollute `seen`. An
+            // already-seen URL yields `inserted == false` → fall through to the
+            // next token (preserving "open each distinct URL once").
+            if let url = URL(string: reassembled),
+               url.host == Self.requiredHost,
+               url.path == Self.requiredPath,
+               seen.insert(reassembled).inserted {
+                return url
+            }
+            searchStart = startRange.upperBound
+        }
+        return nil
+    }
 
-        // Accumulate URL-valid characters from the start of the token. The
-        // terminal hard-wraps the long URL with `\r\r\n` (CR CR LF) every ~78
-        // columns, so only the LINE FEED (`\n`) counts as a line break — a single
-        // `\n` is a wrap (skip), a blank line (>= 2 `\n`) is the structural
-        // end-of-URL boundary. `\r`, spaces and tabs are wrap padding and are
-        // skipped without ending the URL. Counting `\r` toward the boundary would
-        // truncate the URL at the first wrap (the two `\r`s in `\r\r\n` alone
-        // reach the >= 2 threshold). Stopping at the blank line avoids swallowing
-        // the following "Paste code here >" prompt, whose letters are themselves
-        // URL-valid characters (and whose spaces the terminal renders as cursor
-        // moves, so they vanish after ANSI stripping).
+    /// Reassemble a candidate URL string starting at `start`, skipping terminal
+    /// wrap whitespace and stopping at the structural blank-line boundary.
+    ///
+    /// The terminal hard-wraps the long URL with `\r\r\n` (CR CR LF) every ~78
+    /// columns, so only the LINE FEED (`\n`) counts as a line break — a single
+    /// `\n` is a wrap (skip), a blank line (>= 2 `\n`) is the structural
+    /// end-of-URL boundary. `\r`, spaces and tabs are wrap padding and are
+    /// skipped without ending the URL. Counting `\r` toward the boundary would
+    /// truncate the URL at the first wrap (the two `\r`s in `\r\r\n` alone
+    /// reach the >= 2 threshold). Stopping at the blank line avoids swallowing
+    /// the following "Paste code here >" prompt, whose letters are themselves
+    /// URL-valid characters (and whose spaces the terminal renders as cursor
+    /// moves, so they vanish after ANSI stripping).
+    private static func reassembleURL(in buffer: String, from start: String.Index) -> String {
         var reassembled = ""
         var pendingLineFeeds = 0
-        var idx = startRange.lowerBound
+        var idx = start
         while idx < buffer.endIndex {
             let ch = buffer[idx]
             // NOTE: Swift clusters CR+LF into one `Character` ("\r\n"), so the
@@ -73,11 +100,6 @@ public struct OAuthURLDetector {
             }
             idx = buffer.index(after: idx)
         }
-
-        guard let url = URL(string: reassembled),
-              url.host == Self.requiredHost,
-              url.path == Self.requiredPath else { return nil }
-        guard seen.insert(reassembled).inserted else { return nil }
-        return url
+        return reassembled
     }
 }

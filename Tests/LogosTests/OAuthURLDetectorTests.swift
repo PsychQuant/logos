@@ -96,4 +96,20 @@ struct OAuthURLDetectorTests {
         var detector = OAuthURLDetector()
         #expect(detector.detect(in: "just some terminal output, nothing to open") == nil)
     }
+
+    @Test("a new authorize URL is not shadowed by an already-seen earlier one (#30 verify, codex P2)")
+    func detectSecondURLAfterSeenFirstIsNotShadowed() {
+        var detector = OAuthURLDetector()
+        let url1 = "https://claude.com/cai/oauth/authorize?code=true&client_id=AAA-111&state=one"
+        let url2 = "https://claude.com/cai/oauth/authorize?code=true&client_id=BBB-222&state=two"
+        // First login URL opens and is remembered.
+        #expect(detector.detect(in: "Login: \(url1)\n\n")?.absoluteString == url1)
+        // The reset-immune window (#30) keeps url1 resident; a failed login
+        // re-prompts with url2. The detector must skip the stale url1 token and
+        // return the fresh url2 — not nil (the pre-fix first-token-only shadowing).
+        let both = "Login: \(url1)\n\nRetry: \(url2)\n\n"
+        #expect(detector.detect(in: both)?.absoluteString == url2)
+        // url2 is now also seen → no re-open on a subsequent identical scan.
+        #expect(detector.detect(in: both) == nil)
+    }
 }

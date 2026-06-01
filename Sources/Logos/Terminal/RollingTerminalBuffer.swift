@@ -13,9 +13,16 @@ import Foundation
 ///
 /// It holds the last `capacity` **raw** characters and exposes them
 /// ANSI-stripped on read. Storing raw (rather than pre-stripping each chunk)
-/// means an ANSI escape that spans a chunk boundary is stripped correctly — the
-/// strip sees the whole tail at once, exactly as `PatternParser` does — instead
-/// of leaving a partial escape sequence behind.
+/// means an ANSI escape that spans a chunk *boundary* is stripped correctly —
+/// the strip sees the whole tail at once, exactly as `PatternParser` does —
+/// instead of leaving a partial escape sequence behind.
+///
+/// Caveat (harmless): the `capacity` front-truncation can drop the leading
+/// `ESC` of an escape sequence whose tail survives (e.g. `[0m` with no `\x1B`),
+/// which `stripAnsi` then can't strip. This is benign — that orphaned junk sits
+/// at the *front* of the window, while the detectors match their signals (the
+/// short 401 line / the authorize URL) near the freshest *tail*, and a partial
+/// escape can't spell any matched substring.
 @MainActor
 public struct RollingTerminalBuffer {
 

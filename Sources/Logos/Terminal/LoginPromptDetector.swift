@@ -18,8 +18,16 @@ public struct LoginPromptDetector {
     /// `detect` fires only on the `absent → present` rising edge (#30 Item 2a).
     /// This replaces the old one-shot `fired` latch: it still won't storm while
     /// the signal sits in the (rolling) buffer, but a genuinely NEW 401 — after
-    /// the previous one scrolled out — re-fires, and a manual banner dismiss
-    /// needs no detector⇄state plumbing (dismissing creates no new rising edge).
+    /// the previous one scrolled out — re-fires.
+    ///
+    /// Dismiss interaction (#30 verify, codex P3 / DA1): the detector keeps NO
+    /// memory of a banner dismiss — dismissing only clears the UI flag and never
+    /// touches `wasPresent`, so no detector⇄state plumbing is needed. The flip
+    /// side: a dismiss is NOT sticky-for-session. Once the dismissed 401 scrolls
+    /// out of the rolling buffer and a fresh 401 arrives, the rising edge fires
+    /// again and the banner re-surfaces. That is intended (a still-unauthenticated
+    /// session should keep nudging) and `markNeedsAuth` is idempotent, so it
+    /// can't storm — but it does mean the banner can reappear after a dismiss.
     private var wasPresent = false
 
     public init() {}
