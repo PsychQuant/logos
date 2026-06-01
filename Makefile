@@ -25,9 +25,11 @@ coverage: ## Run swift test with coverage + print line % vs the 80% bar (report-
 	 BIN=$$(find "$$(dirname "$$(dirname "$$PROF")")" -maxdepth 1 -name '*.xctest' -type d | head -1); \
 	 if [ -z "$$BIN" ]; then echo "⚠ could not locate .xctest next to $$PROF"; exit 0; fi; \
 	 EXEC="$$BIN/Contents/MacOS/$$(basename "$$BIN" .xctest)"; \
-	 PCT=$$(xcrun llvm-cov export -summary-only "$$EXEC" -instr-profile "$$PROF" \
+	 if ! PCT=$$(xcrun llvm-cov export -summary-only "$$EXEC" -instr-profile "$$PROF" \
 	   -ignore-filename-regex='\.build|Tests/|checkouts' \
-	   | python3 -c 'import json,sys; print(round(json.load(sys.stdin)["data"][0]["totals"]["lines"]["percent"],2))'); \
+	   | python3 -c 'import json,sys; print(round(json.load(sys.stdin)["data"][0]["totals"]["lines"]["percent"],2))'); then \
+	   echo "⚠ coverage extraction failed (toolchain) — report-only"; exit 0; \
+	 fi; \
 	 echo "→ Line coverage (Sources/Logos, unit-only): $$PCT% (target 80%, report-only)"; \
 	 echo "  note: the unit number undercounts the SwiftUI layer — view bodies run only under 'make hosted-tests'."
 

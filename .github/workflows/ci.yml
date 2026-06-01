@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege (#25 verify): this workflow only reads the repo (tests +
+# signing) — no write scopes. Pairs with SHA-pinning the third-party signing
+# action below to shrink the blast radius of a job that holds the signing cert.
+permissions:
+  contents: read
+
 jobs:
   # Hard gate: unit + integration. Needs no window server, no claude, no signing —
   # runs on any macOS runner. Includes the pure UnifiedLogReader parse test; the
@@ -43,9 +49,18 @@ jobs:
             exit 0
           fi
           EXEC="$BIN/Contents/MacOS/$(basename "$BIN" .xctest)"
-          PCT=$(xcrun llvm-cov export -summary-only "$EXEC" -instr-profile "$PROF" \
+          # Wrap the extraction in `if !` so a toolchain failure (llvm-cov error,
+          # non-JSON output, binary/profdata mismatch → python crash) can NOT
+          # red the step: GitHub's default `bash -e` aborts on a failed bare
+          # `PCT=$(…)` assignment, and this lives in the HARD unit gate — without
+          # the guard a flaky tool would fail the PR, contradicting report-only.
+          # (The < 80% threshold line below is already errexit-exempt via `|| echo`.)
+          if ! PCT=$(xcrun llvm-cov export -summary-only "$EXEC" -instr-profile "$PROF" \
             -ignore-filename-regex='\.build|Tests/|checkouts' \
-            | python3 -c 'import json,sys; print(round(json.load(sys.stdin)["data"][0]["totals"]["lines"]["percent"],2))')
+            | python3 -c 'import json,sys; print(round(json.load(sys.stdin)["data"][0]["totals"]["lines"]["percent"],2))'); then
+            echo "::warning title=Coverage extraction failed::llvm-cov/python could not compute coverage (toolchain issue) — report-only, not failing the unit gate"
+            exit 0
+          fi
           echo "Line coverage (Sources/Logos, unit-only): ${PCT}% (target 80%, report-only)"
           python3 -c "import sys; sys.exit(0 if float('${PCT}') >= 80 else 1)" \
             || echo "::warning title=Coverage below target::unit-only line coverage ${PCT}% < 80%. The hosted/UI tests (xcodebuild Track B) add uncounted coverage; this is report-only — see CLAUDE.md → Testing."
@@ -89,7 +104,10 @@ jobs:
       # identity and Track B runs signed.
       - name: Import Apple Development signing cert
         if: steps.cert_check.outputs.has_cert == 'true'
-        uses: apple-actions/import-codesign-certs@v3
+        # SHA-pinned (#25 verify): this job holds the signing cert + password, so
+        # pin to an immutable commit rather than the mutable `@v3` tag (which can
+        # be repointed to arbitrary code). SHA below == tag v3.
+        uses: apple-actions/import-codesign-certs@63fff01cd422d4b7b855d40ca1e9d34d2de9427d # v3
         with:
           p12-file-base64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}

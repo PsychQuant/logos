@@ -110,6 +110,12 @@ Notes:
   ephemeral keychain so `xcodebuild test` runs signed. **Maintainer-only** — secrets
   can't be set by an agent, and forked PRs can't read them (they keep the
   degrade-with-warning path). Without the secrets Track B is local-only.
+  **Entitlement caveat**: the signed run uses `-allowProvisioningUpdates` + Manual
+  signing and works today only because the target has zero profile-requiring
+  entitlements (no sandbox / hardened-runtime / `CODE_SIGN_ENTITLEMENTS`). If the
+  app gains any such capability, `xcodebuild` will hard-fail *inside* the signed
+  branch (CI has no App Store Connect API key to mint a profile) — add an
+  API-key / provisioning-profile step then, don't expect the degrade path to catch it.
 - **Coverage is report-only** (#25): CI prints `Sources/Logos` line coverage vs the
   80% bar + a `::warning::` when under, but never fails the build. Locally:
   `make coverage`. The `swift test` number **undercounts** a SwiftUI app — view
