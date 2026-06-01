@@ -107,8 +107,10 @@ Notes:
   `LogosHostedTests/__Snapshots__/` are recorded on a canonical machine with a
   pinned size + forced `.aqua` appearance. To regenerate after an intentional
   view change, delete the stale PNG(s) (or set `SNAPSHOT_TESTING_RECORD=all`) and
-  re-run `xcodebuild test`. A different macOS / Retina scale may not byte-match —
-  treat snapshots as a single-canonical-environment guard, not a cross-machine gate.
+  re-run `xcodebuild test`. A different macOS version, Retina scale, or **system
+  accent color** may not byte-match (`.aqua` pins light/dark but not the accent,
+  which the active-account circle + prominent buttons track) — treat snapshots as
+  a single-canonical-environment guard, not a cross-machine gate.
 
 ## Brand
 

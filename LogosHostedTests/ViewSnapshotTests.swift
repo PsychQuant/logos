@@ -15,8 +15,13 @@ import SnapshotTesting
 /// hardcode `record: .all` here — that would silently re-record and never assert.
 ///
 /// Cross-environment caveat (#26 Residue): baselines are recorded on a canonical
-/// machine; a different macOS / Retina scale may not byte-match. Pin size +
-/// appearance keeps them stable within a consistent environment.
+/// machine; a different macOS version, Retina scale, or **system accent color**
+/// may not byte-match at `precision: 1`. `.aqua` pins light/dark but NOT the
+/// accent — `AccountRow`'s active circle (`Color.accentColor`) and the overlay's
+/// `.borderedProminent` buttons track `NSColor.controlAccentColor`, so a teammate
+/// on a non-default accent will see a false RED. Pin size + appearance keeps them
+/// stable within a consistent environment; treat them as a single-canonical-env
+/// guard, not a cross-machine gate.
 final class ViewSnapshotTests: XCTestCase {
 
     @MainActor
