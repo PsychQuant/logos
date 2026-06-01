@@ -81,6 +81,7 @@ the project's E2E coverage; Track B grows incrementally.
 | Unit + Integration | `swift test` (or `make tests`) | logic, models, parsers, persistence, logging hygiene; the pure `UnifiedLogReader` parse | nothing special |
 | Track A — headless smoke / E2E | `make smoke` | the critical flow (launch → workspace load → claude spawn → exit) by reading the `os.Logger` trail — no pixels | the `claude` CLI |
 | Track B — UI E2E (XCUITest) | `xcodegen generate` then `xcodebuild test -project Logos.xcodeproj -scheme Logos -destination 'platform=macOS'` | pixel-level behavior logs can't prove (Settings opens without crashing — the #20 regression) | XcodeGen + an Apple Development signing identity |
+| Hosted view tests (XCTest) | same `xcodebuild test` (target `LogosHostedTests`) | the Metal renderer window-attachment wiring (#23) + SwiftUI **snapshot** baselines for stable views (#26) — instantiates views a bare `swift test` segfaults on | XcodeGen + signing (app-hosted; `swift-snapshot-testing`) |
 
 Notes:
 
@@ -102,6 +103,12 @@ Notes:
   gate and runs anywhere; the `e2e` job runs Track A + B but each degrades with a
   visible warning where the runner lacks `claude` / a signing identity — never a
   silent pass.
+- **Snapshot baselines** (#26, `ViewSnapshotTests`): committed PNGs under
+  `LogosHostedTests/__Snapshots__/` are recorded on a canonical machine with a
+  pinned size + forced `.aqua` appearance. To regenerate after an intentional
+  view change, delete the stale PNG(s) (or set `SNAPSHOT_TESTING_RECORD=all`) and
+  re-run `xcodebuild test`. A different macOS / Retina scale may not byte-match —
+  treat snapshots as a single-canonical-environment guard, not a cross-machine gate.
 
 ## Brand
 

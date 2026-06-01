@@ -39,6 +39,11 @@ packages:
   Yams:
     url: https://github.com/jpsim/Yams.git
     from: "5.0.0"
+  # #26 — visual-regression snapshots for stable SwiftUI views. Test-only,
+  # consumed by LogosHostedTests (Xcode-only; not in Package.swift).
+  SnapshotTesting:
+    url: https://github.com/pointfreeco/swift-snapshot-testing.git
+    from: "1.17.0"
 
 targets:
   Logos:
@@ -86,6 +91,8 @@ targets:
       - target: Logos
       - package: SwiftTerm
         product: SwiftTerm
+      - package: SnapshotTesting
+        product: SnapshotTesting
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosHostedTests
