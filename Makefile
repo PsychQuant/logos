@@ -1,4 +1,4 @@
-.PHONY: help build bundle run install uninstall clean release-signed sign-check tests
+.PHONY: help build bundle run install uninstall clean release-signed sign-check tests smoke
 
 APP_NAME        := Logos
 BINARY_NAME     := Logos
@@ -32,6 +32,10 @@ bundle: build ## Build + assemble .app bundle (ad-hoc signed)
 
 run: bundle ## Build + bundle + open
 	@open $(APP_BUNDLE)
+
+smoke: bundle ## Build bundle + run headless smoke / E2E (Track A; launches the app, asserts the os.Logger lifecycle trail)
+	@echo "→ Running headless smoke (LOGOS_SMOKE=1) against $(APP_BUNDLE)..."
+	@LOGOS_SMOKE=1 swift test --filter LogosSmokeTests
 
 install: bundle ## Build + bundle + install to /Applications (replaces existing)
 	@if [ -d "$(INSTALL_PATH)" ]; then \

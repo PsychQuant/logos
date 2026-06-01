@@ -75,6 +75,10 @@ public final class WorkspaceModel {
             model.rootNode = node
             model.lastError = nil          // healthy load clears any prior error (#9)
             persistence.saveLastPath(path)
+            // Success lifecycle marker (#22 follow-up): complements the failure-path
+            // .error below. Top-level child count is non-sensitive (public); the
+            // path itself is never logged (it carries the username + project names).
+            Log.workspace.notice("workspace load succeeded — nodes=\(node.children?.count ?? 0, privacy: .public)")
         } catch is CancellationError {
             // Superseded by a newer load — not a failure, surface nothing (#4/#9).
             return

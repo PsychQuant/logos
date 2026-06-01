@@ -26,6 +26,14 @@ let package = Package(
         .testTarget(
             name: "LogosTests",
             dependencies: ["Logos"]
+        ),
+        // Track A headless smoke / E2E (testing-smoke-e2e-strategy). The pure
+        // UnifiedLogReader parse test runs in any `swift test`; the app-launching
+        // SmokeTests are gated behind the LOGOS_SMOKE env var (set by `make smoke`)
+        // so a plain `swift test` never launches the bundled app.
+        .testTarget(
+            name: "LogosSmokeTests",
+            dependencies: ["Logos"]
         )
     ]
 )

@@ -70,6 +70,39 @@ Spectra (`openspec/`) will be initialized once open design questions are resolve
 - Notarization via `che-mcps-notary` keychain profile (existing pipeline per `~/.claude/CLAUDE.md`)
 - No emoji in code or comments unless explicitly requested by user
 
+## Testing
+
+The test pyramid is two-layered above the unit/integration base (the global
+`common-testing.md` baseline of Unit + Integration + E2E). Both layers below ARE
+the project's E2E coverage; Track B grows incrementally.
+
+| Layer | Command | What it asserts | Needs |
+|-------|---------|-----------------|-------|
+| Unit + Integration | `swift test` (or `make tests`) | logic, models, parsers, persistence, logging hygiene; the pure `UnifiedLogReader` parse | nothing special |
+| Track A — headless smoke / E2E | `make smoke` | the critical flow (launch → workspace load → claude spawn → exit) by reading the `os.Logger` trail — no pixels | the `claude` CLI |
+| Track B — UI E2E (XCUITest) | `xcodegen generate` then `xcodebuild test -project Logos.xcodeproj -scheme Logos -destination 'platform=macOS'` | pixel-level behavior logs can't prove (Settings opens without crashing — the #20 regression) | XcodeGen + an Apple Development signing identity |
+
+Notes:
+
+- **Track A is gated**: the app-launching `Smoke` suite only runs under
+  `LOGOS_SMOKE=1` (set by `make smoke`), so a plain `swift test` never launches
+  the app. The `UnifiedLogReader` parse test runs in every `swift test`.
+- **Track B needs Apple Development signing.** macOS 26 Gatekeeper rejects an
+  ad-hoc-signed XCUITest runner as "damaged" and refuses to launch it, which
+  blocks `xcodebuild test`. `project.yml` signs with the generic
+  `Apple Development` identity (resolves to your keychain's dev cert). Install
+  XcodeGen once with `brew install xcodegen`. `Logos.xcodeproj` is a generated
+  artifact (gitignored) — `project.yml` is the source of truth; SwiftPM
+  (`Package.swift`) remains the source of truth for the app build itself.
+- **Manual log inspection** (what the smoke automates): launch the app, then
+  `/usr/bin/log show --predicate 'subsystem == "app.getlogos.logos"'` (use the
+  absolute path — `log` is a zsh builtin that shadows the binary and returns
+  empty). `.notice` events persist; `.info`/`.debug` are stream-only.
+- **CI** (`.github/workflows/ci.yml`): the `unit` job (`swift test`) is the hard
+  gate and runs anywhere; the `e2e` job runs Track A + B but each degrades with a
+  visible warning where the runner lacks `claude` / a signing identity — never a
+  silent pass.
+
 ## Brand
 
 Working name `Logos` (λόγος = word, reason, rational order). Trademark validation pending — see design doc § 12.

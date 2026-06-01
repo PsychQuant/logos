@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Hard gate: unit + integration. Needs no window server, no claude, no signing —
+  # runs on any macOS runner. Includes the pure UnifiedLogReader parse test; the
+  # app-launching Smoke suite is env-gated (LOGOS_SMOKE) and skipped here.
+  unit:
+    name: Unit + Integration (swift test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        run: swift test
+
+  # Best-effort E2E. Track A (headless smoke) needs the claude CLI; Track B
+  # (XCUITest) needs an Apple Development signing identity (macOS 26 Gatekeeper
+  # rejects an ad-hoc XCUITest runner as "damaged"). Each track runs when its
+  # capability is present and DEGRADES WITH A WARNING otherwise — never a silent
+  # pass. A real failure when the capability IS present fails the job.
+  e2e:
+    name: Smoke + UI E2E (Track A + B)
+    runs-on: macos-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Track A — headless smoke (os.Logger trail)
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            make smoke
+          else
+            echo "::warning title=Track A smoke skipped::claude CLI not installed on this runner; the smoke harness launches the app which spawns claude. Run on a runner with claude installed (or a self-hosted dev machine)."
+          fi
+
+      - name: Track B — UI E2E (XCUITest)
+        run: |
+          if security find-identity -p codesigning -v | grep -q "Apple Development"; then
+            xcodegen generate
+            xcodebuild test -project Logos.xcodeproj -scheme Logos \
+              -destination 'platform=macOS' -allowProvisioningUpdates
+          else
+            echo "::warning title=Track B UI E2E skipped::no Apple Development signing identity on this runner. macOS 26 Gatekeeper rejects an ad-hoc XCUITest runner as 'damaged'. Import a signing cert via secrets, or run on a self-hosted dev machine."
+          fi

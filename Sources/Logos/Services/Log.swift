@@ -19,6 +19,7 @@ import os
 public enum Log {
     private static let subsystem = "app.getlogos.logos"
 
+    public static let app = Logger(subsystem: subsystem, category: "app")
     public static let terminal = Logger(subsystem: subsystem, category: "terminal")
     public static let account = Logger(subsystem: subsystem, category: "account")
     public static let session = Logger(subsystem: subsystem, category: "session")

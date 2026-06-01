@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import os
 
 struct MainScene: Scene {
 
@@ -40,6 +41,10 @@ struct MainScene: Scene {
                 .preferredColorScheme(generalSettings.theme.colorScheme)
                 .onAppear {
                     Task { @MainActor in
+                        // Launch lifecycle marker (#22 follow-up): the main scene is
+                        // up. Anchors the headless smoke sequence; no payload.
+                        Log.app.notice("launch finished — main scene up")
+
                         // E.2 behavior change (per #3): no auto-import on launch.
                         // Touching the system Claude keychain entry from
                         // MainActor onAppear triggers macOS's "找不到鑰匙圈來

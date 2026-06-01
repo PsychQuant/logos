@@ -1,0 +1,82 @@
+# XcodeGen spec for Track B (testing-smoke-e2e-strategy).
+#
+# SwiftPM (Package.swift) stays the source of truth for the app build. This
+# project exists ONLY to host the XCUITest target, which needs a real .app
+# bundle + a window-server context that `swift test` cannot provide. The
+# generated Logos.xcodeproj is a build artifact (gitignored) — regenerate with
+# `xcodegen generate`.
+name: Logos
+
+options:
+  bundleIdPrefix: app.getlogos
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # Apple Development signing (not ad-hoc): macOS 26 Gatekeeper rejects an
+    # ad-hoc-signed XCUITest runner as "damaged" and refuses to launch it, which
+    # blocks `xcodebuild test`. An Apple-Development-signed runner launches freely
+    # on the registered development machine. No entitlements file → no provisioning
+    # profile required for a local manual sign.
+    CODE_SIGN_STYLE: Manual
+    # Generic "Apple Development" resolves to whatever Apple Development cert is in
+    # the signing keychain — portable across contributors and CI (which imports its
+    # own). Not tied to one developer's cert. DEVELOPMENT_TEAM is the org team.
+    CODE_SIGN_IDENTITY: "Apple Development"
+    DEVELOPMENT_TEAM: "6W377FS7BS"
+
+packages:
+  SwiftTerm:
+    url: https://github.com/PsychQuant/SwiftTerm.git
+    branch: logos-renderer-base
+  Highlightr:
+    url: https://github.com/raspu/Highlightr.git
+    from: "2.2.1"
+  Yams:
+    url: https://github.com/jpsim/Yams.git
+    from: "5.0.0"
+
+targets:
+  Logos:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Logos
+    dependencies:
+      - package: SwiftTerm
+        product: SwiftTerm
+      - package: Highlightr
+      - package: Yams
+    settings:
+      base:
+        PRODUCT_NAME: Logos
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logos
+        GENERATE_INFOPLIST_FILE: "NO"
+        INFOPLIST_FILE: Info.plist
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+
+  LogosUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: LogosUITests
+    dependencies:
+      - target: Logos
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosUITests
+        GENERATE_INFOPLIST_FILE: "YES"
+
+schemes:
+  Logos:
+    build:
+      targets:
+        Logos: all
+        LogosUITests: [test]
+    test:
+      targets:
+        - LogosUITests

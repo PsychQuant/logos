@@ -96,6 +96,10 @@ struct SwiftTermView: NSViewRepresentable {
             // The detector is locked to the claude authorize URL and yields each
             // distinct URL once.
             if let loginURL = oauthDetector.detect(in: buffered) {
+                // Lifecycle marker (#22 follow-up): the OAuth login URL was detected
+                // and is being opened natively (#17). The URL is default-redacted
+                // (<private>) — it is a one-time login secret, never logged in clear.
+                Log.terminal.notice("OAuth login URL detected, opening externally: \(loginURL.absoluteString)")
                 NSWorkspace.shared.open(loginURL)
             }
 

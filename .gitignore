@@ -1,13 +1,17 @@
 # macOS
 .DS_Store
 
-# Xcode / SwiftPM (when code lands)
+# Xcode / SwiftPM
 .build/
 DerivedData/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
 Package.resolved
 .swiftpm/
+
+# XcodeGen — Logos.xcodeproj is a generated build artifact (Track B test host,
+# testing-smoke-e2e-strategy). project.yml is the source of truth; regenerate
+# with `xcodegen generate`.
+*.xcodeproj/
+*.xcworkspace/
 
 # Editor
 .vscode/
