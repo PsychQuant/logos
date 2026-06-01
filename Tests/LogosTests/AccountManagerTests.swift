@@ -141,6 +141,62 @@ final class AccountManagerTests {
     // The no-write guarantee is now covered in AccountCredentialIsolationTests
     // ("setActive performs zero system-Keychain interaction").
 
+    // MARK: - Forced re-auth override (#31) — propagate a live 401 onto needsReauth
+
+    @Test("forceReauth overrides the authenticated flag")
+    func forceReauthBeatsAuthenticatedFlag() throws {
+        let mgr = makeManager()
+        try mgr.add(label: "a", credentials: Data("{}".utf8))
+        let acc = mgr.accounts[0]
+        mgr.markAuthenticated(acc.id)
+        #expect(mgr.needsReauth(acc) == false)   // authenticated → not needs-reauth
+        mgr.forceReauth(acc.id)
+        #expect(mgr.needsReauth(acc) == true)    // live-401 override wins
+        mgr.clearForcedReauth(acc.id)
+        #expect(mgr.needsReauth(acc) == false)   // cleared → back to authenticated
+    }
+
+    @Test("forceReauth overrides the .credentials.json file short-circuit (today-incoherence case)")
+    func forceReauthBeatsCredentialsFile() throws {
+        // Inject fileExists==true so the `.credentials.json` branch would say
+        // "authenticated" — the exact stale-file case #30 verify (DA) flagged.
+        let mgr = AccountManager(
+            store: InMemoryCredentialStore(),
+            systemBridge: InMemorySystemKeychainBridge(),
+            defaults: makeTransientDefaults(),
+            fileExists: { _ in true }
+        )
+        try mgr.add(label: "a", credentials: Data("{}".utf8))
+        let acc = mgr.accounts[0]
+        #expect(mgr.needsReauth(acc) == false)   // file short-circuit
+        mgr.forceReauth(acc.id)
+        #expect(mgr.needsReauth(acc) == true)    // override beats the file short-circuit
+    }
+
+    @Test("forcedReauthIds is volatile — not persisted across manager instances")
+    func forcedReauthIsVolatile() throws {
+        let defaults = makeTransientDefaults()
+        let mgr1 = AccountManager(
+            store: InMemoryCredentialStore(),
+            systemBridge: InMemorySystemKeychainBridge(),
+            defaults: defaults
+        )
+        try mgr1.add(label: "a", credentials: Data("{}".utf8))
+        mgr1.markAuthenticated(mgr1.accounts[0].id)
+        mgr1.forceReauth(mgr1.accounts[0].id)
+        #expect(mgr1.needsReauth(mgr1.accounts[0]) == true)
+
+        // A fresh manager on the same defaults inherits the persisted authenticated
+        // flag but NOT the session-volatile forced override.
+        let mgr2 = AccountManager(
+            store: InMemoryCredentialStore(),
+            systemBridge: InMemorySystemKeychainBridge(),
+            defaults: defaults
+        )
+        let acc2 = try #require(mgr2.accounts.first { $0.label == "a" })
+        #expect(mgr2.needsReauth(acc2) == false)
+    }
+
     // MARK: - Helpers
 
     private func makeManager(

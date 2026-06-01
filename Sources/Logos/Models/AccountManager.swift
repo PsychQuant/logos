@@ -30,6 +30,15 @@ public final class AccountManager {
     /// promptless signal (#12) — Logos never reads the system Keychain to decide
     /// needs-reauth. Best-effort: may drift if the user logs in/out outside Logos.
     public private(set) var authenticatedAccountIds: Set<String> = []
+    /// Live re-auth override (#31). When the terminal emits a live 401 (the #29
+    /// banner fires), the Coordinator forces the active account to read
+    /// needs-reauth so the account-switcher indicator agrees with the banner —
+    /// even when the static `authenticatedAccountIds` / `.credentials.json`
+    /// signals say otherwise. Session-VOLATILE: deliberately excluded from
+    /// `persistToDefaults` / `loadFromDefaults` — a 401 is session-specific, so a
+    /// prior session's must not force-reauth a fresh launch where the token may be
+    /// valid. Observed (no `@ObservationIgnored`) so the switcher recomputes on flip.
+    private var forcedReauthIds: Set<String> = []
 
     public var active: Account? {
         guard let id = activeAccountId else { return nil }
@@ -162,9 +171,25 @@ public final class AccountManager {
     /// Never reads the system Keychain — a cross-identity read can surface an
     /// access prompt and re-couples Logos to the keychain this change removes.
     public func needsReauth(_ account: Account) -> Bool {
+        if forcedReauthIds.contains(account.id) { return true }   // #31: live-401 override
         if authenticatedAccountIds.contains(account.id) { return false }
         if fileExists(credentialsFilePath(for: account)) { return false }
         return true
+    }
+
+    /// Force `accountId` to read needs-reauth regardless of the static signals,
+    /// because the terminal just emitted a live 401 (#31). Session-volatile; the
+    /// inverse of `clearForcedReauth`. Unguarded by `accounts.contains` — the
+    /// Coordinator passes the active id, and a stale id in the set is harmless
+    /// (`needsReauth` is only consulted for real accounts).
+    public func forceReauth(_ accountId: String) {
+        forcedReauthIds.insert(accountId)
+    }
+
+    /// Clear the live-401 override for `accountId` — re-auth was initiated (a new
+    /// authorize URL appeared), so the static signals govern again (#31).
+    public func clearForcedReauth(_ accountId: String) {
+        forcedReauthIds.remove(accountId)
     }
 
     /// Record that `accountId` is authenticated (e.g. after the user completes
