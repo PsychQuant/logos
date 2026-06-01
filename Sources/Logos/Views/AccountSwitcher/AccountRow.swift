@@ -33,5 +33,6 @@ struct AccountRow: View {
         .onTapGesture { onSelect() }
         .padding(.vertical, 6)
         .padding(.horizontal, 8)
+        .accessibilityIdentifier("logos.account.row")  // #24 XCUITest query (all rows share; tap a non-active one)
     }
 }

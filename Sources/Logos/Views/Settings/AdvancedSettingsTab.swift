@@ -34,6 +34,7 @@ struct AdvancedSettingsTab: View {
                     "Skip all permission prompts (dangerous mode)",
                     isOn: $settings.dangerouslySkipPermissions
                 )
+                .accessibilityIdentifier("logos.settings.dangerousToggle")  // #24 XCUITest query
                 Label(
                     "Launches claude with --dangerously-skip-permissions: it runs tools, edits files, and executes commands without asking. Enable only in trusted directories.",
                     systemImage: "exclamationmark.triangle.fill"

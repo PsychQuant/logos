@@ -17,6 +17,7 @@ struct AccountSwitcherSheet: View {
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("logos.account.done")  // #24 XCUITest query
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)

@@ -32,10 +32,12 @@ struct TerminalExitedOverlay: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)  // Return restarts (Ghostty "press a key")
+                .accessibilityIdentifier("logos.terminal.restart")  // #24 XCUITest query
                 Button(role: .cancel, action: onClose) {
                     Label("Close window", systemImage: "xmark")
                 }
                 .keyboardShortcut(.cancelAction)   // Escape closes
+                .accessibilityIdentifier("logos.terminal.close")    // #24 XCUITest query
             }
             .padding(.top, 4)
         }

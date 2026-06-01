@@ -12,6 +12,7 @@ struct AccountStatusItem: View {
         .buttonStyle(.plain)
         .help("Click to switch / manage accounts (⌘K)")
         .keyboardShortcut("k", modifiers: .command)
+        .accessibilityIdentifier("logos.statusbar.accountButton")  // #24 XCUITest query
         .sheet(isPresented: $showSwitcher) {
             AccountSwitcherSheet()
         }
