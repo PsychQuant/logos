@@ -62,6 +62,12 @@ struct SwiftTermView: NSViewRepresentable {
         /// Detects claude's unauthenticated signal (#29) to flip the passive
         /// re-auth banner. READ-ONLY — never touches the token.
         private var loginDetector = LoginPromptDetector()
+        /// Reset-immune, bounded buffer that BOTH passive detectors scan (#30
+        /// Item 1). The auto-handle engine still scans the `parser` buffer (which
+        /// must keep resetting to avoid re-firing rules); feeding the detectors a
+        /// buffer the reset never touches means a 401 / OAuth URL split across two
+        /// chunks survives an interleaved `parser.reset()`.
+        private var detectorBuffer = RollingTerminalBuffer()
 
         init(
             processConfig: ClaudeProcessConfig,
@@ -92,13 +98,17 @@ struct SwiftTermView: NSViewRepresentable {
         func handleChunk(_ bytes: [UInt8]) {
             guard let text = String(bytes: bytes, encoding: .utf8) else { return }
             let buffered = parser.append(text)
+            // #30: feed the reset-immune detector buffer the raw chunk. The
+            // passive detectors below scan this (not `buffered`), so an
+            // auto-handle `parser.reset()` can't drop a split signal's first half.
+            detectorBuffer.append(text)
 
             // #17: open the claude login OAuth URL natively. claude prints the
             // URL but its own browser-open (npm `open` → macOS `open`) does not
             // foreground a browser from Logos's spawned-PTY launchd session.
             // The detector is locked to the claude authorize URL and yields each
             // distinct URL once.
-            if let loginURL = oauthDetector.detect(in: buffered) {
+            if let loginURL = oauthDetector.detect(in: detectorBuffer.contents) {
                 // Lifecycle marker (#22 follow-up): the OAuth login URL was detected
                 // and is being opened natively (#17). The URL is default-redacted
                 // (<private>) — it is a one-time login secret, never logged in clear.
@@ -109,7 +119,7 @@ struct SwiftTermView: NSViewRepresentable {
             // #29: surface a passive re-auth banner when the hosted claude reports
             // it's unauthenticated (401 / "Please run /login"). PASSIVE — we only
             // flip a UI flag; the genuine claude owns the whole auth lifecycle.
-            if loginDetector.detect(in: buffered) {
+            if loginDetector.detect(in: detectorBuffer.contents) {
                 Log.terminal.notice("hosted claude unauthenticated signal detected — surfacing re-auth banner (#29)")
                 sessionState.markNeedsAuth()
             }
