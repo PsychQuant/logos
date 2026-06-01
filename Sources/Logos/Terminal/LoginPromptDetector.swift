@@ -14,10 +14,13 @@ import Foundation
 @MainActor
 public struct LoginPromptDetector {
 
-    /// Latches once per detector instance so re-scanning the growing PTY buffer
-    /// doesn't re-fire. A restart recreates the terminal view (+ this detector)
-    /// with a fresh generation id (#18), so a new session re-detects naturally.
-    private var fired = false
+    /// Whether the unauthenticated signal was present on the PREVIOUS scan, so
+    /// `detect` fires only on the `absent → present` rising edge (#30 Item 2a).
+    /// This replaces the old one-shot `fired` latch: it still won't storm while
+    /// the signal sits in the (rolling) buffer, but a genuinely NEW 401 — after
+    /// the previous one scrolled out — re-fires, and a manual banner dismiss
+    /// needs no detector⇄state plumbing (dismissing creates no new rising edge).
+    private var wasPresent = false
 
     public init() {}
 
@@ -33,12 +36,12 @@ public struct LoginPromptDetector {
         return false
     }
 
-    /// Returns true the FIRST time the unauthenticated signal appears in the
-    /// (ANSI-stripped) buffer; false otherwise. Idempotent per instance.
+    /// Returns true on the rising edge — the scan where the unauthenticated
+    /// signal newly appears in the (ANSI-stripped) buffer. Stays false while the
+    /// signal remains present (no storm), and re-arms once it leaves the buffer.
     public mutating func detect(in buffer: String) -> Bool {
-        guard !fired else { return false }
-        guard Self.isUnauthenticated(buffer) else { return false }
-        fired = true
-        return true
+        let present = Self.isUnauthenticated(buffer)
+        defer { wasPresent = present }
+        return present && !wasPresent
     }
 }

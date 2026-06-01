@@ -44,12 +44,42 @@ struct LoginPromptDetectorTests {
         #expect(d.detect(in: "Tip: you can type /login anytime. Please run /login to switch accounts.") == false)
     }
 
-    @Test("idempotent — fires once per instance, not on re-scan of the growing buffer")
-    func idempotent() {
+    @Test("no storm — fires once per appearance, not on re-scan of the growing buffer")
+    func noStormWhileSignalPresent() {
         var d = LoginPromptDetector()
         let buf = "Please run /login · API Error: 401"
         #expect(d.detect(in: buf) == true)
         #expect(d.detect(in: buf) == false)
         #expect(d.detect(in: buf + " ...more output appended later") == false)
+    }
+
+    @Test("re-fires on a genuinely new 401 after the previous one clears (rising edge, #30 Item 2a)")
+    func reFiresOnNewOccurrence() {
+        var d = LoginPromptDetector()
+        let sig = "Please run /login · API Error: 401"
+        #expect(d.detect(in: sig) == true)                              // absent→present: fire
+        #expect(d.detect(in: sig) == false)                             // still present: no fire
+        #expect(d.detect(in: "Welcome back! How can I help?") == false) // present→absent: re-arm
+        #expect(d.detect(in: sig) == true)                              // absent→present again: fire
+    }
+
+    @Test("dismiss does not re-fire while the same 401 still sits in the buffer (#30 Item 2a)")
+    func noReFireWhileSignalStillPresent() {
+        var d = LoginPromptDetector()
+        let sig = "API Error: 401 Invalid authentication credentials"
+        #expect(d.detect(in: sig) == true)   // fire — banner shows
+        // User dismisses; the next chunk still contains the 401 (not scrolled out
+        // yet). No NEW rising edge → the banner does not pop straight back.
+        #expect(d.detect(in: sig + "\nstill here") == false)
+    }
+
+    @Test("fires when the 401 signal is split across two buffer appends (#30 Item 1)")
+    func firesOnSignalSplitAcrossChunks() {
+        var buf = RollingTerminalBuffer()
+        var d = LoginPromptDetector()
+        buf.append("Please run /login")
+        #expect(d.detect(in: buf.contents) == false)   // only /login, no 401 yet
+        buf.append(" · API Error: 401")
+        #expect(d.detect(in: buf.contents) == true)    // both halves present → fire
     }
 }
