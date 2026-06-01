@@ -106,7 +106,13 @@ struct MainScene: Scene {
     /// Pure precedence resolver for the launch workspace (#8). Injected inputs
     /// + `isSystem` predicate keep it deterministically testable without reading
     /// the real `CommandLine` / cwd. Returns nil → welcome state.
-    static func resolveLaunchWorkspace(
+    ///
+    /// `nonisolated` (#28): pure (args-in/value-out, no main-actor state), so it
+    /// drops the `@MainActor` it would otherwise inherit from `MainScene: Scene`.
+    /// This lets the non-`@MainActor` synchronous `@Test`s call it without an
+    /// isolation violation under the strict Swift-6 toolchain (the CI compile
+    /// failure), while the main-actor Scene body can still call it freely.
+    nonisolated static func resolveLaunchWorkspace(
         arguments: [String],
         persisted: String?,
         cwd: String,
@@ -139,7 +145,9 @@ struct MainScene: Scene {
     /// Extracts the value of `--workspace <path>` / `--workspace=<path>` from
     /// launch arguments. No positional support: macOS injects positional and
     /// `-psn_*` args on GUI launch, which a positional reader would misread (#8 D1).
-    static func parseWorkspaceArgument(_ args: [String]) -> String? {
+    /// `nonisolated` (#28): pure, so it sheds the inherited `@MainActor` and is
+    /// callable from the nonisolated sync `@Test`s under the strict CI toolchain.
+    nonisolated static func parseWorkspaceArgument(_ args: [String]) -> String? {
         var i = 1   // skip arg[0] (binary path)
         while i < args.count {
             let a = args[i]
