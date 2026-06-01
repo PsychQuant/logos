@@ -72,6 +72,28 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Internal
 
+- **Test pyramid: smoke + E2E layers above the unit base** (`testing-smoke-e2e-strategy`,
+  [#23](https://github.com/PsychQuant/logos/issues/23),
+  [#24](https://github.com/PsychQuant/logos/issues/24)). Closes the GUI blind spot
+  that #17–#22 verified by screenshot. **Track A (headless smoke)**: a `make smoke`
+  target launches the bundled app and asserts the critical flow (launch → workspace
+  load → claude spawn → exit) by reading the `os.Logger` trail via `UnifiedLogReader`
+  — no pixels, no TCC. **Track B (UI E2E)**: a thin XcodeGen-generated Xcode project
+  (`project.yml`; `Logos.xcodeproj` gitignored) hosts an `XCUITest` target (the #20
+  Settings-open regression) and an app-hosted `LogosHostedTests` target that
+  instantiates the SwiftTerm view a bare `swift test` can't (the Metal renderer
+  window-attachment wiring, #23). Apple Development signing — macOS 26 Gatekeeper
+  rejects an ad-hoc XCUITest runner as "damaged". CI (`.github/workflows/ci.yml`):
+  `swift test` hard gate + a best-effort `e2e` job that degrades with a warning
+  where the runner lacks claude / a signing identity. #24 added accessibility
+  identifiers + a `--claude-path` test hook that makes claude spawn under XCUITest;
+  its behavior flows (Restart / toggle / account switch) are deferred to
+  [#27](https://github.com/PsychQuant/logos/issues/27) (the XCUITest runner is
+  sandboxed — no `kill` / `log show` to drive exit or assert). Snapshot testing →
+  [#26](https://github.com/PsychQuant/logos/issues/26); cloud-CI signing →
+  [#25](https://github.com/PsychQuant/logos/issues/25). `swift test` 210/210 +
+  `xcodebuild test` green.
+
 - **Consolidated diagnostic logging onto `os.Logger` + lifecycle log points**
   ([#22](https://github.com/PsychQuant/logos/issues/22)). Logging was split across
   three mechanisms — `os.Logger` (1 site), `NSLog` (2 sites), and a `print`
