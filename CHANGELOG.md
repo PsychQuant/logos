@@ -16,9 +16,14 @@ All notable changes to Logos are documented here. Format loosely follows
   `LoginPromptDetector` now fires on the **rising edge** (`absent → present`)
   rather than a one-shot latch, so a genuinely new 401 re-surfaces the banner
   while still never storming. A new Coordinator-level test asserts the
-  split-signal-survives-reset flow end-to-end. Still first-party-safe (read
-  output → flip flag; no token touch). Auto-clear on successful re-auth +
-  `needsAuth`↔`needsReauth` coherence are deferred to
+  split-signal-survives-reset flow end-to-end. (3) The 6-AI verify (Codex
+  cross-model) caught that `OAuthURLDetector.detect` examined only the *first*
+  authorize-URL token — so with the longer-retained buffer an already-opened
+  URL could **shadow** a genuinely new one (e.g. a failed login that
+  re-prompts); it now scans past stale/seen tokens to the first unseen URL.
+  Still first-party-safe (read output → flip flag; no token touch). Auto-clear
+  on successful re-auth + `needsAuth`↔`needsReauth` coherence (an existing
+  today-incoherence under a stale `.credentials.json`) are deferred to
   [#31](https://github.com/PsychQuant/logos/issues/31) (they need claude's
   post-login success string, which isn't knowable from the codebase).
 
