@@ -26,7 +26,11 @@ final class DangerousToggleUITests: XCTestCase {
 
     @MainActor
     func testDangerousToggleFlipsAndHolds() {
-        let app = XCUIApplication()
+        // `makeApp` passes `--ui-testing`, which routes settings persistence to a
+        // per-launch temp dir (LogosApp.uiTestingSettingsDirectory) — so flipping
+        // the toggle NEVER mutates the user's real `advanced.json` (a mid-flow
+        // crash could otherwise leave dangerous mode ON in production prefs).
+        let app = UITestSupport.makeApp()
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), "app did not foreground")
 

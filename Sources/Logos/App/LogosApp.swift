@@ -17,8 +17,8 @@ struct LogosApp: App {
     @State private var accountManager = LogosApp.makeAccountManager()
     @State private var workspace = WorkspaceModel()
     @State private var pdfPreview = PDFLivePreviewModel()
-    @State private var generalSettings = GeneralSettings()
-    @State private var advancedSettings = AdvancedSettings()
+    @State private var generalSettings = LogosApp.makeGeneralSettings()
+    @State private var advancedSettings = LogosApp.makeAdvancedSettings()
 
     /// Production: the real keychain-backed manager on `.standard`. Under
     /// `--ui-testing` (#27): a volatile UserDefaults suite cleared each launch +
@@ -40,6 +40,31 @@ struct LogosApp: App {
             if !labels.isEmpty { mgr.seedAccounts(labels) }
         }
         return mgr
+    }
+
+    /// #27: under `--ui-testing`, settings persist to a per-launch temp directory
+    /// instead of `~/Library/Application Support/Logos/`, so a UI test (e.g. the
+    /// dangerous-mode toggle flow) NEVER mutates the user's real `advanced.json`
+    /// (a crash mid-flow could otherwise leave `dangerouslySkipPermissions = true`
+    /// in production). nil → production default dir. Computed once per launch.
+    private static let uiTestingSettingsDirectory: String? = {
+        guard CommandLine.arguments.contains("--ui-testing") else { return nil }
+        let dir = NSTemporaryDirectory()
+            + "logos-uitesting-settings-\(ProcessInfo.processInfo.processIdentifier)"
+        try? FileManager.default.removeItem(atPath: dir)  // clean slate each launch
+        return dir
+    }()
+
+    @MainActor
+    private static func makeAdvancedSettings() -> AdvancedSettings {
+        guard let dir = uiTestingSettingsDirectory else { return AdvancedSettings() }
+        return AdvancedSettings(persistence: SettingsPersistence(directory: dir))
+    }
+
+    @MainActor
+    private static func makeGeneralSettings() -> GeneralSettings {
+        guard let dir = uiTestingSettingsDirectory else { return GeneralSettings() }
+        return GeneralSettings(persistence: SettingsPersistence(directory: dir))
     }
 
     var body: some Scene {
