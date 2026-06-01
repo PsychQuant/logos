@@ -86,12 +86,15 @@ All notable changes to Logos are documented here. Format loosely follows
   rejects an ad-hoc XCUITest runner as "damaged". CI (`.github/workflows/ci.yml`):
   `swift test` hard gate + a best-effort `e2e` job that degrades with a warning
   where the runner lacks claude / a signing identity. #24 added accessibility
-  identifiers + a `--claude-path` test hook that makes claude spawn under XCUITest;
-  its behavior flows (Restart / toggle / account switch) are deferred to
-  [#27](https://github.com/PsychQuant/logos/issues/27) (the XCUITest runner is
-  sandboxed — no `kill` / `log show` to drive exit or assert). Snapshot testing →
+  identifiers + a `--claude-path` test hook that makes claude spawn under XCUITest
+  (gated behind a `--ui-testing` co-flag so it is inert in production, and taking
+  precedence over a persisted Settings override so a UI test resolves claude on a
+  dev machine); its behavior flows (Restart / toggle / account switch) are deferred
+  to [#27](https://github.com/PsychQuant/logos/issues/27) (the XCUITest runner is
+  sandboxed — no `kill` / `log show` to drive exit or assert; the flows instead
+  drive exit by typing `/quit` into the PTY). Snapshot testing →
   [#26](https://github.com/PsychQuant/logos/issues/26); cloud-CI signing →
-  [#25](https://github.com/PsychQuant/logos/issues/25). `swift test` 210/210 +
+  [#25](https://github.com/PsychQuant/logos/issues/25). `swift test` 217/217 +
   `xcodebuild test` green.
 
 - **Consolidated diagnostic logging onto `os.Logger` + lifecycle log points**
