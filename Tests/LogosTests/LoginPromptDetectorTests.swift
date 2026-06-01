@@ -37,10 +37,17 @@ struct LoginPromptDetectorTests {
         #expect(d.detect(in: "> 妳好") == false)
     }
 
+    @Test("bare /login phrase without a 401 marker does NOT fire (false-positive guard, #29 verify)")
+    func bareLoginPhraseWithoutErrorDoesNotFire() {
+        var d = LoginPromptDetector()
+        // User typing the phrase, or claude quoting it in help text — no 401 → no banner.
+        #expect(d.detect(in: "Tip: you can type /login anytime. Please run /login to switch accounts.") == false)
+    }
+
     @Test("idempotent — fires once per instance, not on re-scan of the growing buffer")
     func idempotent() {
         var d = LoginPromptDetector()
-        let buf = "Please run /login"
+        let buf = "Please run /login · API Error: 401"
         #expect(d.detect(in: buf) == true)
         #expect(d.detect(in: buf) == false)
         #expect(d.detect(in: buf + " ...more output appended later") == false)

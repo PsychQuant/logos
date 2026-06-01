@@ -14,13 +14,6 @@ import Foundation
 @MainActor
 public struct LoginPromptDetector {
 
-    /// claude's literal recovery instruction + the 401 body. Matching either is
-    /// the unauthenticated signal. Kept tight so a healthy session is never nagged.
-    private static let signals = [
-        "Please run /login",
-        "Invalid authentication credentials",
-    ]
-
     /// Latches once per detector instance so re-scanning the growing PTY buffer
     /// doesn't re-fire. A restart recreates the terminal view (+ this detector)
     /// with a fresh generation id (#18), so a new session re-detects naturally.
@@ -28,11 +21,23 @@ public struct LoginPromptDetector {
 
     public init() {}
 
+    /// The unauthenticated signal. Tightened in #29 verify to require the auth
+    /// ERROR marker, not the bare recovery phrase — `Please run /login` alone
+    /// false-fires when the user types it or claude merely quotes it, so it must
+    /// co-occur with `401`. `Invalid authentication credentials` is the verbatim
+    /// 401 body (a user is very unlikely to type it) so it stands alone. Mirrors
+    /// `OAuthURLDetector`'s "match only the real thing" discipline.
+    private static func isUnauthenticated(_ buffer: String) -> Bool {
+        if buffer.contains("Invalid authentication credentials") { return true }
+        if buffer.contains("Please run /login") && buffer.contains("401") { return true }
+        return false
+    }
+
     /// Returns true the FIRST time the unauthenticated signal appears in the
     /// (ANSI-stripped) buffer; false otherwise. Idempotent per instance.
     public mutating func detect(in buffer: String) -> Bool {
         guard !fired else { return false }
-        guard Self.signals.contains(where: { buffer.contains($0) }) else { return false }
+        guard Self.isUnauthenticated(buffer) else { return false }
         fired = true
         return true
     }
