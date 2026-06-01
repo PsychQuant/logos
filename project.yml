@@ -1,10 +1,11 @@
-# XcodeGen spec for Track B (testing-smoke-e2e-strategy).
+# XcodeGen spec for Track B (testing-smoke-e2e-strategy) + #23 hosted renderer tests.
 #
 # SwiftPM (Package.swift) stays the source of truth for the app build. This
-# project exists ONLY to host the XCUITest target, which needs a real .app
-# bundle + a window-server context that `swift test` cannot provide. The
-# generated Logos.xcodeproj is a build artifact (gitignored) — regenerate with
-# `xcodegen generate`.
+# project exists ONLY to host tests that need a real .app bundle + a window-server
+# context `swift test` cannot provide: the XCUITest target (black-box UI E2E) and
+# the LogosHostedTests target (in-process unit tests that instantiate the SwiftTerm
+# view, which segfaults without a window server). The generated Logos.xcodeproj is
+# a build artifact (gitignored) — regenerate with `xcodegen generate`.
 name: Logos
 
 options:
@@ -71,12 +72,33 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosUITests
         GENERATE_INFOPLIST_FILE: "YES"
 
+  # In-process unit tests hosted by the app (#23). The app dependency makes
+  # XcodeGen wire TEST_HOST = Logos.app, so these run with an NSApplication +
+  # window server — required to instantiate TeedLocalProcessTerminalView (it
+  # segfaults in the bare `swift test` runner). SwiftTerm is a direct dependency
+  # so the tests can `import SwiftTerm` for the renderer types.
+  LogosHostedTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: LogosHostedTests
+    dependencies:
+      - target: Logos
+      - package: SwiftTerm
+        product: SwiftTerm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosHostedTests
+        GENERATE_INFOPLIST_FILE: "YES"
+
 schemes:
   Logos:
     build:
       targets:
         Logos: all
         LogosUITests: [test]
+        LogosHostedTests: [test]
     test:
       targets:
+        - LogosHostedTests
         - LogosUITests
