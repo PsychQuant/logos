@@ -5,6 +5,23 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Hardened the passive re-auth banner detection** ([#30](https://github.com/PsychQuant/logos/issues/30), Phase A).
+  Two robustness fixes to the #29 banner. (1) Both passive detectors
+  (`LoginPromptDetector` #29 + `OAuthURLDetector` #17) now scan a new bounded,
+  reset-immune `RollingTerminalBuffer` instead of the auto-handle `PatternParser`
+  buffer, which is `reset()` on every rule match — so a 401 / OAuth URL split
+  across two PTY chunks with a reset interleaved is no longer dropped. (2)
+  `LoginPromptDetector` now fires on the **rising edge** (`absent → present`)
+  rather than a one-shot latch, so a genuinely new 401 re-surfaces the banner
+  while still never storming. A new Coordinator-level test asserts the
+  split-signal-survives-reset flow end-to-end. Still first-party-safe (read
+  output → flip flag; no token touch). Auto-clear on successful re-auth +
+  `needsAuth`↔`needsReauth` coherence are deferred to
+  [#31](https://github.com/PsychQuant/logos/issues/31) (they need claude's
+  post-login success string, which isn't knowable from the codebase).
+
 ### Added
 
 - **Passive re-auth banner for an unauthenticated hosted claude** ([#29](https://github.com/PsychQuant/logos/issues/29)).
