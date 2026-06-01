@@ -13,7 +13,12 @@ struct TerminalPaneView: View {
 
     var body: some View {
         // H-Task 9: AdvancedSettings.claudePathOverride wins over PATH lookup.
-        let effectivePath = advanced.claudePathOverride ?? config.resolvedClaudePath
+        // #24: a `--ui-testing --claude-path` launch arg wins over everything so a
+        // UI test's claude resolves even on a dev machine with a persisted override
+        // (uiTestingClaudePath is nil outside a UI test → no production effect).
+        let effectivePath = TerminalConfig.uiTestingClaudePath()
+            ?? advanced.claudePathOverride
+            ?? config.resolvedClaudePath
 
         Group {
             if let active = accountMgr.active, let claudePath = effectivePath {

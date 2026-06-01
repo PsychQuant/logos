@@ -20,7 +20,10 @@ enum UITestSupport {
     /// Build an XCUIApplication that can actually spawn claude (see type doc).
     static func makeApp(workspace: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
-        var args: [String] = []
+        // `--ui-testing` gates the `--claude-path` hook (it's inert in production
+        // without this co-flag) AND makes the passed claude path win over any
+        // persisted Settings override on the dev machine. See TerminalConfig.
+        var args: [String] = ["--ui-testing"]
         if let claude = resolveClaudePath() {
             args += ["--claude-path", claude]
         }

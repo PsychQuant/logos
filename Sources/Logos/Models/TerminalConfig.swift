@@ -23,28 +23,45 @@ public final class TerminalConfig {
         if let override = claudePathOverride {
             return override
         }
-        // Test-support hook (#24): `--claude-path <path>` lets a UI test pass the
-        // claude binary directly, bypassing the `which` PATH lookup. Needed because
-        // `XCUIApplication().launch()` gives the app a minimal environment whose
-        // PATH excludes claude, so `which` fails (an `open`-launched app inherits
-        // the full login PATH and resolves fine). Non-persistent — mirrors the
-        // `--workspace` launch arg; no effect unless the arg is present.
-        if let argPath = Self.launchArgClaudePath() {
-            return argPath
-        }
         return Self.runWhich("claude")
     }
 
-    /// Reads `--claude-path <path>` / `--claude-path=<path>` from launch args.
+    /// The claude binary path passed by a UI test (#24), honored ONLY when
+    /// `--ui-testing` is also present — so the hook has ZERO surface in a normal
+    /// production launch (no ungated arbitrary-binary launch arg). Callers prefer
+    /// this over the persisted `claudePathOverride` during a UI test (see
+    /// `TerminalPaneView`), so the test's claude wins even on a dev machine that
+    /// has a Settings override set (which would otherwise shadow it).
+    ///
+    /// Why the hook exists: `XCUIApplication().launch()` gives the app a minimal
+    /// environment whose PATH excludes claude, so the `which` lookup fails →
+    /// ClaudeNotFoundBanner → no spawn (an `open`-launched app inherits the full
+    /// login PATH and resolves fine).
+    static func uiTestingClaudePath() -> String? {
+        guard CommandLine.arguments.contains("--ui-testing") else { return nil }
+        return launchArgClaudePath()
+    }
+
+    /// Reads `--claude-path` from the process launch args. Delegates to the pure
+    /// `parseClaudePathArg(from:)` (unit-tested) so the real entry point stays a
+    /// one-liner over `CommandLine.arguments`.
     static func launchArgClaudePath() -> String? {
-        let args = CommandLine.arguments
+        parseClaudePathArg(from: CommandLine.arguments)
+    }
+
+    /// Pure parser for `--claude-path <path>` / `--claude-path=<path>`. Returns nil
+    /// for an empty value, or when the space-form's next token is itself an option
+    /// (e.g. `--claude-path --workspace ...`). Injectable for unit tests.
+    static func parseClaudePathArg(from args: [String]) -> String? {
         var i = 1
         while i < args.count {
             if args[i] == "--claude-path", i + 1 < args.count {
-                return args[i + 1]
+                let value = args[i + 1]
+                return (value.isEmpty || value.hasPrefix("--")) ? nil : value
             }
             if args[i].hasPrefix("--claude-path=") {
-                return String(args[i].dropFirst("--claude-path=".count))
+                let value = String(args[i].dropFirst("--claude-path=".count))
+                return value.isEmpty ? nil : value
             }
             i += 1
         }
