@@ -121,6 +121,26 @@ public final class AccountManager {
         Log.account.notice("active account set — id=\(accountId, privacy: .private)")
     }
 
+    /// #27 UI-testing seed: append in-memory stub accounts (NO keychain / no
+    /// credential write) so a fresh XCUITest launch has a renderable terminal +
+    /// ≥1 switchable account. Idempotent on label; marks each authenticated so the
+    /// switcher shows it without a needs-reauth badge; sets the first active when
+    /// none is. Persists to whatever `defaults` was injected — LogosApp injects a
+    /// volatile, cleared-each-launch suite under `--ui-testing`, so this never
+    /// pollutes the real account list. Inert in production: nothing calls it unless
+    /// `--ui-testing --seed-accounts` is parsed at launch (see LogosApp).
+    public func seedAccounts(_ labels: [String]) {
+        for label in labels where !accounts.contains(where: { $0.label == label }) {
+            let account = Account(label: label)
+            accounts.append(account)
+            try? ensureDirectory(account.configDirPath)
+            authenticatedAccountIds.insert(account.id)
+        }
+        if active == nil { activeAccountId = accounts.first?.id }
+        persistToDefaults()
+        Log.account.notice("seeded UI-testing accounts — count=\(self.accounts.count, privacy: .public)")
+    }
+
     /// Re-capture current system Claude credentials into the currently-active
     /// account. Useful if you suspect claude refreshed tokens recently.
     public func captureCurrentIntoActive() throws {

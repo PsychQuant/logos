@@ -49,6 +49,18 @@ struct TerminalPaneView: View {
                         )
                     }
                 }
+                // #27: a launch-arg-gated terminate affordance. The XCUITest runner
+                // sandbox blocks `Process` (can't kill claude's child to drive exit),
+                // so a UI test drives the clean-exit overlay via this click instead —
+                // it calls the exact `markExited(0)` transition `processTerminated`
+                // drives. Inert in production (the `--ui-testing` arg never appears).
+                .overlay(alignment: .topLeading) {
+                    if CommandLine.arguments.contains("--ui-testing") {
+                        Button("⏚") { sessionState.markExited(0) }
+                            .accessibilityIdentifier("logos.terminal.uitestTerminate")
+                            .padding(6)
+                    }
+                }
             } else if effectivePath == nil {
                 ClaudeNotFoundBanner()
             } else {

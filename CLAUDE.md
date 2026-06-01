@@ -131,6 +131,20 @@ Notes:
   accent color** may not byte-match (`.aqua` pins light/dark but not the accent,
   which the active-account circle + prominent buttons track) — treat snapshots as
   a single-canonical-environment guard, not a cross-machine gate.
+- **XCUITest behavior flows** (#27, `LogosUITests/`): the runner sandbox blocks
+  `Process` (no `kill`/`log show`), so flows drive state + assert via pure UI.
+  Two `--ui-testing`-gated test seams (inert in production — the arg never appears):
+  (1) `--seed-accounts <csv>` injects keychain-free stub accounts into a *volatile*
+  UserDefaults suite (`LogosApp.makeAccountManager`), so a fresh launch renders the
+  terminal + has switchable accounts without touching the keychain or the real
+  account list; (2) a `logos.terminal.uitestTerminate` affordance drives the clean
+  exit overlay via a click (`markExited(0)`) since the runner can't `kill` claude.
+  Decision (#27): the exit is driven by the affordance, **not** type-to-stdin
+  `/quit` — a keychain-free seeded account yields an unauthenticated claude (a
+  login prompt, not a `/quit`-able REPL). The "no keychain dialog appeared"
+  negative stays a documented best-effort Residue (XCUITest can't prove a system
+  dialog *didn't* show); the account flow asserts positives (indicator moved, app
+  alive) only.
 
 ## Brand
 

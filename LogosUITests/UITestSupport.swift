@@ -18,7 +18,11 @@ import Foundation
 enum UITestSupport {
 
     /// Build an XCUIApplication that can actually spawn claude (see type doc).
-    static func makeApp(workspace: String? = nil) -> XCUIApplication {
+    /// `seedAccounts` (#27): labels for keychain-free stub accounts injected via
+    /// `--seed-accounts` so a fresh launch has an active account (→ the terminal
+    /// pane renders) + ≥2 switchable accounts. The seed lives in a volatile
+    /// UserDefaults suite (see LogosApp), so it never pollutes the real list.
+    static func makeApp(workspace: String? = nil, seedAccounts: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // `--ui-testing` gates the `--claude-path` hook (it's inert in production
         // without this co-flag) AND makes the passed claude path win over any
@@ -29,6 +33,9 @@ enum UITestSupport {
         }
         if let workspace {
             args += ["--workspace", workspace]
+        }
+        if !seedAccounts.isEmpty {
+            args += ["--seed-accounts", seedAccounts.joined(separator: ",")]
         }
         app.launchArguments = args
         return app
