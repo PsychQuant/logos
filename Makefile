@@ -1,4 +1,4 @@
-.PHONY: help build bundle run install uninstall clean release-signed sign-check tests smoke
+.PHONY: help build bundle run install uninstall clean release-signed sign-check tests smoke coverage hosted-tests
 
 APP_NAME        := Logos
 BINARY_NAME     := Logos
@@ -17,6 +17,25 @@ help: ## Show this help
 
 tests: ## Run swift test
 	swift test
+
+coverage: ## Run swift test with coverage + print line % vs the 80% bar (report-only, #25)
+	@swift test --enable-code-coverage
+	@PROF=$$(find .build -name 'default.profdata' -path '*codecov*' | head -1); \
+	 if [ -z "$$PROF" ]; then echo "⚠ could not locate SPM coverage profdata"; exit 0; fi; \
+	 BIN=$$(find "$$(dirname "$$(dirname "$$PROF")")" -maxdepth 1 -name '*.xctest' -type d | head -1); \
+	 if [ -z "$$BIN" ]; then echo "⚠ could not locate .xctest next to $$PROF"; exit 0; fi; \
+	 EXEC="$$BIN/Contents/MacOS/$$(basename "$$BIN" .xctest)"; \
+	 PCT=$$(xcrun llvm-cov export -summary-only "$$EXEC" -instr-profile "$$PROF" \
+	   -ignore-filename-regex='\.build|Tests/|checkouts' \
+	   | python3 -c 'import json,sys; print(round(json.load(sys.stdin)["data"][0]["totals"]["lines"]["percent"],2))'); \
+	 echo "→ Line coverage (Sources/Logos, unit-only): $$PCT% (target 80%, report-only)"; \
+	 echo "  note: the unit number undercounts the SwiftUI layer — view bodies run only under 'make hosted-tests'."
+
+hosted-tests: ## Generate xcodeproj + run hosted (renderer+snapshot) + UI tests via xcodebuild (#25/#26)
+	@command -v xcodegen >/dev/null || { echo "✗ xcodegen not installed (brew install xcodegen)"; exit 1; }
+	xcodegen generate
+	xcodebuild test -project $(APP_NAME).xcodeproj -scheme $(APP_NAME) \
+		-destination 'platform=macOS' -allowProvisioningUpdates
 
 build: ## Release build
 	swift build -c release

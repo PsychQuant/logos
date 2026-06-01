@@ -41,9 +41,13 @@ packages:
     from: "5.0.0"
   # #26 — visual-regression snapshots for stable SwiftUI views. Test-only,
   # consumed by LogosHostedTests (Xcode-only; not in Package.swift).
+  # #25 — exact-pinned: the Xcode workspace resolves this to 1.19.2, and the
+  # generated .xcodeproj (+ its Package.resolved) is gitignored, so `exactVersion`
+  # here is the only in-repo pin point — it makes a fresh `xcodegen generate`
+  # reproducible instead of drifting to whatever newest 1.x resolves.
   SnapshotTesting:
     url: https://github.com/pointfreeco/swift-snapshot-testing.git
-    from: "1.17.0"
+    exactVersion: "1.19.2"
 
 targets:
   Logos:

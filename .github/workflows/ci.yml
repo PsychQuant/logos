@@ -15,14 +15,48 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: swift test
-        run: swift test
+
+      - name: swift test (with coverage)
+        run: swift test --enable-code-coverage
+
+      # Coverage is REPORT-ONLY (#25): print the line % vs the 80% bar + a
+      # ::warning:: when under — never fail the build. Rationale: this is the
+      # SPM (`swift test`) number, which structurally UNDERCOUNTS a SwiftUI app —
+      # view bodies + AppKit interop execute only under the xcodebuild hosted/UI
+      # run (Track B), which writes a separate profdata not seen here. Hard-failing
+      # on the unit-only number would block every PR and pressure low-value
+      # test-padding. See CLAUDE.md → Testing for the policy + local `make coverage`.
+      - name: Coverage summary (vs 80% bar — report-only)
+        run: |
+          # Anchor the .xctest to the profdata's own build dir (siblings) — a bare
+          # `find .build -name '*.xctest' | head -1` is non-deterministic when an
+          # xcodebuild DerivedData tree (.build/xcode-dd) also exists, and pairing a
+          # mismatched binary + profdata makes llvm-cov emit empty/garbage.
+          PROF=$(find .build -name 'default.profdata' -path '*codecov*' | head -1)
+          if [ -z "$PROF" ]; then
+            echo "::warning title=Coverage skipped::no SPM coverage profdata after 'swift test --enable-code-coverage'"
+            exit 0
+          fi
+          BIN=$(find "$(dirname "$(dirname "$PROF")")" -maxdepth 1 -name '*.xctest' -type d | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::warning title=Coverage skipped::no .xctest next to $PROF"
+            exit 0
+          fi
+          EXEC="$BIN/Contents/MacOS/$(basename "$BIN" .xctest)"
+          PCT=$(xcrun llvm-cov export -summary-only "$EXEC" -instr-profile "$PROF" \
+            -ignore-filename-regex='\.build|Tests/|checkouts' \
+            | python3 -c 'import json,sys; print(round(json.load(sys.stdin)["data"][0]["totals"]["lines"]["percent"],2))')
+          echo "Line coverage (Sources/Logos, unit-only): ${PCT}% (target 80%, report-only)"
+          python3 -c "import sys; sys.exit(0 if float('${PCT}') >= 80 else 1)" \
+            || echo "::warning title=Coverage below target::unit-only line coverage ${PCT}% < 80%. The hosted/UI tests (xcodebuild Track B) add uncounted coverage; this is report-only — see CLAUDE.md → Testing."
 
   # Best-effort E2E. Track A (headless smoke) needs the claude CLI; Track B
-  # (XCUITest) needs an Apple Development signing identity (macOS 26 Gatekeeper
-  # rejects an ad-hoc XCUITest runner as "damaged"). Each track runs when its
-  # capability is present and DEGRADES WITH A WARNING otherwise — never a silent
-  # pass. A real failure when the capability IS present fails the job.
+  # (XCUITest + the app-hosted renderer/snapshot tests) needs an Apple Development
+  # signing identity (macOS 26 Gatekeeper rejects an ad-hoc XCUITest runner as
+  # "damaged"). The identity is injected from a repo secret when present (#25);
+  # when absent (forks / external PRs that can't read secrets) each track DEGRADES
+  # WITH A WARNING — never a silent pass. A real failure when the capability IS
+  # present fails the job.
   e2e:
     name: Smoke + UI E2E (Track A + B)
     runs-on: macos-latest
@@ -33,6 +67,33 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # Detect the signing-cert secret WITHOUT echoing it. The secret is mapped to
+      # an env var only so we can test it for emptiness; we emit a boolean output,
+      # never the value. Forked PRs can't read secrets → CERT_B64 empty → has_cert
+      # false → the import step is skipped and Track B keeps the degrade path
+      # (no false-green).
+      - name: Check for signing cert secret
+        id: cert_check
+        env:
+          CERT_B64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+        run: |
+          if [ -n "$CERT_B64" ]; then
+            echo "has_cert=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_cert=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Import the Apple Development cert into an ephemeral keychain (the action
+      # creates + cleans it up). Gated on the secret being present so it never
+      # fails on forks. After this runs, `security find-identity` below finds the
+      # identity and Track B runs signed.
+      - name: Import Apple Development signing cert
+        if: steps.cert_check.outputs.has_cert == 'true'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
+
       - name: Track A — headless smoke (os.Logger trail)
         run: |
           if command -v claude >/dev/null 2>&1; then
@@ -41,12 +102,16 @@ jobs:
             echo "::warning title=Track A smoke skipped::claude CLI not installed on this runner; the smoke harness launches the app which spawns claude. Run on a runner with claude installed (or a self-hosted dev machine)."
           fi
 
-      - name: Track B — UI E2E (XCUITest)
+      # Runs LogosHostedTests (renderer #23 + snapshot #26) AND LogosUITests via
+      # the Logos scheme's test action. The `security find-identity` guard is the
+      # runtime gate: present (cert imported above, or self-hosted dev machine) →
+      # runs; absent → degrades with a warning.
+      - name: Track B — UI E2E + hosted tests (XCUITest + renderer + snapshot)
         run: |
           if security find-identity -p codesigning -v | grep -q "Apple Development"; then
             xcodegen generate
             xcodebuild test -project Logos.xcodeproj -scheme Logos \
               -destination 'platform=macOS' -allowProvisioningUpdates
           else
-            echo "::warning title=Track B UI E2E skipped::no Apple Development signing identity on this runner. macOS 26 Gatekeeper rejects an ad-hoc XCUITest runner as 'damaged'. Import a signing cert via secrets, or run on a self-hosted dev machine."
+            echo "::warning title=Track B UI E2E skipped::no Apple Development signing identity on this runner. macOS 26 Gatekeeper rejects an ad-hoc XCUITest runner as 'damaged'. Set the APPLE_CERT_P12_BASE64 + APPLE_CERT_PASSWORD repo secrets (see CLAUDE.md → Testing), or run on a self-hosted dev machine."
           fi

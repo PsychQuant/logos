@@ -99,10 +99,24 @@ Notes:
   `/usr/bin/log show --predicate 'subsystem == "app.getlogos.logos"'` (use the
   absolute path — `log` is a zsh builtin that shadows the binary and returns
   empty). `.notice` events persist; `.info`/`.debug` are stream-only.
-- **CI** (`.github/workflows/ci.yml`): the `unit` job (`swift test`) is the hard
-  gate and runs anywhere; the `e2e` job runs Track A + B but each degrades with a
-  visible warning where the runner lacks `claude` / a signing identity — never a
-  silent pass.
+- **CI** (`.github/workflows/ci.yml`): the `unit` job (`swift test --enable-code-coverage`)
+  is the hard gate and runs anywhere; the `e2e` job runs Track A + B but each
+  degrades with a visible warning where the runner lacks `claude` / a signing
+  identity — never a silent pass.
+- **CI signing secrets** (#25): Track B runs in cloud CI when two repo secrets are
+  set (Settings → Secrets and variables → Actions) — `APPLE_CERT_P12_BASE64`
+  (`base64 -i AppleDevelopment.p12 | pbcopy`) + `APPLE_CERT_PASSWORD` (the `.p12`
+  export password). `apple-actions/import-codesign-certs` imports them into an
+  ephemeral keychain so `xcodebuild test` runs signed. **Maintainer-only** — secrets
+  can't be set by an agent, and forked PRs can't read them (they keep the
+  degrade-with-warning path). Without the secrets Track B is local-only.
+- **Coverage is report-only** (#25): CI prints `Sources/Logos` line coverage vs the
+  80% bar + a `::warning::` when under, but never fails the build. Locally:
+  `make coverage`. The `swift test` number **undercounts** a SwiftUI app — view
+  bodies + AppKit interop execute only under the `xcodebuild` hosted/UI run
+  (`make hosted-tests` / Track B), a separate profdata. A hard 80% gate on the
+  unit-only number is deferred until coverage approaches the bar (flip the warning
+  to `exit 1` in `ci.yml`).
 - **Snapshot baselines** (#26, `ViewSnapshotTests`): committed PNGs under
   `LogosHostedTests/__Snapshots__/` are recorded on a canonical machine with a
   pinned size + forced `.aqua` appearance. To regenerate after an intentional
