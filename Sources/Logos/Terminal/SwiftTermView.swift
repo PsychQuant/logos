@@ -59,6 +59,9 @@ struct SwiftTermView: NSViewRepresentable {
         /// Opens the claude login OAuth URL natively (#17) — claude's own
         /// browser-open fails inside Logos's spawned-PTY launchd context.
         private var oauthDetector = OAuthURLDetector()
+        /// Detects claude's unauthenticated signal (#29) to flip the passive
+        /// re-auth banner. READ-ONLY — never touches the token.
+        private var loginDetector = LoginPromptDetector()
 
         init(
             processConfig: ClaudeProcessConfig,
@@ -101,6 +104,14 @@ struct SwiftTermView: NSViewRepresentable {
                 // (<private>) — it is a one-time login secret, never logged in clear.
                 Log.terminal.notice("OAuth login URL detected, opening externally: \(loginURL.absoluteString)")
                 NSWorkspace.shared.open(loginURL)
+            }
+
+            // #29: surface a passive re-auth banner when the hosted claude reports
+            // it's unauthenticated (401 / "Please run /login"). PASSIVE — we only
+            // flip a UI flag; the genuine claude owns the whole auth lifecycle.
+            if loginDetector.detect(in: buffered) {
+                Log.terminal.notice("hosted claude unauthenticated signal detected — surfacing re-auth banner (#29)")
+                sessionState.markNeedsAuth()
             }
 
             if let response = engine.processChunk(buffered) {

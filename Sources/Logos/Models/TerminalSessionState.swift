@@ -28,6 +28,12 @@ public final class TerminalSessionState {
     /// SwiftUI `.id` so a bump forces a fresh spawn.
     public private(set) var generation: Int = 0
 
+    /// True once the hosted claude emitted its unauthenticated signal (#29):
+    /// the passive re-auth banner shows. Logos NEVER touches the OAuth token —
+    /// this only drives a UI hint guiding the user to type `/login` (the genuine
+    /// claude owns auth). Latched until `restart()` or `dismissNeedsAuth()`.
+    public private(set) var needsAuth: Bool = false
+
     public init() {}
 
     /// True once the hosted process has terminated (overlay should show).
@@ -59,11 +65,28 @@ public final class TerminalSessionState {
         Log.session.notice("phase → exited — code=\(code.map { String($0) } ?? "signal", privacy: .public) abnormal=\(self.isAbnormal, privacy: .public)")
     }
 
+    /// Record that the hosted claude is unauthenticated (#29). Passive UI signal
+    /// only — no token access. Idempotent.
+    public func markNeedsAuth() {
+        guard !needsAuth else { return }
+        needsAuth = true
+        // Non-sensitive state-machine marker; no credential / token data logged.
+        Log.session.notice("needs-auth — hosted claude unauthenticated, surfacing re-auth banner (#29)")
+    }
+
+    /// User dismissed the re-auth banner. (Re-detection within the same session
+    /// is a documented follow-up; a restart re-detects naturally.)
+    public func dismissNeedsAuth() {
+        needsAuth = false
+    }
+
     /// Restart the session: bump `generation` (recreates the terminal view →
-    /// fresh spawn) and return to the running phase.
+    /// fresh spawn) and return to the running phase. Also clears the re-auth
+    /// banner — the fresh session re-detects if still unauthenticated (#29).
     public func restart() {
         generation += 1
         phase = .running
+        needsAuth = false
         Log.session.notice("restart — generation=\(self.generation, privacy: .public)")
     }
 }

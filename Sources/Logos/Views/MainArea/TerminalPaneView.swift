@@ -61,6 +61,15 @@ struct TerminalPaneView: View {
                             .padding(6)
                     }
                 }
+                // #29: passive re-auth nudge when the hosted claude is
+                // unauthenticated (detected from its 401 / "Please run /login"
+                // output). Non-blocking top strip — the terminal stays usable so
+                // the user types `/login` themselves; Logos never touches the token.
+                .overlay(alignment: .top) {
+                    if sessionState.needsAuth {
+                        AuthNeededBanner(onDismiss: { sessionState.dismissNeedsAuth() })
+                    }
+                }
             } else if effectivePath == nil {
                 ClaudeNotFoundBanner()
             } else {
@@ -110,5 +119,38 @@ private struct NoActiveAccountBanner: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.9))
+    }
+}
+
+/// #29: passive, non-blocking re-auth nudge. PASSIVE BY DESIGN — it only tells the
+/// user to type `/login`; it does NOT run the login, proxy the OAuth callback, or
+/// touch the token. The genuine `claude` owns the whole auth lifecycle (and
+/// `OAuthURLDetector` opens the browser). Keeps Logos a first-party host, not a
+/// third-party auth client.
+private struct AuthNeededBanner: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.crop.circle.badge.exclamationmark")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("This account isn't signed in")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Text("Type `/login` in the terminal to authenticate with Claude.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Dismiss", action: onDismiss)
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(8)
+        .accessibilityIdentifier("logos.terminal.authBanner")
     }
 }

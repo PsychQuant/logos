@@ -7,6 +7,19 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Passive re-auth banner for an unauthenticated hosted claude** ([#29](https://github.com/PsychQuant/logos/issues/29)).
+  When the active account's per-account credentials are missing/expired, the
+  genuine claude prints a raw `401 · Please run /login` and the user was frozen
+  with no guidance. A new `LoginPromptDetector` (sibling of `OAuthURLDetector`)
+  scans the ANSI-stripped PTY buffer for that signal and flips a
+  `TerminalSessionState.needsAuth` flag, surfacing a non-blocking top banner —
+  "This account isn't signed in — type `/login`" — with a dismiss. **First-party-safe
+  by design** (the constraint that shaped the fix): it is passive — Logos never
+  injects `/login`, proxies the OAuth callback, or touches the token; the genuine
+  claude owns the entire auth lifecycle (the existing `OAuthURLDetector` opens the
+  browser). Detector + state are unit-tested; the banner clears on restart /
+  dismiss (auto-clear on successful re-auth is a documented follow-up).
+
 - **Dangerous-mode launch toggle** ([#19](https://github.com/PsychQuant/logos/issues/19)).
   Settings → Advanced → Permissions adds a toggle that launches claude with
   `--dangerously-skip-permissions` (bypass all permission prompts). Default OFF

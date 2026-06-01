@@ -69,4 +69,36 @@ struct TerminalSessionStateTests {
         #expect(state.generation == 2)
         #expect(state.phase == .running)
     }
+
+    // #29 — passive re-auth state (drives the AuthNeededBanner; never touches the token).
+
+    @Test("starts with needsAuth false")
+    func startsNotNeedingAuth() {
+        #expect(TerminalSessionState().needsAuth == false)
+    }
+
+    @Test("markNeedsAuth sets the flag; idempotent")
+    func markNeedsAuthSetsFlag() {
+        let state = TerminalSessionState()
+        state.markNeedsAuth()
+        #expect(state.needsAuth == true)
+        state.markNeedsAuth()   // idempotent — stays true, no crash
+        #expect(state.needsAuth == true)
+    }
+
+    @Test("dismissNeedsAuth clears the flag")
+    func dismissClearsFlag() {
+        let state = TerminalSessionState()
+        state.markNeedsAuth()
+        state.dismissNeedsAuth()
+        #expect(state.needsAuth == false)
+    }
+
+    @Test("restart clears needsAuth (fresh session re-detects)")
+    func restartClearsNeedsAuth() {
+        let state = TerminalSessionState()
+        state.markNeedsAuth()
+        state.restart()
+        #expect(state.needsAuth == false)
+    }
 }
