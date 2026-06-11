@@ -70,4 +70,27 @@ struct ClaudeProcessConfigTests {
         let processHome = ProcessInfo.processInfo.environment["HOME"]
         #expect(cfg.environment["HOME"] == processHome)
     }
+
+    // #33: TerminalPaneView now passes the hydrated login-shell environment as
+    // `baseEnvironment`. A user's shell profile can itself export CLAUDE_CONFIG_DIR
+    // (e.g. pointing at their personal ~/.claude) — the per-account dirs must win
+    // over ANY base value, or hydration would silently break #12 isolation.
+    @Test("per-account CLAUDE_* dirs win over a stale value in baseEnvironment (#33 guards #12)")
+    func accountConfigDirsBeatHydratedBase() {
+        let account = Account(id: "test-acc", label: "work")
+        let cfg = ClaudeProcessConfig(
+            executablePath: "/usr/local/bin/claude",
+            account: account,
+            baseEnvironment: [
+                "HOME": "/Users/realuser",
+                "PATH": "/usr/bin:/Users/realuser/.local/bin",
+                "CLAUDE_CONFIG_DIR": "/Users/realuser/.claude",                // stale, from profile
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/Users/realuser/.claude"  // stale, from profile
+            ]
+        )
+        #expect(cfg.environment["CLAUDE_CONFIG_DIR"] == account.configDirPath)
+        #expect(cfg.environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == account.configDirPath)
+        // The hydrated PATH itself survives (the point of #33).
+        #expect(cfg.environment["PATH"] == "/usr/bin:/Users/realuser/.local/bin")
+    }
 }

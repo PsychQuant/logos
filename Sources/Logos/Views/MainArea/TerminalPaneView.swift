@@ -25,7 +25,11 @@ struct TerminalPaneView: View {
                 let processConfig = ClaudeProcessConfig(
                     executablePath: claudePath,
                     account: active,
-                    extraArgs: advanced.claudeExtraArgs  // #19: dangerous-mode toggle
+                    extraArgs: advanced.claudeExtraArgs,  // #19: dangerous-mode toggle
+                    // #33: spawn claude with the user's REAL (login-shell) env, not
+                    // the bare launchd env a Finder launch provides. Per-account
+                    // CLAUDE_* overrides are layered on top inside the init (#12).
+                    baseEnvironment: LoginShellEnvironment.resolve()
                 )
                 SwiftTermView(
                     config: config,
