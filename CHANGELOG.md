@@ -5,6 +5,23 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **"claude CLI not found" on a normal Finder/Spotlight launch** ([#33](https://github.com/PsychQuant/logos/issues/33), P1).
+  A GUI app launched from Finder inherits the bare launchd environment (PATH =
+  `/usr/bin:/bin:/usr/sbin:/sbin` — no `~/.local/bin`, no homebrew), so the old
+  bare `which claude` failed and claude spawned (when it spawned at all) with an
+  impoverished env. Logos now hydrates the user's **login-shell environment**
+  once per launch (a new `LoginShellEnvironment`: `$SHELL -ilc` with a
+  sentinel-delimited `/usr/bin/env -0` dump, stdin=/dev/null, 3 s watchdog,
+  graceful fallback to the process env — the VS Code `shell-env` pattern) and
+  uses it both to **find** claude (PATH search, with the bare `which` as last
+  resort) and to **spawn** it (`baseEnvironment`), so claude runs exactly as it
+  would inside Ghostty/Terminal.app. Per-account `CLAUDE_*` isolation (#12) is
+  layered on top of the hydrated env and locked by a regression test. Whether
+  the richer env also fixes claude's own `/login` browser-open (the #17
+  detector's reason to exist) is a post-fix verification, not assumed.
+
 ### Changed
 
 - **Hardened the passive re-auth banner detection** ([#30](https://github.com/PsychQuant/logos/issues/30), Phase A).
