@@ -17,13 +17,36 @@ public final class TerminalConfig {
         self.claudePathOverride = claudePathOverride
     }
 
-    /// Path to claude binary. Returns override if set, else `which claude` result,
-    /// else nil (caller should show "claude not found" error).
+    /// Path to claude binary. Returns override if set; else searches the
+    /// hydrated login-shell PATH (#33 — a Finder/Spotlight launch hands Logos
+    /// the bare launchd PATH, which excludes ~/.local/bin / homebrew, so the
+    /// old bare `which` failed with "claude CLI not found"); else falls back to
+    /// the bare `which` (pre-#33 behavior); else nil (caller shows the
+    /// ClaudeNotFoundBanner, and Settings → Advanced offers a manual override).
     public var resolvedClaudePath: String? {
         if let override = claudePathOverride {
             return override
         }
+        if let found = Self.searchPath(for: "claude", in: LoginShellEnvironment.resolve()["PATH"]) {
+            return found
+        }
         return Self.runWhich("claude")
+    }
+
+    /// Search the given colon-separated PATH for an executable named `binary`,
+    /// honoring PATH order. Pure + injectable executable check for tests; the
+    /// production default asks the real filesystem.
+    nonisolated static func searchPath(
+        for binary: String,
+        in path: String?,
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        for dir in path.split(separator: ":") where !dir.isEmpty {
+            let candidate = "\(dir)/\(binary)"
+            if isExecutable(candidate) { return candidate }
+        }
+        return nil
     }
 
     /// The claude binary path passed by a UI test (#24), honored ONLY when
