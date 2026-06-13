@@ -110,9 +110,13 @@ struct SwiftTermView: NSViewRepresentable {
             // distinct URL once.
             if let loginURL = oauthDetector.detect(in: detectorBuffer.contents) {
                 // Lifecycle marker (#22 follow-up): the OAuth login URL was detected
-                // and is being opened natively (#17). The URL is default-redacted
-                // (<private>) — it is a one-time login secret, never logged in clear.
-                Log.terminal.notice("OAuth login URL detected, opening externally: \(loginURL.absoluteString)")
+                // and is being opened natively (#17). The URL itself stays
+                // default-redacted (<private>) — a one-time login secret. The scalar
+                // diagnostics are PUBLIC so a truncated reassembly (e.g. a ~76-char
+                // cut missing redirect_uri vs a ~400-char full URL — the "Invalid
+                // OAuth Request" symptom) is visible in the unified log without
+                // leaking the secret.
+                Log.terminal.notice("OAuth login URL detected, opening externally — len=\(loginURL.absoluteString.count, privacy: .public) hasRedirectURI=\(loginURL.absoluteString.contains("redirect_uri"), privacy: .public): \(loginURL.absoluteString)")
                 NSWorkspace.shared.open(loginURL)
                 // #31: a new authorize URL = re-auth INITIATED. Clear the passive
                 // banner + un-force the switcher indicator. Optimistic (initiated,
