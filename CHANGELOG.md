@@ -66,10 +66,14 @@ All notable changes to Logos are documented here. Format loosely follows
   work). The switcher shows only a non-blocking "needs login" indicator. (An earlier
   per-account Sign-in button that shelled `claude auth login` was removed as
   redundant + off-philosophy — Logos is a transparent host of claude, not an auth
-  driver.) Remaining follow-ups: decide how Logos reads auth state for the indicator
-  (passive terminal-401 vs a `claude auth status` probe — which also settles whether
-  `ClaudeAuthInvoker`/`ProcessRunner` stay), retire the #17 URL scrape once claude's
-  own browser-open is confirmed (#35), and the 6-AI verify + close of #34.
+  driver.) Settling the philosophy ("LogoSwitch just switches config profiles; auth
+  is claude's own job"), Logos reads auth state **only** from the live terminal-401
+  signal — it runs no `claude auth` subcommands behind the scenes — so
+  `ClaudeAuthInvoker` + `ProcessRunner` are removed. Remaining follow-ups: slim
+  `AccountManager`/`AccountStore` to the live-401-only `needsReauth` (dropping the
+  now-dead `authenticatedAccountIds` / `.credentials.json` probe / migration — this
+  also honestly closes #32), retire the #17 URL scrape once claude's own
+  browser-open is confirmed (#35), and the 6-AI verify + close of #34.
 
 ### Fixed
 
