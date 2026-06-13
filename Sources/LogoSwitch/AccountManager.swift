@@ -72,6 +72,22 @@ public final class AccountManager {
         persist()
     }
 
+    /// Rename `accountId`'s label. Pure local metadata — the account **id** (the
+    /// `CLAUDE_CONFIG_DIR` key) and `createdAt` are preserved, so a rename never
+    /// moves the config dir, invalidates a login, or touches credentials (#34).
+    /// Validated like create (#12): non-empty, ≤30, and not a duplicate of
+    /// *another* account's label (renaming to the account's own label is allowed).
+    public func rename(accountId: String, to newLabel: String) throws {
+        let trimmed = try Account.validate(label: newLabel)
+        guard let idx = accounts.firstIndex(where: { $0.id == accountId }) else { return }
+        if accounts.contains(where: { $0.id != accountId && $0.label == trimmed }) {
+            throw Account.ValidationError.duplicateLabel
+        }
+        let old = accounts[idx]
+        accounts[idx] = Account(id: old.id, label: trimmed, createdAt: old.createdAt)
+        persist()
+    }
+
     // MARK: - Switch active
 
     /// Switch the active account. Purely local state (#12): each account's claude

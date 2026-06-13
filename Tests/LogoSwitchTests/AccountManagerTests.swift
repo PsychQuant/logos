@@ -159,4 +159,67 @@ struct AccountManagerTests {
         mgr.acknowledgeReauth(a.id)
         #expect(mgr.needsReauth(a) == false)
     }
+
+    // MARK: - Rename (#36)
+
+    @Test("rename changes the label, preserving id + createdAt")
+    func renamePreservesIdentity() throws {
+        let mgr = makeManager()
+        let a = try mgr.createAccount(label: "work")
+        try mgr.rename(accountId: a.id, to: "office")
+        let renamed = try #require(mgr.accounts.first { $0.id == a.id })
+        #expect(renamed.label == "office")
+        #expect(renamed.id == a.id)
+        #expect(renamed.createdAt == a.createdAt)
+    }
+
+    @Test("rename rejects a duplicate of ANOTHER account's label")
+    func renameRejectsDuplicate() throws {
+        let mgr = makeManager()
+        let a = try mgr.createAccount(label: "work")
+        try mgr.createAccount(label: "home")
+        #expect(throws: Account.ValidationError.duplicateLabel) {
+            try mgr.rename(accountId: a.id, to: "home")
+        }
+        #expect(mgr.accounts.first { $0.id == a.id }?.label == "work")   // unchanged
+    }
+
+    @Test("rename to the account's OWN label is allowed (not a false duplicate)")
+    func renameToOwnLabelAllowed() throws {
+        let mgr = makeManager()
+        let a = try mgr.createAccount(label: "work")
+        try mgr.rename(accountId: a.id, to: "work")   // no throw
+        #expect(mgr.accounts.first { $0.id == a.id }?.label == "work")
+    }
+
+    @Test("rename rejects empty / too-long labels")
+    func renameRejectsInvalid() throws {
+        let mgr = makeManager()
+        let a = try mgr.createAccount(label: "work")
+        #expect(throws: Account.ValidationError.emptyLabel) {
+            try mgr.rename(accountId: a.id, to: "   ")
+        }
+        #expect(throws: Account.ValidationError.labelTooLong) {
+            try mgr.rename(accountId: a.id, to: String(repeating: "x", count: 31))
+        }
+    }
+
+    @Test("rename persists across a fresh manager on the same store")
+    func renamePersists() throws {
+        let store = InMemoryAccountStore()
+        let mgr1 = makeManager(store: store)
+        let a = try mgr1.createAccount(label: "work")
+        try mgr1.rename(accountId: a.id, to: "office")
+        let mgr2 = makeManager(store: store)
+        #expect(mgr2.accounts.first { $0.id == a.id }?.label == "office")
+    }
+
+    @Test("rename of a non-existent id is a no-op")
+    func renameNonexistentNoOp() throws {
+        let mgr = makeManager()
+        let a = try mgr.createAccount(label: "work")
+        try mgr.rename(accountId: "ghost", to: "whatever")   // no throw, no change
+        #expect(mgr.accounts.count == 1)
+        #expect(mgr.accounts.first { $0.id == a.id }?.label == "work")
+    }
 }
