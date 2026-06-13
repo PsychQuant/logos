@@ -61,7 +61,11 @@ final class ViewSnapshotTests: XCTestCase {
                 account: Account(label: "work"),
                 isActive: true,
                 needsReauth: false,
+                isEditing: false,
                 onSelect: {},
+                onBeginRename: {},
+                onCommitRename: { _ in },
+                onCancelRename: {},
                 onDelete: {}
             ),
             width: 380, height: 44
@@ -75,7 +79,11 @@ final class ViewSnapshotTests: XCTestCase {
                 account: Account(label: "personal"),
                 isActive: false,
                 needsReauth: true,
+                isEditing: false,
                 onSelect: {},
+                onBeginRename: {},
+                onCommitRename: { _ in },
+                onCancelRename: {},
                 onDelete: {}
             ),
             width: 380, height: 44

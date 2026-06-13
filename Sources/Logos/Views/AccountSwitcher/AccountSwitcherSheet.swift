@@ -54,8 +54,8 @@ struct AccountSwitcherSheet: View {
                                 onSelect: { mgr.setActive(acc.id) },
                                 onBeginRename: { beginRename(acc.id) },
                                 onCommitRename: { commitRename(acc.id, to: $0) },
-                                onCancelRename: { cancelRename() },
-                                onDelete: { mgr.remove(accountId: acc.id) }
+                                onCancelRename: { cancelRename(acc.id) },
+                                onDelete: { delete(acc.id) }
                             )
                             Divider()
                         }
@@ -71,6 +71,7 @@ struct AccountSwitcherSheet: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("logos.account.rename.error")  // #36 verify DA-7: queryable in a future UI test
             }
 
             Divider()
@@ -126,15 +127,37 @@ struct AccountSwitcherSheet: View {
         editingAccountId = accountId
     }
 
-    private func cancelRename() {
+    /// Cancel — but ONLY if `accountId` is still the row being edited. The guard
+    /// makes the callback account-scoped (#36 verify, codex + logic + devil's
+    /// advocate): a stale focus-loss/Esc callback from a row that just lost
+    /// editing (switched to another row, deleted, or fired after a successful
+    /// commit set `editingAccountId = nil`) becomes a deterministic no-op instead
+    /// of clobbering the current editing row. Removes the "relies on undocumented
+    /// SwiftUI batching" race the reviewers flagged.
+    private func cancelRename(_ accountId: String) {
+        guard editingAccountId == accountId else { return }
         renameError = nil
         editingAccountId = nil
+    }
+
+    /// Delete an account; if it was the one being edited, clear the inline-edit
+    /// state so no stale `editingAccountId` survives the row's teardown (#36
+    /// verify, logic reviewer).
+    private func delete(_ accountId: String) {
+        if editingAccountId == accountId {
+            editingAccountId = nil
+            renameError = nil
+        }
+        mgr.remove(accountId: accountId)
     }
 
     /// Commit a rename. On a validation error, KEEP the row in edit mode and show
     /// the message (mirrors the add form) — no silent revert. Pure local label
     /// metadata: the account id / config dir / credentials are untouched (#34).
+    /// Account-scoped guard (#36 verify): ignore a stale commit from a row that is
+    /// no longer the active edit target.
     private func commitRename(_ accountId: String, to newLabel: String) {
+        guard editingAccountId == accountId else { return }
         renameError = nil
         do {
             try mgr.rename(accountId: accountId, to: newLabel)
