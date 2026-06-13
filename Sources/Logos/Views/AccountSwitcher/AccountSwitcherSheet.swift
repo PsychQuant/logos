@@ -9,6 +9,11 @@ struct AccountSwitcherSheet: View {
     @State private var newLabel = ""
     @State private var addError: String?
 
+    /// Inline-rename state (#36): which row is being edited + the last failed
+    /// rename's message. The sheet owns this so `AccountRow` stays presentational.
+    @State private var editingAccountId: String?
+    @State private var renameError: String?
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -45,13 +50,27 @@ struct AccountSwitcherSheet: View {
                                 account: acc,
                                 isActive: acc.id == mgr.activeAccountId,
                                 needsReauth: mgr.needsReauth(acc),
+                                isEditing: acc.id == editingAccountId,
                                 onSelect: { mgr.setActive(acc.id) },
+                                onBeginRename: { beginRename(acc.id) },
+                                onCommitRename: { commitRename(acc.id, to: $0) },
+                                onCancelRename: { cancelRename() },
                                 onDelete: { mgr.remove(accountId: acc.id) }
                             )
                             Divider()
                         }
                     }
                 }
+            }
+
+            if let err = renameError {
+                Text(err)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Divider()
@@ -98,6 +117,37 @@ struct AccountSwitcherSheet: View {
         newLabel = ""
         addError = nil
         showAddSheet = false
+    }
+
+    // MARK: - Inline rename (#36)
+
+    private func beginRename(_ accountId: String) {
+        renameError = nil
+        editingAccountId = accountId
+    }
+
+    private func cancelRename() {
+        renameError = nil
+        editingAccountId = nil
+    }
+
+    /// Commit a rename. On a validation error, KEEP the row in edit mode and show
+    /// the message (mirrors the add form) — no silent revert. Pure local label
+    /// metadata: the account id / config dir / credentials are untouched (#34).
+    private func commitRename(_ accountId: String, to newLabel: String) {
+        renameError = nil
+        do {
+            try mgr.rename(accountId: accountId, to: newLabel)
+            editingAccountId = nil
+        } catch Account.ValidationError.emptyLabel {
+            renameError = "Enter a label for the account."
+        } catch Account.ValidationError.labelTooLong {
+            renameError = "Label is too long (max 30 characters)."
+        } catch Account.ValidationError.duplicateLabel {
+            renameError = "An account with that label already exists."
+        } catch {
+            renameError = "\(error)"
+        }
     }
 }
 
