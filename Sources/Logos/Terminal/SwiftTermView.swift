@@ -114,6 +114,12 @@ struct SwiftTermView: NSViewRepresentable {
                 // (<private>) — it is a one-time login secret, never logged in clear.
                 Log.terminal.notice("OAuth login URL detected, opening externally: \(loginURL.absoluteString)")
                 NSWorkspace.shared.open(loginURL)
+                // #31: a new authorize URL = re-auth INITIATED. Clear the passive
+                // banner + un-force the switcher indicator. Optimistic (initiated,
+                // not succeeded) — if the login fails, the next 401 re-fires both
+                // via the rising edge. The active account is the one re-authing.
+                sessionState.dismissNeedsAuth()
+                accountManager.activeAccountId.map { accountManager.clearForcedReauth($0) }
             }
 
             // #29: surface a passive re-auth banner when the hosted claude reports
@@ -122,6 +128,10 @@ struct SwiftTermView: NSViewRepresentable {
             if loginDetector.detect(in: detectorBuffer.contents) {
                 Log.terminal.notice("hosted claude unauthenticated signal detected — surfacing re-auth banner (#29)")
                 sessionState.markNeedsAuth()
+                // #31: a live 401 → force the active account's needs-reauth so the
+                // account-switcher indicator agrees with the banner (the static
+                // authenticated-flag / .credentials.json signals can disagree).
+                accountManager.activeAccountId.map { accountManager.forceReauth($0) }
             }
 
             if let response = engine.processChunk(buffered) {

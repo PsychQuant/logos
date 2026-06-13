@@ -61,4 +61,51 @@ final class SwiftTermViewCoordinatorTests {
         // "/login" half, so the co-occurrence is still seen → banner fires.
         #expect(coord.sessionState.needsAuth == true)
     }
+
+    // MARK: - #31 banner auto-clear + needsAuth↔needsReauth coherence
+
+    /// A Coordinator whose AccountManager has one authenticated, active account —
+    /// so `needsReauth` reads `false` absent a forced override, letting the #31
+    /// tests prove the override (not just the static default).
+    private func makeCoordinatorWithAuthedActive() throws
+        -> (SwiftTermView.Coordinator, AccountManager, Account) {
+        let config = ClaudeProcessConfig(executablePath: "/bin/echo")
+        let mgr = AccountManager(
+            store: InMemoryCredentialStore(),
+            systemBridge: InMemorySystemKeychainBridge(),
+            defaults: tracker.make(prefix: "LogosCoord"),
+            fileExists: { _ in false }
+        )
+        try mgr.add(label: "work", credentials: Data("{}".utf8))  // first account → active
+        let acc = mgr.accounts[0]
+        mgr.markAuthenticated(acc.id)                              // authenticated baseline
+        let coord = SwiftTermView.Coordinator(
+            processConfig: config,
+            engine: AutoHandleEngine(rules: [], persistence: nil),
+            accountManager: mgr,
+            sessionState: TerminalSessionState()
+        )
+        return (coord, mgr, acc)
+    }
+
+    @Test("a live 401 forces the active account's needsReauth so the switcher agrees (#31)")
+    func liveUnauthForcesSwitcherCoherence() throws {
+        let (coord, mgr, acc) = try makeCoordinatorWithAuthedActive()
+        #expect(mgr.needsReauth(acc) == false)   // authenticated baseline
+        coord.handleChunk(Array("Please run /login · API Error: 401 Invalid authentication credentials\n".utf8))
+        #expect(coord.sessionState.needsAuth == true)
+        #expect(mgr.needsReauth(acc) == true)    // forced → switcher agrees with the banner
+    }
+
+    @Test("re-auth initiated (oauth URL) clears the banner and un-forces needsReauth (#31)")
+    func oauthInitiatedClearsBannerAndUnforces() throws {
+        let (coord, mgr, acc) = try makeCoordinatorWithAuthedActive()
+        coord.handleChunk(Array("Please run /login · API Error: 401 Invalid authentication credentials\n".utf8))
+        #expect(coord.sessionState.needsAuth == true)
+        #expect(mgr.needsReauth(acc) == true)
+        // User runs /login → claude prints the authorize URL → re-auth initiated.
+        coord.handleChunk(Array("https://claude.com/cai/oauth/authorize?code=true&client_id=abc-123&state=xyz-789\n\n".utf8))
+        #expect(coord.sessionState.needsAuth == false)   // banner cleared on re-auth-initiated
+        #expect(mgr.needsReauth(acc) == false)           // un-forced → back to authenticated
+    }
 }
