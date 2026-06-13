@@ -32,9 +32,16 @@ All notable changes to Logos are documented here. Format loosely follows
   deliberately STAY in the app — they are SwiftTerm-output scrapers bound to the
   excluded terminal-hosting, depend on `PatternParser` (auto-handle infra), and are
   slated for retirement by the `claude auth login` button (#35); the module instead
-  gets the pure `AuthCoordinator` reducer that consumes their signal output. Still
-  to come: the new `ProcessRunner` + `ClaudeAuthInvoker` + `AuthCoordinator`, the
-  slimmed `AccountManager`, and the removal of the token-capture path
+  gets the pure `AuthCoordinator` reducer that consumes their signal output. The
+  new auth core has landed: `AuthCoordinator` (OAuth-wins single-decision reducer,
+  fixing the #30/#31 same-chunk flip-flop), an internal `ProcessRunner` subprocess
+  seam (stdin+stderr→/dev/null so the single stdout read can't deadlock,
+  watchdog-bounded, lock-guarded `timedOut`), and `ClaudeAuthInvoker` — which
+  spawns claude's own `auth login`/`logout`/`status --json` under the account's
+  config dir and observes the exit only (claude opens its own browser + runs its
+  own OAuth callback; LogoSwitch never reads the URL, proxies the callback, or
+  touches the token). Still to come: the slimmed `AccountManager`, the app glue
+  through `AuthCoordinator`, and the removal of the token-capture path
   (`addByCapturingCurrent` / `AccountCredentialStore` / `SystemKeychainBridge`).
 
 ### Fixed
