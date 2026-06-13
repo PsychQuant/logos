@@ -16,7 +16,7 @@ struct PDFBuildErrorBanner: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                     .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(4)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
             }
             .frame(maxHeight: 180)
             .padding(.horizontal, 24)
