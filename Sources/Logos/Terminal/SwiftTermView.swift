@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import SwiftTerm
 import os
+import LogoSwitch
 
 /// SwiftUI wrapper around SwiftTerm's LocalProcessTerminalView.
 /// Owns the NSView; configures theme + font; spawns subprocess on appear.

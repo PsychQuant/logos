@@ -22,12 +22,14 @@ All notable changes to Logos are documented here. Format loosely follows
   hit. The staged migration is in progress: the target scaffold + red-line guard
   are in place, and `LoginShellEnvironment` (#33, with the module's own
   `os.Logger` and the now-`Sendable` `Process` watchdog de-`nonisolated(unsafe)`-ed)
-  plus the `Account` value model (with its #21 `id`/`HOME` doc-rot corrected) are
-  the first types migrated into the module. The remaining launcher nucleus
-  (`ClaudeProcessConfig`/env layering, the passive detectors, `ClaudeBinaryResolver`),
-  the new `ClaudeAuthInvoker`, the slimmed `AccountManager`, and the removal of the
-  token-capture path (`addByCapturingCurrent` / `AccountCredentialStore` /
-  `SystemKeychainBridge`) follow.
+  the `Account` value model (with its #21 `id`/`HOME` doc-rot corrected), and
+  `ClaudeProcessConfig` — whose per-account env layering is extracted into a pure,
+  directly-tested `ClaudeConfigEnvironment.apply(base:configDir:)` (the #12/#21
+  isolation primitive) — are migrated into the module. The remaining nucleus (the
+  passive detectors, `ClaudeBinaryResolver`), the new `ClaudeAuthInvoker`, the
+  slimmed `AccountManager`, and the removal of the token-capture path
+  (`addByCapturingCurrent` / `AccountCredentialStore` / `SystemKeychainBridge`)
+  follow.
 
 ### Fixed
 
