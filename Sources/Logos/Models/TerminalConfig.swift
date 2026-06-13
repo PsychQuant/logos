@@ -25,29 +25,10 @@ public final class TerminalConfig {
     /// the bare `which` (pre-#33 behavior); else nil (caller shows the
     /// ClaudeNotFoundBanner, and Settings → Advanced offers a manual override).
     public var resolvedClaudePath: String? {
-        if let override = claudePathOverride {
-            return override
-        }
-        if let found = Self.searchPath(for: "claude", in: LoginShellEnvironment.resolve()["PATH"]) {
-            return found
-        }
-        return Self.runWhich("claude")
-    }
-
-    /// Search the given colon-separated PATH for an executable named `binary`,
-    /// honoring PATH order. Pure + injectable executable check for tests; the
-    /// production default asks the real filesystem.
-    nonisolated static func searchPath(
-        for binary: String,
-        in path: String?,
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
-    ) -> String? {
-        guard let path, !path.isEmpty else { return nil }
-        for dir in path.split(separator: ":") where !dir.isEmpty {
-            let candidate = "\(dir)/\(binary)"
-            if isExecutable(candidate) { return candidate }
-        }
-        return nil
+        ClaudeBinaryResolver().resolve(
+            override: claudePathOverride,
+            path: LoginShellEnvironment.resolve()["PATH"]
+        )
     }
 
     /// The claude binary path passed by a UI test (#24), honored ONLY when
@@ -90,25 +71,5 @@ public final class TerminalConfig {
             i += 1
         }
         return nil
-    }
-
-    private static func runWhich(_ binary: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = [binary]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let path = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return path?.isEmpty == false ? path : nil
-        } catch {
-            return nil
-        }
     }
 }

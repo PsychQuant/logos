@@ -25,11 +25,17 @@ All notable changes to Logos are documented here. Format loosely follows
   the `Account` value model (with its #21 `id`/`HOME` doc-rot corrected), and
   `ClaudeProcessConfig` — whose per-account env layering is extracted into a pure,
   directly-tested `ClaudeConfigEnvironment.apply(base:configDir:)` (the #12/#21
-  isolation primitive) — are migrated into the module. The remaining nucleus (the
-  passive detectors, `ClaudeBinaryResolver`), the new `ClaudeAuthInvoker`, the
+  isolation primitive) — are migrated into the module, as is `ClaudeBinaryResolver`
+  (the claude-binary discovery half extracted from `TerminalConfig`; the appearance
+  config + `--ui-testing`/`--claude-path` launch-arg seams stay in the app). The
+  passive detectors (`OAuthURLDetector`/`LoginPromptDetector`/`RollingTerminalBuffer`)
+  deliberately STAY in the app — they are SwiftTerm-output scrapers bound to the
+  excluded terminal-hosting, depend on `PatternParser` (auto-handle infra), and are
+  slated for retirement by the `claude auth login` button (#35); the module instead
+  gets the pure `AuthCoordinator` reducer that consumes their signal output. Still
+  to come: the new `ProcessRunner` + `ClaudeAuthInvoker` + `AuthCoordinator`, the
   slimmed `AccountManager`, and the removal of the token-capture path
-  (`addByCapturingCurrent` / `AccountCredentialStore` / `SystemKeychainBridge`)
-  follow.
+  (`addByCapturingCurrent` / `AccountCredentialStore` / `SystemKeychainBridge`).
 
 ### Fixed
 
