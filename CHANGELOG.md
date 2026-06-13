@@ -19,10 +19,13 @@ All notable changes to Logos are documented here. Format loosely follows
   keychain call is a compile error; a new `RedLineAuditTests` guard scans the
   module's sources (comments stripped) for `import Security` / `SecItem` /
   `find-/add-generic-password` / `/usr/bin/security` and fails the build on any
-  hit. This commit lands the target scaffold + the red-line guard; the staged
-  migration of the launcher nucleus, the new `ClaudeAuthInvoker`, and the removal
-  of the token-capture path (`addByCapturingCurrent` / `AccountCredentialStore` /
-  `SystemKeychainBridge`) follow.
+  hit. The staged migration is in progress: the target scaffold + red-line guard
+  are in place, and `LoginShellEnvironment` (#33) is the first type migrated into
+  the module (with the module's own `os.Logger` and the now-`Sendable` `Process`
+  watchdog de-`nonisolated(unsafe)`-ed). The remaining launcher nucleus, the new
+  `ClaudeAuthInvoker`, and the removal of the token-capture path
+  (`addByCapturingCurrent` / `AccountCredentialStore` / `SystemKeychainBridge`)
+  follow.
 
 ### Fixed
 

@@ -57,10 +57,10 @@ public enum LoginShellEnvironment {
             result = parsed
             // Lifecycle marker (#22): hydration succeeded — count only (env
             // contents carry usernames/paths, never logged).
-            Log.terminal.notice("login-shell environment hydrated — vars=\(parsed.count, privacy: .public)")
+            LogoSwitchLog.shell.notice("login-shell environment hydrated — vars=\(parsed.count, privacy: .public)")
         } else {
             result = processEnvironment
-            Log.terminal.notice("login-shell environment hydration failed — falling back to process env (#33)")
+            LogoSwitchLog.shell.notice("login-shell environment hydration failed — falling back to process env (#33)")
         }
         cached = result
         return result
@@ -106,9 +106,10 @@ public enum LoginShellEnvironment {
 
         do { try process.run() } catch { return nil }
 
-        // Process is documented thread-safe for terminate(); the unsafe capture
-        // only crosses to the watchdog queue.
-        nonisolated(unsafe) let proc = process
+        // `Process` is `Sendable`, so the watchdog queue can capture it directly
+        // (no `nonisolated(unsafe)` needed — that annotation now warns, and the
+        // strict-CI -warnings-as-errors gate would reject it; #34 Swift6 fix).
+        let proc = process
         let watchdog = DispatchWorkItem { if proc.isRunning { proc.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 

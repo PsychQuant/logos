@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Logos
+@testable import LogoSwitch
 
 /// Tests for the login-shell environment resolver (PsychQuant/logos#33).
 /// A Finder/Spotlight launch hands Logos the bare launchd environment (minimal

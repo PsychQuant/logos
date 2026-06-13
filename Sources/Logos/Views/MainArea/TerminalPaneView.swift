@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LogoSwitch
 
 struct TerminalPaneView: View {
     @Environment(TerminalConfig.self) private var config
