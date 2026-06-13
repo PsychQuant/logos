@@ -51,8 +51,13 @@ All notable changes to Logos are documented here. Format loosely follows
   throws so the spawn can be gated). The OAuth-authorize-URL detector tests were
   removed too — that scrape path (#17) is a dead end retired by `claude auth login`
   (#35), so a claude authorize URL no longer appears anywhere in the test suite.
-  Still to come: the app glue through `AuthCoordinator`, and deleting the now-dead
-  `AccountCredentialStore` + `SystemKeychainBridge` files.
+  The now-dead `AccountCredentialStore` + `SystemKeychainBridge` (the system-keychain
+  read + per-account token store — better-agent-terminal's exact anti-pattern) are
+  DELETED with their tests: the app now has **zero** claude-credential keychain
+  access anywhere (no `import Security` / `SecItem*` / `security find-/add-generic-
+  password`), verified comment-aware by `RedLineAuditTests`. Still to come: the app
+  glue wiring the detector signals through `AuthCoordinator` + the native Sign-in
+  button → `ClaudeAuthInvoker.login` (retiring the #17 URL scrape, #35).
 
 ### Fixed
 
