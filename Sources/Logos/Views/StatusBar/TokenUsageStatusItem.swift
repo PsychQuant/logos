@@ -7,5 +7,6 @@ struct TokenUsageStatusItem: View {
         Label(vm.tokenUsageFormatted, systemImage: "chart.bar")
             .font(.caption)
             .help("Context window tokens used / max (wired in sub-plan D)")
+            .accessibilityIdentifier("logos.statusbar.tokenUsage")  // #38
     }
 }

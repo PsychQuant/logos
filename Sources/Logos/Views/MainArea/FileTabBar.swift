@@ -30,6 +30,7 @@ struct FileTabBar: View {
             }
             .buttonStyle(.plain)
             .opacity(0.6)
+            .accessibilityIdentifier("logos.editor.tabClose")  // #38
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
@@ -41,6 +42,7 @@ struct FileTabBar: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { workspace.setActive(path: tab.path) }
+        .accessibilityIdentifier("logos.editor.tab")  // #38: shared tab id; tab.displayName label distinguishes
     }
 
     private func iconFor(extension ext: String) -> String {

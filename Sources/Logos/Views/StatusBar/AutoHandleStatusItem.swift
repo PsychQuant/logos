@@ -8,5 +8,6 @@ struct AutoHandleStatusItem: View {
             .font(.caption)
             .foregroundStyle(engine.currentStatus.color)
             .help("Auto-handle: \(engine.disabledRuleIDs.count) rules disabled")
+            .accessibilityIdentifier("logos.statusbar.autoHandle")  // #38
     }
 }

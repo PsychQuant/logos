@@ -26,5 +26,6 @@ struct ActivityBarIcon: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.label)
+        .accessibilityIdentifier("logos.activitybar.icon")  // #38: shared id; tab.label distinguishes
     }
 }

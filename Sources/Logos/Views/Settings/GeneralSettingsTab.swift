@@ -14,6 +14,7 @@ struct GeneralSettingsTab: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .accessibilityIdentifier("logos.settings.themePicker")  // #38
             }
 
             Section("Launch") {

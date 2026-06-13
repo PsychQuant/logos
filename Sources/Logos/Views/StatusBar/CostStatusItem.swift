@@ -7,5 +7,6 @@ struct CostStatusItem: View {
         Label(vm.sessionCostFormatted, systemImage: "dollarsign.circle")
             .font(.caption)
             .help("Session running cost (wired in sub-plan D)")
+            .accessibilityIdentifier("logos.statusbar.cost")  // #38
     }
 }

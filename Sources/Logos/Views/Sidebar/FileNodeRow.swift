@@ -28,6 +28,7 @@ struct FileNodeRow: View {
         .padding(.vertical, 2)
         .background(isSelected ? Color.accentColor.opacity(0.18) : .clear)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("logos.sidebar.fileRow")  // #38: shared row id; node.displayName label distinguishes
     }
 
     private var icon: String {

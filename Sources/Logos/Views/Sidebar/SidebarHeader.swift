@@ -17,6 +17,7 @@ struct SidebarHeader: View {
             }
             .buttonStyle(.plain)
             .help(workspace.showHidden ? "Hide dotfiles" : "Show dotfiles")
+            .accessibilityIdentifier("logos.sidebar.dotfilesToggle")  // #38
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
