@@ -50,12 +50,32 @@ packages:
     exactVersion: "1.19.2"
 
 targets:
+  # #39: LogoSwitch is a Package.swift library (Sources/LogoSwitch) that 8 files in
+  # the Logos target import. SwiftPM resolves it via Package.swift; the generated
+  # xcodeproj needs it as an explicit module target so `import LogoSwitch` resolves
+  # under xcodebuild too (it didn't — Track B was silently broken since #34).
+  # A framework gives a clean Swift module; it links Foundation + os only and
+  # deliberately does NOT link Security (the #34 red line, enforced by RedLineAuditTests).
+  LogoSwitch:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/LogoSwitch
+    settings:
+      base:
+        PRODUCT_NAME: LogoSwitch
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logoSwitch
+        # A framework bundle needs an Info.plist or codesign rejects it
+        # ("bundle format unrecognized"). Generate one (no custom plist needed).
+        GENERATE_INFOPLIST_FILE: "YES"
+
   Logos:
     type: application
     platform: macOS
     sources:
       - path: Sources/Logos
     dependencies:
+      - target: LogoSwitch
       - package: SwiftTerm
         product: SwiftTerm
       - package: Highlightr
@@ -93,6 +113,7 @@ targets:
       - path: LogosHostedTests
     dependencies:
       - target: Logos
+      - target: LogoSwitch
       - package: SwiftTerm
         product: SwiftTerm
       - package: SnapshotTesting

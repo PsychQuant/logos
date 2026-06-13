@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import SnapshotTesting
 @testable import Logos
+import LogoSwitch  // #39: AccountRow snapshots construct Account (a LogoSwitch type)
 
 /// Visual-regression snapshots (#26) for stable, pure-input SwiftUI views.
 /// App-hosted (TEST_HOST = Logos.app → window server) so the views actually
