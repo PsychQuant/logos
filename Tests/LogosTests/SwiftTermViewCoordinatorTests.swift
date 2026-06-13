@@ -3,27 +3,22 @@ import Foundation
 import LogoSwitch
 @testable import Logos
 
-/// End-to-end-at-the-Coordinator-seam tests for the passive re-auth banner
-/// wiring (PsychQuant/logos#30 Item 3). The pure unit tests prove the detector +
-/// state in isolation; these drive the live `handleChunk` path: a 401 emitted by
-/// the hosted process flips `TerminalSessionState.needsAuth`, AND it still does
-/// so when the signal is split across chunks with an auto-handle `parser.reset()`
-/// interleaved — the exact regression #30 Item 1 fixes.
+/// End-to-end-at-the-Coordinator-seam tests for the passive 401 re-auth banner
+/// (PsychQuant/logos#29/#30): a 401 emitted by the hosted process flips
+/// `TerminalSessionState.needsAuth` + forces the active account's needs-reauth
+/// (#31), AND it still does so when the signal is split across chunks with an
+/// auto-handle `parser.reset()` interleaved (the #30 Item 1 regression).
+///
+/// The OAuth-authorize-URL test was removed: that detector path (#17) is a dead
+/// end being retired by #34's `claude auth login` Sign-in button (#35), and a
+/// claude authorize URL has no place in the test suite.
 @Suite("SwiftTermView.Coordinator", .serialized)
 @MainActor
-final class SwiftTermViewCoordinatorTests {
-
-    // Release the isolated UserDefaults suites the AccountManager doubles use (#16).
-    private let tracker = IsolatedDefaultsTracker()
-    deinit { tracker.teardown() }
+struct SwiftTermViewCoordinatorTests {
 
     private func makeCoordinator(engine: AutoHandleEngine) -> SwiftTermView.Coordinator {
         let config = ClaudeProcessConfig(executablePath: "/bin/echo")
-        let mgr = AccountManager(
-            store: InMemoryCredentialStore(),
-            systemBridge: InMemorySystemKeychainBridge(),
-            defaults: tracker.make(prefix: "LogosCoord")
-        )
+        let mgr = AccountManager(store: InMemoryAccountStore())
         return SwiftTermView.Coordinator(
             processConfig: config,
             engine: engine,
@@ -71,15 +66,9 @@ final class SwiftTermViewCoordinatorTests {
     private func makeCoordinatorWithAuthedActive() throws
         -> (SwiftTermView.Coordinator, AccountManager, Account) {
         let config = ClaudeProcessConfig(executablePath: "/bin/echo")
-        let mgr = AccountManager(
-            store: InMemoryCredentialStore(),
-            systemBridge: InMemorySystemKeychainBridge(),
-            defaults: tracker.make(prefix: "LogosCoord"),
-            fileExists: { _ in false }
-        )
-        try mgr.add(label: "work", credentials: Data("{}".utf8))  // first account → active
-        let acc = mgr.accounts[0]
-        mgr.markAuthenticated(acc.id)                              // authenticated baseline
+        let mgr = AccountManager(store: InMemoryAccountStore(), fileExists: { _ in false })
+        let acc = try mgr.createAccount(label: "work")   // first account → active
+        mgr.markAuthenticated(acc.id)                    // authenticated baseline
         let coord = SwiftTermView.Coordinator(
             processConfig: config,
             engine: AutoHandleEngine(rules: [], persistence: nil),
@@ -96,17 +85,5 @@ final class SwiftTermViewCoordinatorTests {
         coord.handleChunk(Array("Please run /login · API Error: 401 Invalid authentication credentials\n".utf8))
         #expect(coord.sessionState.needsAuth == true)
         #expect(mgr.needsReauth(acc) == true)    // forced → switcher agrees with the banner
-    }
-
-    @Test("re-auth initiated (oauth URL) clears the banner and un-forces needsReauth (#31)")
-    func oauthInitiatedClearsBannerAndUnforces() throws {
-        let (coord, mgr, acc) = try makeCoordinatorWithAuthedActive()
-        coord.handleChunk(Array("Please run /login · API Error: 401 Invalid authentication credentials\n".utf8))
-        #expect(coord.sessionState.needsAuth == true)
-        #expect(mgr.needsReauth(acc) == true)
-        // User runs /login → claude prints the authorize URL → re-auth initiated.
-        coord.handleChunk(Array("https://claude.com/cai/oauth/authorize?code=true&client_id=abc-123&state=xyz-789\n\n".utf8))
-        #expect(coord.sessionState.needsAuth == false)   // banner cleared on re-auth-initiated
-        #expect(mgr.needsReauth(acc) == false)           // un-forced → back to authenticated
     }
 }

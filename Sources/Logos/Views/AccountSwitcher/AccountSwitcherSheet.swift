@@ -1,4 +1,5 @@
 import SwiftUI
+import LogoSwitch
 
 struct AccountSwitcherSheet: View {
     @Environment(AccountManager.self) private var mgr
@@ -29,7 +30,7 @@ struct AccountSwitcherSheet: View {
                 VStack(spacing: 8) {
                     Text("No accounts yet")
                         .foregroundStyle(.secondary)
-                    Text("Run `claude login` in a terminal, then 'Capture current login' below.")
+                    Text("Add an account below, then sign in — claude opens your browser to log in.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
@@ -45,7 +46,7 @@ struct AccountSwitcherSheet: View {
                                 isActive: acc.id == mgr.activeAccountId,
                                 needsReauth: mgr.needsReauth(acc),
                                 onSelect: { mgr.setActive(acc.id) },
-                                onDelete: { try? mgr.remove(accountId: acc.id) }
+                                onDelete: { mgr.remove(accountId: acc.id) }
                             )
                             Divider()
                         }
@@ -56,30 +57,38 @@ struct AccountSwitcherSheet: View {
             Divider()
 
             Button(action: { showAddSheet = true }) {
-                Label("Capture current login as new account", systemImage: "plus.circle.fill")
+                Label("Add account", systemImage: "plus.circle.fill")
                     .padding(.vertical, 4)
             }
             .padding(8)
-            .help("Reads claude's current login from macOS Keychain and saves it as a labeled Logos account.")
+            .accessibilityIdentifier("logos.account.add")
+            .help("Create a new labeled account. Each account gets its own isolated claude config; sign in with `claude auth login`.")
         }
         .frame(width: 380, height: 380)
         .sheet(isPresented: $showAddSheet) {
-            CaptureAccountForm(
+            AddAccountForm(
                 label: $newLabel,
                 error: $addError,
-                onSave: { captureAccount() },
+                onSave: { addAccount() },
                 onCancel: { dismissAddSheet() }
             )
         }
     }
 
-    private func captureAccount() {
+    /// Create a new EMPTY account (#34 launcher model). The user signs it in via
+    /// `claude auth login` (claude opens its own browser) — Logos never captures
+    /// or stores a token.
+    private func addAccount() {
         addError = nil
         do {
-            try mgr.addByCapturingCurrent(label: newLabel)
+            try mgr.createAccount(label: newLabel)
             dismissAddSheet()
-        } catch AccountManager.AddByCaptureError.noSystemCredentials {
-            addError = "No claude login found in macOS Keychain. Run `claude login` in a terminal first."
+        } catch Account.ValidationError.emptyLabel {
+            addError = "Enter a label for the account."
+        } catch Account.ValidationError.labelTooLong {
+            addError = "Label is too long (max 30 characters)."
+        } catch Account.ValidationError.duplicateLabel {
+            addError = "An account with that label already exists."
         } catch {
             addError = "\(error)"
         }
@@ -92,7 +101,7 @@ struct AccountSwitcherSheet: View {
     }
 }
 
-private struct CaptureAccountForm: View {
+private struct AddAccountForm: View {
     @Binding var label: String
     @Binding var error: String?
     let onSave: () -> Void
@@ -100,14 +109,15 @@ private struct CaptureAccountForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Capture current claude login")
+            Text("Add account")
                 .font(.title3)
                 .fontWeight(.semibold)
-            Text("Logos will read the system Keychain entry for `Claude Code-credentials` and store it under the label below.")
+            Text("Creates a new account with its own isolated claude config. After adding, sign in — claude opens your browser to authenticate.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             TextField("Label (e.g. work, personal)", text: $label)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("logos.account.add.label")
             if let err = error {
                 Text(err)
                     .foregroundStyle(.red)
@@ -117,7 +127,7 @@ private struct CaptureAccountForm: View {
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
-                Button("Capture", action: onSave)
+                Button("Add", action: onSave)
                     .keyboardShortcut(.defaultAction)
                     .disabled(label.isEmpty)
             }

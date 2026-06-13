@@ -40,9 +40,19 @@ All notable changes to Logos are documented here. Format loosely follows
   spawns claude's own `auth login`/`logout`/`status --json` under the account's
   config dir and observes the exit only (claude opens its own browser + runs its
   own OAuth callback; LogoSwitch never reads the URL, proxies the callback, or
-  touches the token). Still to come: the slimmed `AccountManager`, the app glue
-  through `AuthCoordinator`, and the removal of the token-capture path
-  (`addByCapturingCurrent` / `AccountCredentialStore` / `SystemKeychainBridge`).
+  touches the token). The account model is now the launcher's: `AccountManager` is
+  slimmed and moved into the module — the credential-capture path
+  (`add(credentials:)` / `addByCapturingCurrent` / the `SystemKeychainBridge` read +
+  `AccountCredentialStore` write) is gone, replaced by `createAccount(label:)` (an
+  empty account the user signs in via `claude auth login`); persistence moves to
+  `AccountStore` (legacy four-key compatible — no data loss); and the #31 staleness
+  bugs are fixed (`setActive` clears the prior account's forced override,
+  banner-dismiss `acknowledgeReauth` un-forces, a config-dir creation failure now
+  throws so the spawn can be gated). The OAuth-authorize-URL detector tests were
+  removed too — that scrape path (#17) is a dead end retired by `claude auth login`
+  (#35), so a claude authorize URL no longer appears anywhere in the test suite.
+  Still to come: the app glue through `AuthCoordinator`, and deleting the now-dead
+  `AccountCredentialStore` + `SystemKeychainBridge` files.
 
 ### Fixed
 

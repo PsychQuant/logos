@@ -90,15 +90,14 @@ struct ClaudeAuthInvokerTests {
         #expect(r.message == "login timed out")
     }
 
-    // RED LINE: login must never read stdout (no URL scraping / token touch). Even
-    // if claude printed the authorize URL to stdout, the AuthResult carries only
-    // the exit outcome — never anything derived from stdout.
-    @Test("login ignores stdout entirely (no URL leaks into the result)")
+    // RED LINE: login must never read stdout (no URL scraping / token touch). The
+    // AuthResult carries only the exit outcome — never anything derived from
+    // stdout, whatever claude printed while opening its own browser.
+    @Test("login ignores stdout entirely (the result is exit-only)")
     func loginIgnoresStdout() {
-        let url = "https://claude.com/cai/oauth/authorize?code=secret&redirect_uri=x"
-        let r = invoker(.stub { _ in .init(exitCode: 0, stdout: Data(url.utf8), timedOut: false) }).login(for: account)
+        let noise = "opening browser…\nfinish signing in, then return here\n"
+        let r = invoker(.stub { _ in .init(exitCode: 0, stdout: Data(noise.utf8), timedOut: false) }).login(for: account)
         #expect(r == AuthResult(success: true, message: nil))
-        #expect(r.message?.contains("authorize") != true)
     }
 
     @Test("auth runs under the per-account CLAUDE_CONFIG_DIR (#12)")

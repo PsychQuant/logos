@@ -1,4 +1,5 @@
 import SwiftUI
+import LogoSwitch
 
 @main
 struct LogosApp: App {
@@ -20,21 +21,22 @@ struct LogosApp: App {
     @State private var generalSettings = LogosApp.makeGeneralSettings()
     @State private var advancedSettings = LogosApp.makeAdvancedSettings()
 
-    /// Production: the real keychain-backed manager on `.standard`. Under
-    /// `--ui-testing` (#27): a volatile UserDefaults suite cleared each launch +
-    /// optional `--seed-accounts <csv>` stub accounts, so XCUITest flows get a
-    /// renderable terminal + switchable accounts WITHOUT touching the keychain or
-    /// the dev machine's real account list. The args never appear in production.
+    /// Production: the UserDefaults-backed manager on `.standard` (no credential
+    /// store — the #34 launcher model; claude owns each account's token under its
+    /// own CLAUDE_CONFIG_DIR). Under `--ui-testing` (#27): a volatile UserDefaults
+    /// suite cleared each launch + optional `--seed-accounts <csv>` stub accounts,
+    /// so XCUITest flows get a renderable terminal + switchable accounts WITHOUT
+    /// touching the dev machine's real account list. The args never appear in production.
     @MainActor
     private static func makeAccountManager() -> AccountManager {
         let args = CommandLine.arguments
         guard args.contains("--ui-testing") else {
-            return AccountManager(store: KeychainCredentialStore())
+            return AccountManager(store: UserDefaultsAccountStore())
         }
         let suiteName = "app.getlogos.logos.uitesting"
         let suite = UserDefaults(suiteName: suiteName) ?? .standard
         suite.removePersistentDomain(forName: suiteName)  // clean slate each launch
-        let mgr = AccountManager(store: KeychainCredentialStore(), defaults: suite)
+        let mgr = AccountManager(store: UserDefaultsAccountStore(defaults: suite))
         if let i = args.firstIndex(of: "--seed-accounts"), i + 1 < args.count {
             let labels = args[i + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
             if !labels.isEmpty { mgr.seedAccounts(labels) }

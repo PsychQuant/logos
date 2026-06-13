@@ -1,4 +1,5 @@
 import SwiftUI
+import LogoSwitch
 
 struct AccountStatusItem: View {
     @Environment(AccountManager.self) private var mgr

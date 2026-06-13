@@ -8,7 +8,9 @@ import LogoSwitch
 @Suite("AuthCoordinator")
 struct AuthCoordinatorTests {
 
-    private let url = URL(string: "https://claude.com/cai/oauth/authorize?x=1")!
+    // A neutral URL — the reducer only routes the `oauthURL` signal, it does not
+    // parse or validate a claude authorize URL (that path is retired, #35).
+    private let url = URL(string: "https://example.com/login")!
 
     @Test("no signals → none")
     func noSignals() {
