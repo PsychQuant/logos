@@ -4,13 +4,12 @@ import LogoSwitch
 struct AccountRow: View {
     let account: Account
     let isActive: Bool
-    /// Whether this account has no credential yet for its own config dir (#12) —
-    /// surfaced as a "Sign in" affordance that runs `claude auth login`.
+    /// Whether this account currently reads as unauthenticated (#12/#31). A
+    /// non-blocking indicator only — the user signs in the way they would in any
+    /// terminal: switch to the account and run `/login` in the hosted claude
+    /// (claude opens its own browser). Logos never drives the login itself.
     let needsReauth: Bool
-    /// A `claude auth login` is in flight for this account (#34).
-    let isSigningIn: Bool
     let onSelect: () -> Void
-    let onSignIn: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -20,18 +19,13 @@ struct AccountRow: View {
             Text(account.label)
                 .font(.body)
                 .fontWeight(isActive ? .semibold : .regular)
-            Spacer()
-            if isSigningIn {
-                ProgressView().controlSize(.small)
-            } else if needsReauth {
-                // Click → claude opens your browser to sign in (claude auth login).
-                // Logos never touches the token (#34).
-                Button("Sign in", action: onSignIn)
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .help("Opens your browser to sign in to this account with claude (claude auth login).")
-                    .accessibilityIdentifier("logos.account.signin")
+            if needsReauth {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help("Needs login — switch to this account and run /login in the terminal; claude opens your browser to sign in.")
+                    .accessibilityLabel("Needs login")
             }
+            Spacer()
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")
             }

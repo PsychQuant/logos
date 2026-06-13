@@ -3,13 +3,11 @@ import LogoSwitch
 
 struct AccountSwitcherSheet: View {
     @Environment(AccountManager.self) private var mgr
-    @Environment(TerminalConfig.self) private var config
     @Environment(\.dismiss) private var dismiss
 
     @State private var showAddSheet = false
     @State private var newLabel = ""
     @State private var addError: String?
-    @State private var signingIn: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,9 +45,7 @@ struct AccountSwitcherSheet: View {
                                 account: acc,
                                 isActive: acc.id == mgr.activeAccountId,
                                 needsReauth: mgr.needsReauth(acc),
-                                isSigningIn: signingIn.contains(acc.id),
                                 onSelect: { mgr.setActive(acc.id) },
-                                onSignIn: { signIn(acc) },
                                 onDelete: { mgr.remove(accountId: acc.id) }
                             )
                             Divider()
@@ -102,30 +98,6 @@ struct AccountSwitcherSheet: View {
         newLabel = ""
         addError = nil
         showAddSheet = false
-    }
-
-    /// Sign the account in via `claude auth login` (#34): claude opens its OWN
-    /// browser + runs its OWN OAuth callback; Logos only spawns the subcommand and
-    /// observes the exit (never reads the URL, proxies the callback, or touches the
-    /// token). Runs off the main actor (it can block up to ~180s for the real-user
-    /// browser round-trip), then records the result on the main actor on success.
-    private func signIn(_ account: Account) {
-        guard let path = config.resolvedClaudePath else {
-            Log.account.error("Sign in: claude binary not found — cannot run auth login")
-            return
-        }
-        let baseEnv = LoginShellEnvironment.resolve()   // @MainActor snapshot, passed by value
-        signingIn.insert(account.id)
-        Task {
-            let result = await Task.detached {
-                ClaudeAuthInvoker(binaryPath: path, baseEnvironment: baseEnv).login(for: account)
-            }.value
-            signingIn.remove(account.id)
-            if result.success {
-                mgr.markAuthenticated(account.id)
-                mgr.acknowledgeReauth(account.id)
-            }
-        }
     }
 }
 

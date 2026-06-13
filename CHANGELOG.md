@@ -60,14 +60,16 @@ All notable changes to Logos are documented here. Format loosely follows
   decision per chunk, OAuth-initiated strictly wins — bug #3 flip-flop gone),
   banner-Dismiss calls `acknowledgeReauth` (bug #4), and a config-dir-creation
   failure blocks the spawn instead of launching claude into a phantom dir (bug #6).
-  Finally, the account switcher grows a per-account **Sign in** button (shown when
-  an account needs auth): it runs `ClaudeAuthInvoker.login` off the main actor —
-  claude opens its OWN browser + runs its OWN OAuth callback — and marks the
-  account authenticated on a clean exit. This is the first-party-safe replacement
-  for the old "capture current login": no token capture, no URL scrape, claude
-  drives the whole OAuth round-trip. Remaining follow-ups: retire the #17 URL-scrape
-  fallback once claude's own browser-open is confirmed on the #33 hydrated env
-  (#35), and the 6-AI verify + close of #34.
+  Login stays in claude's own hands — there is **no Logos "sign in" button**. You
+  sign in the way you would in any terminal: run `/login` in the hosted claude for
+  the active account (claude opens its own browser; the #33 hydrated env makes that
+  work). The switcher shows only a non-blocking "needs login" indicator. (An earlier
+  per-account Sign-in button that shelled `claude auth login` was removed as
+  redundant + off-philosophy — Logos is a transparent host of claude, not an auth
+  driver.) Remaining follow-ups: decide how Logos reads auth state for the indicator
+  (passive terminal-401 vs a `claude auth status` probe — which also settles whether
+  `ClaudeAuthInvoker`/`ProcessRunner` stay), retire the #17 URL scrape once claude's
+  own browser-open is confirmed (#35), and the 6-AI verify + close of #34.
 
 ### Fixed
 
