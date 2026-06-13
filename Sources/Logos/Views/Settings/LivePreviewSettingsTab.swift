@@ -47,7 +47,7 @@ struct LivePreviewSettingsTab: View {
             }
         }
         .padding(16)
-        .frame(width: 540, height: 400)
+        .dialogFrame(.wideSettings)
         .onAppear { load() }
     }
 

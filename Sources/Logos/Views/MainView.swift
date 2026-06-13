@@ -67,10 +67,7 @@ struct MainView: View {
             .buttonStyle(.plain)
             .help("Dismiss")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .bannerStyle(material: .thinMaterial)
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .transition(.move(edge: .top).combined(with: .opacity))

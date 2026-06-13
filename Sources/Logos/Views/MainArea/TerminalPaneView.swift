@@ -160,8 +160,7 @@ private struct AuthNeededBanner: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .bannerStyle()
         .padding(8)
         .accessibilityIdentifier("logos.terminal.authBanner")
     }

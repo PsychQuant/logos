@@ -18,7 +18,7 @@ struct AutoHandleSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 540, height: 380)
+        .dialogFrame(.wideSettings)
     }
 }
 

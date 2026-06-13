@@ -84,7 +84,7 @@ struct AccountSwitcherSheet: View {
             .accessibilityIdentifier("logos.account.add")
             .help("Create a new labeled account. Each account gets its own isolated claude config; sign in with `claude auth login`.")
         }
-        .frame(width: 380, height: 380)
+        .dialogFrame(.switcher)
         .sheet(isPresented: $showAddSheet) {
             AddAccountForm(
                 label: $newLabel,

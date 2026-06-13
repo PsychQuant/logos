@@ -58,6 +58,6 @@ struct AdvancedSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 320)
+        .dialogFrame(.settings)
     }
 }
