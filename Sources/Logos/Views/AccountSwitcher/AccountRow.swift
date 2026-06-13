@@ -1,4 +1,5 @@
 import SwiftUI
+import LogoSwitch
 
 struct AccountRow: View {
     let account: Account

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import LogoSwitch
 @testable import Logos
 
 /// Acceptance suite for the `account-credential-isolation` change

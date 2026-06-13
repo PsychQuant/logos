@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import LogoSwitch
 @testable import Logos
 
 /// End-to-end-at-the-Coordinator-seam tests for the passive re-auth banner

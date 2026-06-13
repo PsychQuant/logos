@@ -1,4 +1,5 @@
 import Foundation
+import LogoSwitch
 
 public struct ClaudeProcessConfig: Sendable {
 

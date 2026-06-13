@@ -2,7 +2,11 @@ import Foundation
 
 public struct Account: Identifiable, Hashable, Sendable, Codable {
 
-    public let id: String  // stable account identifier, used as HOME directory name
+    /// Stable per-account identifier. Used as the per-account **config-dir** name
+    /// (the `CLAUDE_CONFIG_DIR` target), NOT the process `HOME` — Logos never
+    /// overrides `HOME` (PsychQuant/logos#21), since that would move the login
+    /// keychain lookup and break claude's credential read.
+    public let id: String
     public let label: String  // user-visible name; editable
     public let createdAt: Date
 
@@ -12,6 +16,10 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         self.createdAt = createdAt
     }
 
+    /// The account's Logos-internal data directory (`~/.logos/accounts/<id>`).
+    /// This is the parent of the claude config dir — it is NOT the process `HOME`
+    /// (#21); the spawned claude inherits the real `HOME` and only its
+    /// `CLAUDE_CONFIG_DIR` points here.
     public var homeDirectoryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.logos/accounts/\(id)"

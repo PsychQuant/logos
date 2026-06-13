@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import os
+import LogoSwitch
 
 @Observable
 @MainActor

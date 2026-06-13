@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Logos
+import LogoSwitch
 
 @Suite("Account", .serialized)
 struct AccountTests {
