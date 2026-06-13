@@ -5,6 +5,25 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- **`LogoSwitch` module — first-party-safe claude multi-account switching + auth** ([#34](https://github.com/PsychQuant/logos/issues/34), in progress).
+  Began extracting the account/auth surface (#12 isolation, #33 login-shell env,
+  #31 forced-reauth) into a repo-local, UI-free SwiftPM library `LogoSwitch` that
+  acts strictly as a **launcher**: it sets per-account `CLAUDE_CONFIG_DIR`, spawns
+  claude, and invokes claude's own `auth login/logout/status` — it never reads,
+  copies, or overwrites an OAuth token (the deliberate opposite of
+  better-agent-terminal's credential-swap switch, which `security
+  find-/add-generic-password`s claude's keychain entry on every switch). The
+  target links Foundation + os only and does **not** import `Security`, so a
+  keychain call is a compile error; a new `RedLineAuditTests` guard scans the
+  module's sources (comments stripped) for `import Security` / `SecItem` /
+  `find-/add-generic-password` / `/usr/bin/security` and fails the build on any
+  hit. This commit lands the target scaffold + the red-line guard; the staged
+  migration of the launcher nucleus, the new `ClaudeAuthInvoker`, and the removal
+  of the token-capture path (`addByCapturingCurrent` / `AccountCredentialStore` /
+  `SystemKeychainBridge`) follow.
+
 ### Fixed
 
 - **"claude CLI not found" on a normal Finder/Spotlight launch** ([#33](https://github.com/PsychQuant/logos/issues/33), P1).
