@@ -1,24 +1,16 @@
 import Foundation
 
-/// The persisted account index (#34) — a value aggregate of what `AccountManager`
-/// keeps across launches. `forcedReauthIds` is deliberately NOT here: a live 401
-/// is session-specific and must never carry across launches (#31).
+/// What `AccountManager` persists across launches — the account list + the active
+/// selection. Nothing auth-related: no authenticated flags, no migration marker.
+/// Auth state is claude's own job (#34), and the live-401 nudge (#31) is
+/// session-volatile, so neither is persisted.
 public struct AccountIndex: Sendable, Equatable {
     public var accounts: [Account]
     public var activeAccountId: String?
-    public var authenticatedAccountIds: [String]
-    public var migrated: Bool
 
-    public init(
-        accounts: [Account] = [],
-        activeAccountId: String? = nil,
-        authenticatedAccountIds: [String] = [],
-        migrated: Bool = false
-    ) {
+    public init(accounts: [Account] = [], activeAccountId: String? = nil) {
         self.accounts = accounts
         self.activeAccountId = activeAccountId
-        self.authenticatedAccountIds = authenticatedAccountIds
-        self.migrated = migrated
     }
 
     public static let empty = AccountIndex()
@@ -26,26 +18,22 @@ public struct AccountIndex: Sendable, Equatable {
 
 /// Account persistence (#34). **`@MainActor`, not `Sendable`** — every caller is
 /// the `@MainActor` `AccountManager`, and the production impl stores a
-/// non-`Sendable` `UserDefaults`; making the protocol `Sendable` would not
-/// compile (the Swift6 verify must-fix).
+/// non-`Sendable` `UserDefaults`.
 @MainActor public protocol AccountStore {
     func load() -> AccountIndex
     func save(_ index: AccountIndex)
 }
 
-/// Production store. Reads/writes the SAME four `logos.accounts*` UserDefaults
-/// keys the pre-#34 `AccountManager` used — NOT a single serialized blob — so an
-/// existing user's accounts / active selection / authenticated flags / migration
-/// state survive the upgrade. A naive single-`AccountIndex` decode would find
-/// nothing under the legacy keys and silently wipe every account (the data-loss
-/// must-fix); each field is read independently with a safe default.
+/// Production store, on the same `logos.accounts*` UserDefaults keys used since
+/// before #34 (so an existing user's accounts + active selection survive the
+/// upgrade). Pre-#34 also wrote `logos.accounts.authenticatedIds` /
+/// `.migratedIsolatedCredentials`; those are no longer read or written (auth state
+/// is claude's job now) — any stale values are simply ignored.
 @MainActor public final class UserDefaultsAccountStore: AccountStore {
 
     private enum Key {
         static let accounts = "logos.accounts"
         static let activeId = "logos.accounts.activeId"
-        static let authenticatedIds = "logos.accounts.authenticatedIds"
-        static let migrated = "logos.accounts.migratedIsolatedCredentials"
     }
 
     private let defaults: UserDefaults
@@ -61,10 +49,6 @@ public struct AccountIndex: Sendable, Equatable {
             index.accounts = decoded
         }
         index.activeAccountId = defaults.string(forKey: Key.activeId)
-        if let ids = defaults.array(forKey: Key.authenticatedIds) as? [String] {
-            index.authenticatedAccountIds = ids
-        }
-        index.migrated = defaults.bool(forKey: Key.migrated)
         return index
     }
 
@@ -77,8 +61,6 @@ public struct AccountIndex: Sendable, Equatable {
         } else {
             defaults.removeObject(forKey: Key.activeId)
         }
-        defaults.set(index.authenticatedAccountIds, forKey: Key.authenticatedIds)
-        defaults.set(index.migrated, forKey: Key.migrated)
     }
 }
 

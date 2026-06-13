@@ -69,11 +69,16 @@ All notable changes to Logos are documented here. Format loosely follows
   driver.) Settling the philosophy ("LogoSwitch just switches config profiles; auth
   is claude's own job"), Logos reads auth state **only** from the live terminal-401
   signal — it runs no `claude auth` subcommands behind the scenes — so
-  `ClaudeAuthInvoker` + `ProcessRunner` are removed. Remaining follow-ups: slim
-  `AccountManager`/`AccountStore` to the live-401-only `needsReauth` (dropping the
-  now-dead `authenticatedAccountIds` / `.credentials.json` probe / migration — this
-  also honestly closes #32), retire the #17 URL scrape once claude's own
-  browser-open is confirmed (#35), and the 6-AI verify + close of #34.
+  `ClaudeAuthInvoker` + `ProcessRunner` are removed. `AccountManager`/`AccountStore`
+  are now slimmed to that live-401-only `needsReauth`: the dead
+  `authenticatedAccountIds` flag, `.credentials.json` probe, migration, and
+  `markAuthenticated`/`markNeedsReauth` are gone (persistence is just the account
+  list + active selection), which **honestly closes #32** — the unwired
+  needs-reauth lifecycle was removed, not papered over. Remaining follow-ups: retire
+  the #17 URL scrape + the passive detectors once claude's own browser-open is
+  confirmed on the #33 hydrated env (#35), then the 6-AI verify + close of #34.
+  (This bullet records the in-progress journey across several commits; it'll be
+  condensed to the final shipped shape in #34's closing summary.)
 
 ### Fixed
 

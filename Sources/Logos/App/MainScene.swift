@@ -46,19 +46,10 @@ struct MainScene: Scene {
                         // up. Anchors the headless smoke sequence; no payload.
                         Log.app.notice("launch finished — main scene up")
 
-                        // E.2 behavior change (per #3): no auto-import on launch.
-                        // Touching the system Claude keychain entry from
-                        // MainActor onAppear triggers macOS's "找不到鑰匙圈來
-                        // 儲存「<user>」" fallback dialog on macOS 26 for
-                        // unsandboxed Developer-ID apps. The user-facing flow
-                        // is now: open Settings → Accounts → "Capture current
-                        // login" button (existing UI in AccountSwitcherSheet).
-
-                        // #12: one-time, non-destructive migration to the
-                        // isolated-credential model. Ensures per-account config
-                        // dirs exist and flags accounts needs-reauth from
-                        // promptless signals only — no Keychain read or write.
-                        accountManager.migrateToIsolatedCredentialsIfNeeded()
+                        // Auth is claude's own job (#34): Logos no longer imports,
+                        // captures, or migrates credentials on launch. It just
+                        // switches per-account CLAUDE_CONFIG_DIR profiles and lets
+                        // claude manage login in its own terminal (`/login`).
 
                         await autoLoadWorkspaceIfNeeded()
                     }

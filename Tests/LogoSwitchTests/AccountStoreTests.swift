@@ -6,27 +6,17 @@ import LogoSwitch
 @MainActor
 struct AccountStoreTests {
 
-    // MARK: InMemoryAccountStore
-
     @Test("in-memory store round-trips an index")
     func inMemoryRoundTrip() {
         let store = InMemoryAccountStore()
-        let index = AccountIndex(
-            accounts: [Account(id: "a", label: "work")],
-            activeAccountId: "a",
-            authenticatedAccountIds: ["a"],
-            migrated: true
-        )
+        let index = AccountIndex(accounts: [Account(id: "a", label: "work")], activeAccountId: "a")
         store.save(index)
         #expect(store.load() == index)
     }
 
-    // MARK: UserDefaultsAccountStore (volatile suite)
-
     private func volatileDefaults() -> (UserDefaults, String) {
         let name = "logoswitch.test.\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: name)!
-        return (d, name)
+        return (UserDefaults(suiteName: name)!, name)
     }
 
     @Test("UserDefaults store save → load round-trips")
@@ -36,9 +26,7 @@ struct AccountStoreTests {
         let store = UserDefaultsAccountStore(defaults: d)
         let index = AccountIndex(
             accounts: [Account(id: "a", label: "work"), Account(id: "b", label: "home")],
-            activeAccountId: "b",
-            authenticatedAccountIds: ["a"],
-            migrated: true
+            activeAccountId: "b"
         )
         store.save(index)
         #expect(UserDefaultsAccountStore(defaults: d).load() == index)
@@ -51,25 +39,22 @@ struct AccountStoreTests {
         #expect(UserDefaultsAccountStore(defaults: d).load() == .empty)
     }
 
-    // THE data-loss regression (#34 / Swift6 + bug-efficacy must-fix): a pre-#34
-    // install persisted FOUR separate `logos.accounts*` keys, NOT one AccountIndex
-    // blob. load() must recover that legacy layout, not wipe it.
-    @Test("load recovers the pre-#34 legacy four-key layout (no data loss)")
-    func recoversLegacyFourKeyLayout() throws {
+    // Existing users persisted accounts + active under these keys before #34;
+    // load() must recover them. The pre-#34 auth keys (authenticatedIds /
+    // migratedIsolatedCredentials) are no longer read — they must be ignored, not
+    // crash (auth state is claude's job now, #34).
+    @Test("load recovers persisted accounts + active and ignores stale auth keys")
+    func recoversAccountsAndActive() throws {
         let (d, name) = volatileDefaults()
         defer { d.removePersistentDomain(forName: name) }
-
-        // Seed exactly as the pre-#34 AccountManager.persistToDefaults wrote them.
-        let legacyAccounts = [Account(id: "acc-1", label: "work"), Account(id: "acc-2", label: "home")]
-        d.set(try JSONEncoder().encode(legacyAccounts), forKey: "logos.accounts")
+        let accounts = [Account(id: "acc-1", label: "work"), Account(id: "acc-2", label: "home")]
+        d.set(try JSONEncoder().encode(accounts), forKey: "logos.accounts")
         d.set("acc-2", forKey: "logos.accounts.activeId")
-        d.set(["acc-1"], forKey: "logos.accounts.authenticatedIds")
-        d.set(true, forKey: "logos.accounts.migratedIsolatedCredentials")
+        d.set(["acc-1"], forKey: "logos.accounts.authenticatedIds")            // stale, ignored
+        d.set(true, forKey: "logos.accounts.migratedIsolatedCredentials")      // stale, ignored
 
         let index = UserDefaultsAccountStore(defaults: d).load()
-        #expect(index.accounts == legacyAccounts)
+        #expect(index.accounts == accounts)
         #expect(index.activeAccountId == "acc-2")
-        #expect(index.authenticatedAccountIds == ["acc-1"])
-        #expect(index.migrated == true)
     }
 }

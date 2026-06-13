@@ -60,15 +60,14 @@ struct SwiftTermViewCoordinatorTests {
 
     // MARK: - #31 banner auto-clear + needsAuth↔needsReauth coherence
 
-    /// A Coordinator whose AccountManager has one authenticated, active account —
-    /// so `needsReauth` reads `false` absent a forced override, letting the #31
-    /// tests prove the override (not just the static default).
+    /// A Coordinator with one active account that hasn't hit a 401 — so
+    /// `needsReauth` reads `false` by default (live-401-only, #31), letting the
+    /// tests prove the override fires + clears, not just the default.
     private func makeCoordinatorWithAuthedActive() throws
         -> (SwiftTermView.Coordinator, AccountManager, Account) {
         let config = ClaudeProcessConfig(executablePath: "/bin/echo")
-        let mgr = AccountManager(store: InMemoryAccountStore(), fileExists: { _ in false })
+        let mgr = AccountManager(store: InMemoryAccountStore())
         let acc = try mgr.createAccount(label: "work")   // first account → active
-        mgr.markAuthenticated(acc.id)                    // authenticated baseline
         let coord = SwiftTermView.Coordinator(
             processConfig: config,
             engine: AutoHandleEngine(rules: [], persistence: nil),
