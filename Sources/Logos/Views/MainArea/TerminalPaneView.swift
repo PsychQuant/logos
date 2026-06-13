@@ -72,7 +72,14 @@ struct TerminalPaneView: View {
                 // the user types `/login` themselves; Logos never touches the token.
                 .overlay(alignment: .top) {
                     if sessionState.needsAuth {
-                        AuthNeededBanner(onDismiss: { sessionState.dismissNeedsAuth() })
+                        // Dismiss clears the banner AND un-forces the active
+                        // account's live-401 override (#34, bug #4) — so the banner
+                        // and the switcher (both derived from needsReauth) stay
+                        // coherent; the old dismiss left the switcher pinned.
+                        AuthNeededBanner(onDismiss: {
+                            sessionState.dismissNeedsAuth()
+                            accountMgr.activeAccountId.map { accountMgr.acknowledgeReauth($0) }
+                        })
                     }
                 }
             } else if effectivePath == nil {

@@ -104,39 +104,36 @@ struct SwiftTermView: NSViewRepresentable {
             // auto-handle `parser.reset()` can't drop a split signal's first half.
             detectorBuffer.append(text)
 
-            // #17: open the claude login OAuth URL natively. claude prints the
-            // URL but its own browser-open (npm `open` → macOS `open`) does not
-            // foreground a browser from Logos's spawned-PTY launchd session.
-            // The detector is locked to the claude authorize URL and yields each
-            // distinct URL once.
-            if let loginURL = oauthDetector.detect(in: detectorBuffer.contents) {
-                // Lifecycle marker (#22 follow-up): the OAuth login URL was detected
-                // and is being opened natively (#17). The URL itself stays
-                // default-redacted (<private>) — a one-time login secret. The scalar
-                // diagnostics are PUBLIC so a truncated reassembly (e.g. a ~76-char
-                // cut missing redirect_uri vs a ~400-char full URL — the "Invalid
-                // OAuth Request" symptom) is visible in the unified log without
-                // leaking the secret.
+            // #30/#31/#34: collapse the two passive-detector signals into ONE
+            // decision per chunk via AuthCoordinator. Both detectors still run each
+            // chunk (advancing their rising-edge state), but only the single
+            // arbitrated decision acts — so a chunk holding both an authorize URL
+            // AND a stale 401 can't clear-then-re-force (the flip-flop, bug #3:
+            // OAuth-initiated strictly wins).
+            let signals = AuthSignals(
+                oauthURL: oauthDetector.detect(in: detectorBuffer.contents),
+                live401: loginDetector.detect(in: detectorBuffer.contents)
+            )
+            switch AuthCoordinator.decide(signals) {
+            case .reauthInProgress(let loginURL):
+                // #17 fallback: claude's own browser-open can fail in Logos's
+                // launchd PTY session, so open the authorize URL natively. The URL
+                // stays <private> (a one-time secret); the public scalars surface a
+                // truncated reassembly without leaking it. Re-auth INITIATED → clear
+                // banner + un-force the active account. (This scrape path is slated
+                // for retirement by the `claude auth login` Sign-in button, #35.)
                 Log.terminal.notice("OAuth login URL detected, opening externally — len=\(loginURL.absoluteString.count, privacy: .public) hasRedirectURI=\(loginURL.absoluteString.contains("redirect_uri"), privacy: .public): \(loginURL.absoluteString)")
                 NSWorkspace.shared.open(loginURL)
-                // #31: a new authorize URL = re-auth INITIATED. Clear the passive
-                // banner + un-force the switcher indicator. Optimistic (initiated,
-                // not succeeded) — if the login fails, the next 401 re-fires both
-                // via the rising edge. The active account is the one re-authing.
                 sessionState.dismissNeedsAuth()
                 accountManager.activeAccountId.map { accountManager.clearForcedReauth($0) }
-            }
-
-            // #29: surface a passive re-auth banner when the hosted claude reports
-            // it's unauthenticated (401 / "Please run /login"). PASSIVE — we only
-            // flip a UI flag; the genuine claude owns the whole auth lifecycle.
-            if loginDetector.detect(in: detectorBuffer.contents) {
+            case .needsReauth:
+                // Live 401 → passive re-auth banner (#29) + force the active
+                // account's needs-reauth so the switcher agrees with it (#31).
                 Log.terminal.notice("hosted claude unauthenticated signal detected — surfacing re-auth banner (#29)")
                 sessionState.markNeedsAuth()
-                // #31: a live 401 → force the active account's needs-reauth so the
-                // account-switcher indicator agrees with the banner (the static
-                // authenticated-flag / .credentials.json signals can disagree).
                 accountManager.activeAccountId.map { accountManager.forceReauth($0) }
+            case .none:
+                break
             }
 
             if let response = engine.processChunk(buffered) {
@@ -159,11 +156,15 @@ struct SwiftTermView: NSViewRepresentable {
                 do {
                     try accountManager.materializeHomeTree(for: account)
                 } catch {
-                    // Could not write the per-account config dir — claude will
-                    // likely fail to auth. Previously a `print` whose stdout
-                    // vanished for a GUI app (#22 — the silent failure hole).
-                    // account id + error description stay default-redacted (D3).
+                    // bug #6: a failed config dir means claude would launch into a
+                    // phantom CLAUDE_CONFIG_DIR and present a spurious login for an
+                    // account the user believes is set up. Do NOT spawn — surface
+                    // the re-auth banner and allow a retry on the next render
+                    // (account id + error stay default-redacted, #22 D3).
                     Log.terminal.error("failed to materialize config dir for account \(account.id): \(String(describing: error))")
+                    sessionState.markNeedsAuth()
+                    hasStarted = false
+                    return
                 }
             }
 

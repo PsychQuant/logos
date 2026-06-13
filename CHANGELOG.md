@@ -55,9 +55,14 @@ All notable changes to Logos are documented here. Format loosely follows
   read + per-account token store — better-agent-terminal's exact anti-pattern) are
   DELETED with their tests: the app now has **zero** claude-credential keychain
   access anywhere (no `import Security` / `SecItem*` / `security find-/add-generic-
-  password`), verified comment-aware by `RedLineAuditTests`. Still to come: the app
-  glue wiring the detector signals through `AuthCoordinator` + the native Sign-in
-  button → `ClaudeAuthInvoker.login` (retiring the #17 URL scrape, #35).
+  password`), verified comment-aware by `RedLineAuditTests`. The app glue now
+  routes the two passive-detector signals through `AuthCoordinator` (one arbitrated
+  decision per chunk, OAuth-initiated strictly wins — bug #3 flip-flop gone),
+  banner-Dismiss calls `acknowledgeReauth` (bug #4), and a config-dir-creation
+  failure blocks the spawn instead of launching claude into a phantom dir (bug #6).
+  Still to come: the native Sign-in button → `ClaudeAuthInvoker.login`, and the
+  eventual #17 URL-scrape retirement once claude's own browser-open is confirmed on
+  the #33 hydrated env (#35).
 
 ### Fixed
 
