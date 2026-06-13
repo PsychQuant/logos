@@ -60,9 +60,14 @@ All notable changes to Logos are documented here. Format loosely follows
   decision per chunk, OAuth-initiated strictly wins — bug #3 flip-flop gone),
   banner-Dismiss calls `acknowledgeReauth` (bug #4), and a config-dir-creation
   failure blocks the spawn instead of launching claude into a phantom dir (bug #6).
-  Still to come: the native Sign-in button → `ClaudeAuthInvoker.login`, and the
-  eventual #17 URL-scrape retirement once claude's own browser-open is confirmed on
-  the #33 hydrated env (#35).
+  Finally, the account switcher grows a per-account **Sign in** button (shown when
+  an account needs auth): it runs `ClaudeAuthInvoker.login` off the main actor —
+  claude opens its OWN browser + runs its OWN OAuth callback — and marks the
+  account authenticated on a clean exit. This is the first-party-safe replacement
+  for the old "capture current login": no token capture, no URL scrape, claude
+  drives the whole OAuth round-trip. Remaining follow-ups: retire the #17 URL-scrape
+  fallback once claude's own browser-open is confirmed on the #33 hydrated env
+  (#35), and the 6-AI verify + close of #34.
 
 ### Fixed
 
