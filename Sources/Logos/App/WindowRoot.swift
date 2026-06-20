@@ -64,6 +64,11 @@ struct WindowRoot: View {
 /// `File ▸ New Window for Account ▸ <account>` (#42). A real `View` (not a bare
 /// `.commands` closure) so reading `accountManager.accounts` registers `@Observable`
 /// tracking — the submenu stays in sync as accounts are added/renamed/removed.
+///
+/// #44: `openWindow(value:)` dedups by value — opening a window for an account that
+/// already has one *raises* the existing window instead of creating a duplicate. This is
+/// intentional (prevents accidental multi-window clutter for one account); after an
+/// in-window switch rewrites a window's account, the dedup key moves with it.
 struct NewWindowForAccountMenu: View {
     let accountManager: AccountManager
     @Environment(\.openWindow) private var openWindow

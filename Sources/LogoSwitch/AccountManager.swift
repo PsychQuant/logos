@@ -28,6 +28,14 @@ public final class AccountManager {
     /// is dismissed, or the account is switched away (#2). Session-VOLATILE — never
     /// persisted, never probed (a 401 is session-specific; auth state is claude's).
     /// Observed (no `@ObservationIgnored`) so the switcher recomputes on a flip.
+    ///
+    /// **Account-keyed, not window-keyed — by design (#44).** With per-window accounts
+    /// (#42), two windows showing the SAME account share this 401 state (a 401 in one
+    /// flags the account in the other's switcher; a dismiss in one clears both). That is
+    /// correct: same account = same `CLAUDE_CONFIG_DIR` = the same claude session, so the
+    /// auth state genuinely IS shared. Per-window 401 was considered and rejected — it
+    /// would re-open the #30/#31 banner↔switcher coherence surface `AuthCoordinator` + the
+    /// account-keyed set were built to close.
     private var forcedReauthIds: Set<String> = []
 
     public var active: Account? {
