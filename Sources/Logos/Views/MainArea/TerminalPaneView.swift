@@ -7,6 +7,10 @@ struct TerminalPaneView: View {
     @Environment(AdvancedSettings.self) private var advanced
     @Environment(AutoHandleEngine.self) private var engine
     @Environment(AccountManager.self) private var accountMgr
+    /// #42: which account THIS window shows. Per-window state — the pane spawns claude
+    /// for this account (not the global active one), so two windows run two accounts
+    /// in parallel. The account list + isolation stay global on `accountMgr`.
+    @Environment(WindowAccountSelection.self) private var windowSelection
     /// Lifecycle of the hosted claude session (#18). Drives the exit-state
     /// overlay and the generation-based restart. Owned here so it survives the
     /// view recreation that a restart triggers.
@@ -22,7 +26,10 @@ struct TerminalPaneView: View {
             ?? config.resolvedClaudePath
 
         Group {
-            if let active = accountMgr.active, let claudePath = effectivePath {
+            if let active = WindowAccountResolver.resolve(
+                selected: windowSelection.accountId,
+                accounts: accountMgr.accounts
+            ), let claudePath = effectivePath {
                 let processConfig = ClaudeProcessConfig(
                     executablePath: claudePath,
                     account: active,
@@ -78,7 +85,8 @@ struct TerminalPaneView: View {
                         // coherent; the old dismiss left the switcher pinned.
                         AuthNeededBanner(onDismiss: {
                             sessionState.dismissNeedsAuth()
-                            accountMgr.activeAccountId.map { accountMgr.acknowledgeReauth($0) }
+                            // #42: acknowledge THIS pane's account, not the global active.
+                            accountMgr.acknowledgeReauth(active.id)
                         })
                     }
                 }

@@ -125,13 +125,16 @@ struct SwiftTermView: NSViewRepresentable {
                 Log.terminal.notice("OAuth login URL detected, opening externally — len=\(loginURL.absoluteString.count, privacy: .public) hasRedirectURI=\(loginURL.absoluteString.contains("redirect_uri"), privacy: .public): \(loginURL.absoluteString)")
                 NSWorkspace.shared.open(loginURL)
                 sessionState.dismissNeedsAuth()
-                accountManager.activeAccountId.map { accountManager.clearForcedReauth($0) }
+                // #42: clear re-auth for THIS pane's account (per-window), not the
+                // global active — a 401 belongs to the account this pane spawned.
+                processConfig.account.map { accountManager.clearForcedReauth($0.id) }
             case .needsReauth:
                 // Live 401 → passive re-auth banner (#29) + force the active
                 // account's needs-reauth so the switcher agrees with it (#31).
                 Log.terminal.notice("hosted claude unauthenticated signal detected — surfacing re-auth banner (#29)")
                 sessionState.markNeedsAuth()
-                accountManager.activeAccountId.map { accountManager.forceReauth($0) }
+                // #42: force re-auth on THIS pane's account (per-window-correct).
+                processConfig.account.map { accountManager.forceReauth($0.id) }
             case .none:
                 break
             }
