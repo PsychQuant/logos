@@ -17,6 +17,11 @@ public final class AccountManager {
     @ObservationIgnored private let ensureDirectory: (String) throws -> Void
 
     public private(set) var accounts: [Account] = []
+    /// The default account a NEWLY-opened window seeds from (#42). Logos windows are
+    /// per-account (`WindowAccountSelection`), so this is no longer "the" active account
+    /// — it's the seed for new windows and the highlight in the Settings→Accounts tab.
+    /// Set via `setActive` (Settings / create); an in-window switch is window-local and
+    /// does NOT write here.
     public private(set) var activeAccountId: String?
     /// Live re-auth signal (#31): set when the hosted claude reports a 401 this
     /// session; cleared when re-auth is initiated (#17 authorize URL), the banner

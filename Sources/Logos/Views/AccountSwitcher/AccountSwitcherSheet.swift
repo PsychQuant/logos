@@ -5,6 +5,16 @@ struct AccountSwitcherSheet: View {
     @Environment(AccountManager.self) private var mgr
     @Environment(\.dismiss) private var dismiss
 
+    /// #42: when non-nil, the switcher selects/highlights THIS window's per-window
+    /// account (status-bar context). nil → it falls back to the global
+    /// `AccountManager.activeAccountId` / `setActive` (the Settings→Accounts context),
+    /// so the SAME sheet serves both — without reading a window-scoped environment the
+    /// Settings scene doesn't have (#20).
+    var selection: Binding<String?>? = nil
+    /// #42: when non-nil, each row gets an "open in new window" affordance routed here
+    /// (status-bar context). nil in Settings.
+    var onOpenInNewWindow: ((String) -> Void)? = nil
+
     @State private var showAddSheet = false
     @State private var newLabel = ""
     @State private var addError: String?
@@ -48,14 +58,15 @@ struct AccountSwitcherSheet: View {
                         ForEach(mgr.accounts) { acc in
                             AccountRow(
                                 account: acc,
-                                isActive: acc.id == mgr.activeAccountId,
+                                isActive: acc.id == activeSelectionId,
                                 needsReauth: mgr.needsReauth(acc),
                                 isEditing: acc.id == editingAccountId,
-                                onSelect: { mgr.setActive(acc.id) },
+                                onSelect: { selectAccount(acc.id) },
                                 onBeginRename: { beginRename(acc.id) },
                                 onCommitRename: { commitRename(acc.id, to: $0) },
                                 onCancelRename: { cancelRename(acc.id) },
-                                onDelete: { delete(acc.id) }
+                                onDelete: { delete(acc.id) },
+                                onOpenInNewWindow: onOpenInNewWindow.map { cb in { cb(acc.id) } }
                             )
                             Divider()
                         }
@@ -118,6 +129,25 @@ struct AccountSwitcherSheet: View {
         newLabel = ""
         addError = nil
         showAddSheet = false
+    }
+
+    // MARK: - Selection (#42: per-window or global)
+
+    /// The currently-highlighted account id: the per-window selection in a window
+    /// context, else the global new-window default.
+    private var activeSelectionId: String? {
+        selection?.wrappedValue ?? mgr.activeAccountId
+    }
+
+    /// Select an account: set the per-window selection (window context), else the global
+    /// default via `setActive` (Settings context). A window-local switch never writes
+    /// the global default — the #42 window-local decision.
+    private func selectAccount(_ id: String) {
+        if let selection {
+            selection.wrappedValue = id
+        } else {
+            mgr.setActive(id)
+        }
     }
 
     // MARK: - Inline rename (#36)

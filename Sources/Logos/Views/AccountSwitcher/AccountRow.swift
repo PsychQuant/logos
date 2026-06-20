@@ -16,6 +16,11 @@ struct AccountRow: View {
     let onCommitRename: (String) -> Void
     let onCancelRename: () -> Void
     let onDelete: () -> Void
+    /// #42: when non-nil, the row shows an "open in new window" affordance that opens a
+    /// new window bound to THIS account. nil in the Settings→Accounts context (global
+    /// account management, where "this window's account" has no meaning). Defaulted so
+    /// existing call sites (snapshot tests, Settings) need no change.
+    var onOpenInNewWindow: (() -> Void)? = nil
 
     @State private var draft: String = ""
     @FocusState private var fieldFocused: Bool
@@ -46,6 +51,15 @@ struct AccountRow: View {
             }
 
             Spacer()
+            if !isEditing, let onOpenInNewWindow {
+                Button(action: onOpenInNewWindow) {
+                    Image(systemName: "macwindow.badge.plus")
+                }
+                .buttonStyle(.plain)
+                .opacity(0.6)
+                .help("Open this account in a new window")
+                .accessibilityIdentifier("logos.account.openInNewWindow")  // #42 XCUITest query
+            }
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")
             }
