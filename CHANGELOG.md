@@ -7,6 +7,23 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Per-window account binding — open a window per account, run them in parallel** ([#42](https://github.com/PsychQuant/logos/issues/42)).
+  The main scene is now a **value-based `WindowGroup(for:)`**: each window carries its
+  own account via a per-window `WindowAccountSelection`, instead of all windows sharing
+  one global active account. `File ▸ New Window for Account ▸ <account>` (and a per-row
+  "open in new window" affordance in the account switcher) opens a window bound to a
+  chosen account through `openWindow(value:)`; the terminal pane spawns claude with that
+  window's account, so three accounts can run in three windows at once — each with its
+  own `CLAUDE_CONFIG_DIR`, fully isolated and non-interfering. This is **additive**: the
+  in-window switcher still works and is **window-local** (switching in one window never
+  changes another, nor the new-window default). The isolation layer
+  (`ClaudeConfigEnvironment.apply`) is unchanged — a state-scoping change, not an
+  isolation change — and the live-401 re-auth path is now scoped to the pane's own
+  account. `AccountManager.activeAccountId` is repositioned as the *seed for new windows*
+  + the Settings→Accounts highlight (the Settings switcher stays global, preserving the
+  #20 contract). Implemented as a pure, unit-tested `WindowAccountResolver` (seed/resolve
+  with graceful degrade for deleted accounts) plus the SwiftUI wiring.
+
 - **`LogoSwitch` module — first-party-safe claude multi-account switching + auth** ([#34](https://github.com/PsychQuant/logos/issues/34), in progress).
   Began extracting the account/auth surface (#12 isolation, #33 login-shell env,
   #31 forced-reauth) into a repo-local, UI-free SwiftPM library `LogoSwitch` that
