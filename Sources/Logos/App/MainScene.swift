@@ -21,39 +21,8 @@ struct MainScene: Scene {
     let advancedSettings: AdvancedSettings
 
     var body: some Scene {
-        WindowGroup("Logos") {
-            MainView()
-                .environment(layout)
-                .environment(activityBar)
-                .environment(statusBar)
-                .environment(terminalConfig)
-                .environment(autoHandleEngine)
-                .environment(accountManager)
-                .environment(workspace)
-                .environment(pdfPreview)
-                .environment(generalSettings)
-                .environment(advancedSettings)
-                .frame(
-                    minWidth: 900,
-                    idealWidth: 1400,
-                    minHeight: 600,
-                    idealHeight: 900
-                )
-                .preferredColorScheme(generalSettings.theme.colorScheme)
-                .onAppear {
-                    Task { @MainActor in
-                        // Launch lifecycle marker (#22 follow-up): the main scene is
-                        // up. Anchors the headless smoke sequence; no payload.
-                        Log.app.notice("launch finished — main scene up")
-
-                        // Auth is claude's own job (#34): Logos no longer imports,
-                        // captures, or migrates credentials on launch. It just
-                        // switches per-account CLAUDE_CONFIG_DIR profiles and lets
-                        // claude manage login in its own terminal (`/login`).
-
-                        await autoLoadWorkspaceIfNeeded()
-                    }
-                }
+        WindowGroup(for: String.self) { $presentedAccountID in
+            windowContent(for: $presentedAccountID)
         }
         .windowResizability(.contentSize)
         .commands {
@@ -63,7 +32,56 @@ struct MainScene: Scene {
                 }
                 .keyboardShortcut("o", modifiers: .command)
             }
+            // #42: open a new window bound to a specific account. Each window of the
+            // value-based WindowGroup carries its own account; this routes through
+            // `openWindow(value:)` so the spawned claude uses that account's config dir.
+            CommandGroup(after: .newItem) {
+                NewWindowForAccountMenu(accountManager: accountManager)
+            }
         }
+    }
+
+    /// The per-window content + all global-model injections (#42). Extracted from the
+    /// `WindowGroup` closure into a named `some View` helper: the value-based
+    /// `WindowGroup(for:)` binding-closure plus the ten `.environment` injections forms
+    /// one expression large enough to crash the Swift 6.2 type-checker (signal 6) when
+    /// inlined — the function gives the type-checker a discrete anchor. `WindowRoot`
+    /// owns the per-window account; the global models (incl. `AccountManager`) are
+    /// injected here exactly as before, so the #20 Settings-scene contract is unchanged.
+    @ViewBuilder
+    private func windowContent(for presentedAccountID: Binding<String?>) -> some View {
+        WindowRoot(presentedAccountID: presentedAccountID)
+            .environment(layout)
+            .environment(activityBar)
+            .environment(statusBar)
+            .environment(terminalConfig)
+            .environment(autoHandleEngine)
+            .environment(accountManager)
+            .environment(workspace)
+            .environment(pdfPreview)
+            .environment(generalSettings)
+            .environment(advancedSettings)
+            .frame(
+                minWidth: 900,
+                idealWidth: 1400,
+                minHeight: 600,
+                idealHeight: 900
+            )
+            .preferredColorScheme(generalSettings.theme.colorScheme)
+            .onAppear {
+                Task { @MainActor in
+                    // Launch lifecycle marker (#22 follow-up): the main scene is up.
+                    // Anchors the headless smoke sequence; no payload.
+                    Log.app.notice("launch finished — main scene up")
+
+                    // Auth is claude's own job (#34): Logos no longer imports,
+                    // captures, or migrates credentials on launch. It just switches
+                    // per-account CLAUDE_CONFIG_DIR profiles and lets claude manage
+                    // login in its own terminal (`/login`).
+
+                    await autoLoadWorkspaceIfNeeded()
+                }
+            }
     }
 
     private func autoLoadWorkspaceIfNeeded() async {
