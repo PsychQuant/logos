@@ -11,8 +11,10 @@ import Observation
 @Observable
 @MainActor
 final class WindowAccountSelection {
-    /// The account id this window currently shows. `nil` until seeded on appear
-    /// (and again if it resolves to a since-deleted account).
+    /// The account id this window currently shows. `nil` until `WindowRoot` seeds it on
+    /// appear; `WindowRoot` also re-seeds it (via `WindowAccountResolver.reseededId`)
+    /// whenever the account list changes — e.g. this window's account was deleted — so a
+    /// window is never stranded on a dead id (#42 verify, DA-1).
     var accountId: String?
 
     init(accountId: String? = nil) {

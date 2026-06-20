@@ -32,4 +32,17 @@ enum WindowAccountResolver {
         guard let selected else { return nil }
         return accounts.first { $0.id == selected }
     }
+
+    /// Re-seed after the account list changes (#42 verify — DA-1/M1 + DA-2/M2). Keep the
+    /// window's current selection if it still names a live account; otherwise drop the
+    /// dead/stale id and re-seed:
+    /// - a since-DELETED account → the new-window default, else first (so the window is
+    ///   never stranded on `NoActiveAccountBanner` forever, the way an `.onAppear`-only
+    ///   seed would leave it);
+    /// - an empty-at-launch window (`current == nil`) that now has accounts → first.
+    /// Returns `nil` only when there are genuinely no accounts.
+    static func reseededId(current: String?, default defaultId: String?, accounts: [Account]) -> String? {
+        if resolve(selected: current, accounts: accounts) != nil { return current }
+        return seed(presented: nil, default: defaultId, accounts: accounts)
+    }
 }

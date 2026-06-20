@@ -25,6 +25,17 @@ struct WindowRoot: View {
             .onChange(of: selection.accountId) { _, newValue in
                 presentedAccountID = newValue
             }
+            // #42 verify (DA-1/M1 + DA-2/M2): when the account list changes, drop a
+            // since-deleted selection (else this window is stranded on
+            // NoActiveAccountBanner until relaunch) and seed an empty-at-launch window
+            // once accounts exist. Keeps a still-live selection untouched.
+            .onChange(of: accountManager.accounts) { _, newAccounts in
+                selection.accountId = WindowAccountResolver.reseededId(
+                    current: selection.accountId,
+                    default: accountManager.activeAccountId,
+                    accounts: newAccounts
+                )
+            }
     }
 
     private var windowTitle: String {
