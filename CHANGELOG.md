@@ -14,7 +14,9 @@ All notable changes to Logos are documented here. Format loosely follows
   "open in new window" affordance in the account switcher) opens a window bound to a
   chosen account through `openWindow(value:)`; the terminal pane spawns claude with that
   window's account, so three accounts can run in three windows at once — each with its
-  own `CLAUDE_CONFIG_DIR`, fully isolated and non-interfering. This is **additive**: the
+  own `CLAUDE_CONFIG_DIR`. Distinct accounts are fully isolated and non-interfering (two
+  windows on the *same* account share that account's session-volatile live-401 state —
+  see #44). This is **additive**: the
   in-window switcher still works and is **window-local** (switching in one window never
   changes another, nor the new-window default). The isolation layer
   (`ClaudeConfigEnvironment.apply`) is unchanged — a state-scoping change, not an

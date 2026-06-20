@@ -5,8 +5,10 @@ import LogoSwitch
 ///
 /// Owns THIS window's `WindowAccountSelection` (which account it shows), seeds it
 /// from the scene-presented/restored value (falling back to the global new-window
-/// default), mirrors changes back to the presented value so window restoration
-/// remembers the account, titles the window with the account label, and injects the
+/// default), mirrors changes back to the presented value so that *if* the OS restores
+/// the window it can reopen on the same account (scene restoration is not yet opted-in
+/// — see #43), re-seeds when the account list changes so a deleted account never
+/// strands the window, titles the window with the account label, and injects the
 /// selection into `MainView`'s subtree. The account list + per-account isolation stay
 /// global on the injected `AccountManager`.
 struct WindowRoot: View {
@@ -19,9 +21,11 @@ struct WindowRoot: View {
             .environment(selection)
             .navigationTitle(windowTitle)
             .onAppear(perform: seedIfNeeded)
-            // Mirror the window-local selection back to the scene-restored value so a
-            // reopened window remembers its account. Setting `presentedAccountID`
-            // never feeds back into `selection.accountId`, so there is no cycle.
+            // Mirror the window-local selection back to the presented value so that IF
+            // the OS restores the window it can reopen on the same account. Scene
+            // restoration is not yet opted-in (#43), so this may currently be inert —
+            // it is harmless either way. Setting `presentedAccountID` never feeds back
+            // into `selection.accountId`, so there is no cycle.
             .onChange(of: selection.accountId) { _, newValue in
                 presentedAccountID = newValue
             }
