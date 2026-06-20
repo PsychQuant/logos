@@ -32,5 +32,13 @@
     <string>NSApplication</string>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+    <!-- #43: opt into secure state restoration so the value-based WindowGroup (#42)
+         can reopen each window on its per-window account across relaunch. macOS 14+
+         does NOT restore scenes for apps without this key, which left #42's
+         selection→presentedAccountID mirror inert. Whether SwiftUI actually restores
+         the value-based windows still depends on the "Close windows when quitting"
+         system setting + scene storage — needs a manual ⌘Q→relaunch confirmation. -->
+    <key>ApplicationSupportsSecureRestorableState</key>
+    <true/>
 </dict>
 </plist>

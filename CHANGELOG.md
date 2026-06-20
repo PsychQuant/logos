@@ -24,7 +24,10 @@ All notable changes to Logos are documented here. Format loosely follows
   account. `AccountManager.activeAccountId` is repositioned as the *seed for new windows*
   + the Settings→Accounts highlight (the Settings switcher stays global, preserving the
   #20 contract). Implemented as a pure, unit-tested `WindowAccountResolver` (seed/resolve
-  with graceful degrade for deleted accounts) plus the SwiftUI wiring.
+  with graceful degrade for deleted accounts) plus the SwiftUI wiring. Window-account
+  restoration across relaunch is opted into via `ApplicationSupportsSecureRestorableState`
+  in `Info.plist` (#43) — whether SwiftUI actually restores the value-based windows still
+  depends on the macOS "Close windows when quitting" setting + a manual relaunch check.
 
 - **`LogoSwitch` module — first-party-safe claude multi-account switching + auth** ([#34](https://github.com/PsychQuant/logos/issues/34), in progress).
   Began extracting the account/auth surface (#12 isolation, #33 login-shell env,
