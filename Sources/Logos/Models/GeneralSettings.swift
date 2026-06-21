@@ -28,7 +28,10 @@ public final class GeneralSettings {
     @ObservationIgnored private let persistence: SettingsPersistence
     private static let filename = "general.json"
 
-    @ObservationIgnored private var _theme: Theme = .system
+    // #46: default to Dark — Logos hosts a fixed-dark terminal, so a dark chrome is the
+    // cohesive default (like iTerm / Warp / Ghostty). The Theme setting still lets a user
+    // opt into Light / System; a saved override in general.json always wins over this.
+    @ObservationIgnored private var _theme: Theme = .dark
     public var theme: Theme {
         get { _theme }
         set { _theme = newValue; save() }

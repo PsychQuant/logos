@@ -5,6 +5,14 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Default theme is now Dark** ([#46](https://github.com/PsychQuant/logos/issues/46)).
+  Logos hosts a fixed-dark terminal, so a light chrome over a dark terminal read as a
+  jarring split. The out-of-box default `GeneralSettings.theme` moves `.system` → `.dark`
+  (like iTerm / Warp / Ghostty, which are dark-first). The Theme setting (System / Light /
+  Dark) is unchanged — a saved override always wins, only the default changed.
+
 ### Added
 
 - **Per-window account binding — open a window per account, run them in parallel** ([#42](https://github.com/PsychQuant/logos/issues/42)).

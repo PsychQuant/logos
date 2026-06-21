@@ -9,7 +9,7 @@ struct GeneralSettingsTests {
     @Test("defaults")
     func defaults() {
         let s = GeneralSettings(persistence: makePersistence())
-        #expect(s.theme == .system)
+        #expect(s.theme == .dark)   // #46: dark-by-default (terminal-host tool)
         #expect(s.restoreLastWorkspaceOnLaunch == true)
     }
 
