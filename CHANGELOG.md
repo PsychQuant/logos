@@ -20,9 +20,12 @@ All notable changes to Logos are documented here. Format loosely follows
   usage from the window's account session transcript JSONL (`message.usage` — input + cache
   read/creation) via a pure `ClaudeUsageReader`, file-watched for live updates, and is
   **per-window** (each window shows its own account's session, mirroring #42). The context-window
-  max is data-driven (jumps to 1M once a session provably exceeds 200k). **Cost** stays a
-  placeholder — the transcript has no cost field, so it must be derived; deferred to
-  [#48](https://github.com/PsychQuant/logos/issues/48).
+  max is data-driven (jumps to 1M once a session provably exceeds 200k). Switching a window's
+  account clears the reading immediately (no lingering on the prior account), and the file
+  watcher is torn down when the window closes. **Cost** stays a placeholder — the transcript
+  has no cost field, so it must be derived; deferred to
+  [#48](https://github.com/PsychQuant/logos/issues/48). Background-parse + a reliable
+  session→transcript binding are tracked in [#49](https://github.com/PsychQuant/logos/issues/49).
 
 - **Per-window account binding — open a window per account, run them in parallel** ([#42](https://github.com/PsychQuant/logos/issues/42)).
   The main scene is now a **value-based `WindowGroup(for:)`**: each window carries its
