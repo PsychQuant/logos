@@ -65,9 +65,13 @@ struct SwiftTermViewCoordinatorTests {
     /// tests prove the override fires + clears, not just the default.
     private func makeCoordinatorWithAuthedActive() throws
         -> (SwiftTermView.Coordinator, AccountManager, Account) {
-        let config = ClaudeProcessConfig(executablePath: "/bin/echo")
         let mgr = AccountManager(store: InMemoryAccountStore())
         let acc = try mgr.createAccount(label: "work")   // first account → active
+        // #42: the pane spawns claude WITH this account, so the Coordinator's processConfig
+        // carries it — the live-401 path forces THIS pane's account (per-window-correct),
+        // not the global active. The test must build the config with the account to reflect
+        // that contract (pre-#42 it relied on the global active; #42 made it per-window).
+        let config = ClaudeProcessConfig(executablePath: "/bin/echo", account: acc)
         let coord = SwiftTermView.Coordinator(
             processConfig: config,
             engine: AutoHandleEngine(rules: [], persistence: nil),
