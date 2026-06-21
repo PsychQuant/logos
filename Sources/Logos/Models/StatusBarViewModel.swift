@@ -37,6 +37,9 @@ public final class StatusBarViewModel {
     public var accountName: String = "personal"
     public var sessionCostUSD: Decimal = 0
     public var autoHandleStatus: AutoHandleStatus = .armed
+    // #47: `tokensUsed` / `tokensMax` are now DEAD for the status bar — token/context usage
+    // moved to the per-window `WindowUsageModel` (real data from the account's session
+    // transcript). Kept only so `tokenUsageFormatted` still compiles; no view reads them.
     public var tokensUsed: Int = 0
     public var tokensMax: Int = 200_000
 

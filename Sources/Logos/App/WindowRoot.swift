@@ -15,12 +15,18 @@ struct WindowRoot: View {
     @Environment(AccountManager.self) private var accountManager
     @Binding var presentedAccountID: String?
     @State private var selection = WindowAccountSelection()
+    /// #47: this window's live token/context usage, driven from its account's session transcript.
+    @State private var usage = WindowUsageModel()
 
     var body: some View {
         MainView()
             .environment(selection)
+            .environment(usage)
             .navigationTitle(windowTitle)
-            .onAppear(perform: seedIfNeeded)
+            .onAppear {
+                seedIfNeeded()
+                usage.track(configDir: currentConfigDir)
+            }
             // Mirror the window-local selection back to the presented value so that IF
             // the OS restores the window it can reopen on the same account. Scene
             // restoration is not yet opted-in (#43), so this may currently be inert —
@@ -28,6 +34,8 @@ struct WindowRoot: View {
             // into `selection.accountId`, so there is no cycle.
             .onChange(of: selection.accountId) { _, newValue in
                 presentedAccountID = newValue
+                // #47: re-point usage at the now-active account's session transcript.
+                usage.track(configDir: currentConfigDir)
             }
             // #42 verify (DA-1/M1 + DA-2/M2): when the account list changes, drop a
             // since-deleted selection (else this window is stranded on
@@ -47,6 +55,14 @@ struct WindowRoot: View {
             selected: selection.accountId,
             accounts: accountManager.accounts
         )?.label ?? "Logos"
+    }
+
+    /// The config dir of the window's currently-shown account (#47 usage source), or nil.
+    private var currentConfigDir: String? {
+        WindowAccountResolver.resolve(
+            selected: selection.accountId,
+            accounts: accountManager.accounts
+        )?.configDirPath
     }
 
     /// Seed once per window. Guards on `nil` so a SwiftUI re-render (or a window the
