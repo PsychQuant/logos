@@ -27,16 +27,19 @@ final class WindowUsageModel {
         watcher?.stop()
         watcher = nil
         self.configDir = configDir
-        guard let configDir else {
-            contextTokens = 0
-            contextMax = 200_000
-            return
-        }
+        // #47 verify (Codex F1): reset to defaults on EVERY switch so a target account with
+        // no transcript / no usage yet never lingers on the PREVIOUS account's tokens.
+        contextTokens = 0
+        contextMax = 200_000
+        guard let configDir else { return }
         refresh()
-        // FileWatcher watches the PARENT of the given path, recursively (FSEvents) — so a
-        // path inside `projects/` makes it observe every session file under it; `refresh()`
-        // re-resolves the newest transcript each fire, so a brand-new session is picked up too.
-        let sentinel = configDir + "/projects/.logos-usage-watch"
+        // #47 verify (Codex F5): watch the account's `.claude` dir itself — it always exists
+        // (materialized before spawn), unlike `projects/` which claude creates lazily on the
+        // first session. FSEvents is recursive, so this still catches `projects/**/*.jsonl`
+        // appends AND the first-ever transcript; `refresh()` re-resolves the newest each fire.
+        // FileWatcher only WATCHES the parent of the given path — it never creates the
+        // sentinel, so the #34 read-only contract holds.
+        let sentinel = configDir + "/.logos-usage-watch"
         let w = FileWatcher(path: sentinel, debounce: 0.5) { [weak self] in self?.refresh() }
         w.start()
         watcher = w
@@ -53,6 +56,7 @@ final class WindowUsageModel {
     }
 
     private func formatK(_ n: Int) -> String {
+        if n >= 1_000_000 { return "\(n / 1_000_000)M" }   // #47 verify (Codex): 1M not 1000k
         if n < 1_000 { return "\(n)" }
         return "\(n / 1_000)k"
     }

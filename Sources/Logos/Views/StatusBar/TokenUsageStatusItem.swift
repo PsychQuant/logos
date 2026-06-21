@@ -7,7 +7,7 @@ struct TokenUsageStatusItem: View {
     var body: some View {
         Label(usage.formatted, systemImage: "chart.bar")
             .font(.caption)
-            .help("Context window tokens used / max for this window's claude session (#47)")
+            .help("Context-window tokens used / max — from the newest session transcript for this window's account (#47)")
             .accessibilityIdentifier("logos.statusbar.tokenUsage")  // #38
     }
 }

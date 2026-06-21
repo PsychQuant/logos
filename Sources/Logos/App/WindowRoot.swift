@@ -27,6 +27,13 @@ struct WindowRoot: View {
                 seedIfNeeded()
                 usage.track(configDir: currentConfigDir)
             }
+            // #47 verify (Codex F3): stop the usage FileWatcher when the window closes —
+            // FileWatcher has no deinit cleanup (Swift-6 non-Sendable FSEventStreamRef), and
+            // an @MainActor model can't stop() it from a nonisolated deinit either, so the
+            // owning view tears it down explicitly (same pattern as PDFLivePreviewModel).
+            .onDisappear {
+                usage.track(configDir: nil)
+            }
             // Mirror the window-local selection back to the presented value so that IF
             // the OS restores the window it can reopen on the same account. Scene
             // restoration is not yet opted-in (#43), so this may currently be inert —
