@@ -15,6 +15,15 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
+  The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
+  usage from the window's account session transcript JSONL (`message.usage` — input + cache
+  read/creation) via a pure `ClaudeUsageReader`, file-watched for live updates, and is
+  **per-window** (each window shows its own account's session, mirroring #42). The context-window
+  max is data-driven (jumps to 1M once a session provably exceeds 200k). **Cost** stays a
+  placeholder — the transcript has no cost field, so it must be derived; deferred to
+  [#48](https://github.com/PsychQuant/logos/issues/48).
+
 - **Per-window account binding — open a window per account, run them in parallel** ([#42](https://github.com/PsychQuant/logos/issues/42)).
   The main scene is now a **value-based `WindowGroup(for:)`**: each window carries its
   own account via a per-window `WindowAccountSelection`, instead of all windows sharing
