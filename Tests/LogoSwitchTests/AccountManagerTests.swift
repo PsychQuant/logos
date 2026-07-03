@@ -284,4 +284,19 @@ struct AccountManagerTests {
         mgr.addSystemDefaultAccount()   // dedup-guarded → still exactly one
         #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
     }
+
+    // #54 verify B1: rename must not silently de-system the main account. The
+    // registry rebuilds the Account on rename — it MUST thread isSystemDefault,
+    // or renaming "Main" would flip spawnConfigDir nil→dir and lose the ~/.claude
+    // login. (logic lens + DA, verify comment.)
+    @Test("rename preserves isSystemDefault (#54 verify B1)")
+    func renamePreservesSystemDefault() throws {
+        let mgr = makeManager()
+        mgr.addSystemDefaultAccount()
+        let main = try #require(mgr.accounts.first { $0.isSystemDefault })
+        try mgr.rename(accountId: main.id, to: "Home")
+        let renamed = try #require(mgr.accounts.first { $0.id == main.id })
+        #expect(renamed.isSystemDefault == true)   // survives the rename
+        #expect(renamed.label == "Home")
+    }
 }

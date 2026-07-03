@@ -111,4 +111,29 @@ struct ClaudeProcessConfigTests {
         // HOME still inherited (never overridden, #21); the base env is otherwise intact.
         #expect(cfg.environment["HOME"] == "/Users/realuser")
     }
+
+    // #54 verify B2: a system-default spawn must STRIP an inherited
+    // CLAUDE_CONFIG_DIR / CLAUDE_SECURESTORAGE_CONFIG_DIR from the base (login-shell)
+    // env — otherwise it silently pins claude to that dir instead of ~/.claude,
+    // breaking #54's core semantic. (codex + DA + logic + security + regression.)
+    @Test("system-default spawn strips an inherited CLAUDE_CONFIG_DIR from the base env (#54 verify B2)")
+    func systemDefaultStripsInheritedConfigDir() {
+        let account = Account(id: "main", label: "Main", isSystemDefault: true)
+        let cfg = ClaudeProcessConfig(
+            executablePath: "/usr/local/bin/claude",
+            account: account,
+            baseEnvironment: [
+                "HOME": "/Users/realuser",
+                "PATH": "/usr/bin",
+                "CLAUDE_CONFIG_DIR": "/some/inherited/dir",              // stale, from launch/profile env
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/some/inherited/dir"
+            ]
+        )
+        // Falls through to the system ~/.claude → NO config-dir override survives.
+        #expect(cfg.environment["CLAUDE_CONFIG_DIR"] == nil)
+        #expect(cfg.environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == nil)
+        // The rest of the base env is untouched.
+        #expect(cfg.environment["HOME"] == "/Users/realuser")
+        #expect(cfg.environment["PATH"] == "/usr/bin")
+    }
 }

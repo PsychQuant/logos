@@ -108,7 +108,11 @@ public final class AccountRegistry {
             throw Account.ValidationError.duplicateLabel
         }
         let old = accounts[idx]
-        accounts[idx] = Account(id: old.id, label: trimmed, createdAt: old.createdAt)
+        // #54 verify B1: thread isSystemDefault — omitting it lets the memberwise
+        // default (false) win, silently de-systeming the main account (flipping
+        // spawnConfigDir nil→dir and losing the reused ~/.claude login).
+        accounts[idx] = Account(id: old.id, label: trimmed, createdAt: old.createdAt,
+                                isSystemDefault: old.isSystemDefault)
         try save()
     }
 

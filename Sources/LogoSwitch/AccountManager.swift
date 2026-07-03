@@ -110,7 +110,8 @@ public final class AccountManager {
             // e.g. a pre-existing isolated account already named "Main"
             // (registry.add validates + dedups label) — surface it, don't
             // silently swallow.
-            LogoSwitchLog.account.notice("addSystemDefaultAccount skipped — \(error.localizedDescription, privacy: .public)")
+            // #54 verify (Finding 7): .private — localizedDescription may echo a user account label.
+            LogoSwitchLog.account.notice("addSystemDefaultAccount skipped — \(error.localizedDescription, privacy: .private)")
             return
         }
         if activeAccountId == nil {
