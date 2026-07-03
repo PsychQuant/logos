@@ -27,7 +27,7 @@
 
 ## 6. Logos usage window
 
-- [ ] 6.1 Add the usage window per design "Decision 6: Logos usage window is a consumer, not a discoverer" so "The Logos usage window renders the registry" (label, identity when known, plan-usage consumption, credential state; refresh on open and on explicit action; display-only — no switch, no login, no registry mutation) and "The shared bare Keychain entry is never mutated" holds for it (every window read uses a hash-suffixed service name; the bare entry is never read or written by the window). Verify: unit test feeds a registry fixture into the window model and asserts listed accounts equal the registry with only hash-suffixed service lookups; manual assertion — the window lists the same accounts as Settings -> Accounts and offers no mutating control.
+- [x] 6.1 Add the usage window per design "Decision 6: Logos usage window is a consumer, not a discoverer" so "The Logos usage window renders the registry" (label, identity when known, plan-usage consumption, credential state; refresh on open and on explicit action; display-only — no switch, no login, no registry mutation) and "The shared bare Keychain entry is never mutated" holds for it (every window read uses a hash-suffixed service name; the bare entry is never read or written by the window). Verify: unit test feeds a registry fixture into the window model and asserts listed accounts equal the registry with only hash-suffixed service lookups; manual assertion — the window lists the same accounts as Settings -> Accounts and offers no mutating control.
 
 ## 7. Standalone viewer
 

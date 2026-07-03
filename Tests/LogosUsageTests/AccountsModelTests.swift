@@ -41,7 +41,7 @@ struct AccountsModelTests {
     func mixedFanOutIsolation() async throws {
         let home = try makeFixtureHome()
 
-        let model = AccountsModel(home: home) { account in
+        let model = AccountsModel(home: home) { account, _ in
             let service = ClaudeKeychain.serviceName(
                 forConfigDir: account.configDir, isDefault: account.isDefault)
             // Route per account: default → 200, acc-bad → 500, acc-nocreds → no item.
@@ -99,6 +99,30 @@ struct AccountsModelTests {
 
 extension AccountsModelTests {
 
+    // "The standalone viewer keeps discovery-based parity": registry labels
+    // overlay discovered convention accounts when the shared index exists;
+    // accounts without a registry entry keep their derived label; the default
+    // account never takes a registry label.
+    @Test("registry labels overlay discovered convention accounts")
+    func registryLabelOverlay() async throws {
+        let home = try makeFixtureHome()   // default + acc-bad + acc-nocreds
+        let registry = AccountRegistry(indexFileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("label-overlay-\(UUID().uuidString)")
+            .appendingPathComponent("index.json"))
+        try registry.add(Account(id: "acc-bad", label: "工作用"))
+
+        let model = AccountsModel(home: home, labelRegistry: registry)
+        model.load()
+
+        #expect(model.accounts.count == 3)
+        let labeled = try #require(model.accounts.first { $0.id.contains("acc-bad") })
+        #expect(labeled.label == "工作用")
+        let unlabeled = try #require(model.accounts.first { $0.id.contains("acc-nocreds") })
+        #expect(unlabeled.label == "acc-nocreds")   // derived, no registry entry
+        let defaultAccount = try #require(model.accounts.first { $0.isDefault })
+        #expect(defaultAccount.label != "工作用")
+    }
+
     // "First authorization pass serializes Keychain reads": dialogs stack when
     // reads overlap, so the first pass must hold at most one read in flight;
     // concurrency is restored on subsequent (already-authorized) refreshes.
@@ -106,7 +130,7 @@ extension AccountsModelTests {
     func firstPassSerialized() async throws {
         let home = try makeFixtureHome()   // three accounts
         let keychain = InFlightTrackingKeychain()
-        let model = AccountsModel(home: home) { account in
+        let model = AccountsModel(home: home) { account, _ in
             AccountUsageModel(
                 account: account,
                 credentialsReader: KeychainCredentialsReader(keychain: keychain),

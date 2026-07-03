@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LogosAccounts
 import LogosUsage
 
 @main
@@ -30,7 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// Root view: owns the accounts model, kicks off discovery + a first refresh on
 /// appear, and offers a manual refresh in the toolbar.
 struct ContentView: View {
-    @State private var model = AccountsModel()
+    // labelRegistry: read-only overlay of user-chosen labels from the shared
+    // ~/.logos/accounts/index.json when it exists (the viewer never writes it).
+    @State private var model = AccountsModel(labelRegistry: AccountRegistry())
 
     var body: some View {
         NavigationStack {

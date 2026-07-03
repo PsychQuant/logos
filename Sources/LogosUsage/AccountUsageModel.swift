@@ -128,24 +128,41 @@ public final class AccountsModel {
     public private(set) var accounts: [AccountUsageModel] = []
 
     private let home: URL
-    /// Injected per-account model factory — the seam that lets tests route
-    /// stub keychains/fetchers per account while discovery stays real.
-    @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount) -> AccountUsageModel
+    /// Read-only registry used to overlay user-chosen labels onto discovered
+    /// convention accounts ("registry labels applied when the shared index
+    /// file exists"). nil → derived labels only. NEVER mutated here — the
+    /// standalone viewer performs no registry writes.
+    @ObservationIgnored private let labelRegistry: AccountRegistry?
+    /// Injected per-account model factory (account, registryLabel?) — the seam
+    /// that lets tests route stub keychains/fetchers per account while
+    /// discovery stays real.
+    @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount, String?) -> AccountUsageModel
 
     public init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        makeModel: @escaping @MainActor (DiscoveredAccount) -> AccountUsageModel = {
-            AccountUsageModel(account: $0)
+        labelRegistry: AccountRegistry? = nil,
+        makeModel: @escaping @MainActor (DiscoveredAccount, String?) -> AccountUsageModel = {
+            AccountUsageModel(account: $0, labelOverride: $1)
         }
     ) {
         self.home = home
+        self.labelRegistry = labelRegistry
         self.makeModel = makeModel
     }
 
     /// Discovers accounts on disk and builds one persisted model each. Existing
-    /// models are replaced (discovery is cheap and idempotent).
+    /// models are replaced (discovery is cheap and idempotent). A convention
+    /// account whose directory name matches a registry id takes the registry's
+    /// label; the default account never does (it is not a registry entry).
     public func load() {
-        accounts = AccountDiscovery.discover(home: home).map { makeModel($0) }
+        let labelsById = Dictionary(
+            (labelRegistry?.accounts ?? []).map { ($0.id, $0.label) },
+            uniquingKeysWith: { first, _ in first })
+        accounts = AccountDiscovery.discover(home: home).map { discovered in
+            let dirName = discovered.configDir.deletingLastPathComponent().lastPathComponent
+            let label = discovered.isDefault ? nil : labelsById[dirName]
+            return makeModel(discovered, label)
+        }
     }
 
     /// Once the first full pass has completed, later refreshes fan out
