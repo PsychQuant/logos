@@ -144,8 +144,26 @@ public final class AccountsModel {
         accounts = AccountDiscovery.discover(home: home).map { makeModel($0) }
     }
 
-    /// Refreshes every account's usage concurrently.
+    /// Once the first full pass has completed, later refreshes fan out
+    /// concurrently. Session-volatile by design: authorization is per-launch
+    /// state, so a fresh process serializes once again.
+    @ObservationIgnored private var hasCompletedFirstPass = false
+
+    /// Refreshes every account's usage.
+    ///
+    /// The FIRST pass after launch runs the accounts one at a time: each
+    /// refresh performs a synchronous Keychain read that can raise a macOS
+    /// authorization dialog, and a concurrent first pass stacks N dialogs at
+    /// once ("First authorization pass serializes Keychain reads"). Subsequent
+    /// passes — items already authorized — regain full concurrency.
     public func refreshAll() async {
+        guard hasCompletedFirstPass else {
+            for account in accounts {
+                await account.refresh()
+            }
+            hasCompletedFirstPass = true
+            return
+        }
         await withTaskGroup(of: Void.self) { group in
             for account in accounts {
                 group.addTask { await account.refresh() }

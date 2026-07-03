@@ -97,6 +97,33 @@ struct AccountsModelTests {
     }
 }
 
+extension AccountsModelTests {
+
+    // "First authorization pass serializes Keychain reads": dialogs stack when
+    // reads overlap, so the first pass must hold at most one read in flight;
+    // concurrency is restored on subsequent (already-authorized) refreshes.
+    @Test("first refresh serializes keychain reads; later refreshes run concurrently")
+    func firstPassSerialized() async throws {
+        let home = try makeFixtureHome()   // three accounts
+        let keychain = InFlightTrackingKeychain()
+        let model = AccountsModel(home: home) { account in
+            AccountUsageModel(
+                account: account,
+                credentialsReader: KeychainCredentialsReader(keychain: keychain),
+                usageClient: UsageClient(fetcher: FixedFetcher(body: Data(), status: 200)))
+        }
+        model.load()
+        #expect(model.accounts.count == 3)
+
+        await model.refreshAll()
+        #expect(keychain.maxInFlight == 1, "first pass must never stack authorization dialogs")
+
+        keychain.resetMax()
+        await model.refreshAll()
+        #expect(keychain.maxInFlight >= 2, "later passes must regain concurrency")
+    }
+}
+
 // MARK: - Instrumented fakes
 
 private struct FixedKeychain: KeychainReading {
@@ -108,6 +135,29 @@ private struct FixedFetcher: UsageFetching {
     var body: Data
     var status: Int
     func fetch(accessToken: String) async throws -> (Data, Int) { (body, status) }
+}
+
+/// Holds each (synchronous) read open briefly and records the maximum number
+/// of overlapping reads — the observable proxy for "how many authorization
+/// dialogs could stack".
+private final class InFlightTrackingKeychain: KeychainReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var inFlight = 0
+    private(set) var maxObserved = 0
+
+    var maxInFlight: Int { lock.withLock { maxObserved } }
+
+    func resetMax() { lock.withLock { maxObserved = 0 } }
+
+    func readGenericPassword(service: String) -> Data? {
+        lock.withLock {
+            inFlight += 1
+            maxObserved = max(maxObserved, inFlight)
+        }
+        Thread.sleep(forTimeInterval: 0.08)   // hold the read open to catch overlap
+        lock.withLock { inFlight -= 1 }
+        return nil
+    }
 }
 
 private final class CountingKeychain: KeychainReading, @unchecked Sendable {
