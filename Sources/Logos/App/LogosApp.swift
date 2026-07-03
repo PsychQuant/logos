@@ -1,6 +1,7 @@
 import SwiftUI
 import LogoSwitch
 import LogosAccounts
+import LogosUsage
 
 @main
 struct LogosApp: App {
@@ -17,6 +18,7 @@ struct LogosApp: App {
     @State private var terminalConfig = TerminalConfig()
     @State private var autoHandleEngine = AutoHandleEngine()
     @State private var accountManager = LogosApp.makeAccountManager()
+    @State private var registryUsage = RegistryUsageModel(registry: LogosApp.sharedRegistry)
     @State private var workspace = WorkspaceModel()
     @State private var pdfPreview = PDFLivePreviewModel()
     @State private var generalSettings = LogosApp.makeGeneralSettings()
@@ -31,20 +33,32 @@ struct LogosApp: App {
     /// launch + optional `--seed-accounts <csv>` stub accounts, so XCUITest
     /// flows get a renderable terminal + switchable accounts WITHOUT touching
     /// the dev machine's real account list. The args never appear in production.
+    /// The ONE registry instance the whole app shares — AccountManager mutates
+    /// it, the 帳號用量 window renders it, so the two can never disagree.
+    /// Production: the shared index file (+ one-time legacy migration).
+    /// `--ui-testing`: a per-launch temp index, never the real account list.
+    @MainActor
+    private static let sharedRegistry: AccountRegistry = {
+        guard CommandLine.arguments.contains("--ui-testing") else {
+            return AccountRegistry(legacyDefaults: .standard)
+        }
+        let indexURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("logos-uitesting-accounts-\(ProcessInfo.processInfo.processIdentifier)")
+            .appendingPathComponent("index.json")
+        return AccountRegistry(indexFileURL: indexURL)
+    }()
+
     @MainActor
     private static func makeAccountManager() -> AccountManager {
         let args = CommandLine.arguments
         guard args.contains("--ui-testing") else {
-            return AccountManager()
+            return AccountManager(registry: sharedRegistry)
         }
         let suiteName = "app.getlogos.logos.uitesting"
         let suite = UserDefaults(suiteName: suiteName) ?? .standard
         suite.removePersistentDomain(forName: suiteName)  // clean slate each launch
-        let indexURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("logos-uitesting-accounts-\(ProcessInfo.processInfo.processIdentifier)")
-            .appendingPathComponent("index.json")
         let mgr = AccountManager(
-            registry: AccountRegistry(indexFileURL: indexURL),
+            registry: sharedRegistry,
             store: UserDefaultsActiveAccountStore(defaults: suite))
         if let i = args.firstIndex(of: "--seed-accounts"), i + 1 < args.count {
             let labels = args[i + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
@@ -91,6 +105,15 @@ struct LogosApp: App {
             generalSettings: generalSettings,
             advancedSettings: advancedSettings
         )
+
+        // merge-multistats-into-logos: display-only per-account plan-usage
+        // window (opens from the Window menu). Shares the registry instance
+        // with accountManager — see sharedRegistry.
+        Window("帳號用量", id: "account-usage") {
+            AccountUsageWindow()
+                .environment(registryUsage)
+        }
+        .defaultSize(width: 480, height: 480)
 
         Settings {
             SettingsWindow()

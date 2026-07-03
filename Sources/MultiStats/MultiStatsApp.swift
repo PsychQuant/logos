@@ -54,7 +54,7 @@ struct ContentView: View {
 }
 
 /// The account list, factored out so it owns the empty-state branch and keeps
-/// the row builder unary (one `AccountRow` per element, keyed on the account id).
+/// the row builder unary (one `UsageAccountRow` per element, keyed on the account id).
 struct AccountList: View {
     let accounts: [AccountUsageModel]
 
@@ -66,7 +66,7 @@ struct AccountList: View {
                 description: Text("找不到任何 Claude Code 帳號設定（~/.claude 或 ~/.logos/accounts）。"))
         } else {
             List(accounts) { account in
-                AccountRow(account: account)
+                UsageAccountRow(account: account)
             }
         }
     }

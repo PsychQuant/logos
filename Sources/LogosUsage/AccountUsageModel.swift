@@ -47,13 +47,17 @@ public final class AccountUsageModel: Identifiable {
     private let credentialsReader: KeychainCredentialsReader
     private let usageClient: UsageClient
 
+    /// - Parameter labelOverride: display label that wins over the
+    ///   identity-derived one — the registry's user-chosen label when the row
+    ///   is built from the shared registry.
     public init(
         account: DiscoveredAccount,
+        labelOverride: String? = nil,
         credentialsReader: KeychainCredentialsReader = KeychainCredentialsReader(),
         usageClient: UsageClient = UsageClient()
     ) {
         self.id = account.id
-        self.label = account.label
+        self.label = labelOverride ?? account.label
         self.email = account.identity?.emailAddress
         self.tier = Self.tier(from: account.identity)
         self.isDefault = account.isDefault
@@ -149,24 +153,32 @@ public final class AccountsModel {
     /// state, so a fresh process serializes once again.
     @ObservationIgnored private var hasCompletedFirstPass = false
 
-    /// Refreshes every account's usage.
-    ///
-    /// The FIRST pass after launch runs the accounts one at a time: each
-    /// refresh performs a synchronous Keychain read that can raise a macOS
-    /// authorization dialog, and a concurrent first pass stacks N dialogs at
-    /// once ("First authorization pass serializes Keychain reads"). Subsequent
-    /// passes — items already authorized — regain full concurrency.
+    /// Refreshes every account's usage — first pass serialized, later passes
+    /// concurrent (see `UsageRefresh`).
     public func refreshAll() async {
-        guard hasCompletedFirstPass else {
+        await UsageRefresh.run(accounts, serialized: !hasCompletedFirstPass)
+        hasCompletedFirstPass = true
+    }
+}
+
+/// Shared refresh discipline for every multi-account usage surface
+/// ("First authorization pass serializes Keychain reads"): the FIRST pass
+/// after launch runs accounts one at a time — each refresh performs a
+/// synchronous Keychain read that can raise a macOS authorization dialog, and
+/// a concurrent first pass stacks N dialogs at once. Later passes (items
+/// already authorized) fan out concurrently.
+@MainActor
+enum UsageRefresh {
+    static func run(_ accounts: [AccountUsageModel], serialized: Bool) async {
+        if serialized {
             for account in accounts {
                 await account.refresh()
             }
-            hasCompletedFirstPass = true
-            return
-        }
-        await withTaskGroup(of: Void.self) { group in
-            for account in accounts {
-                group.addTask { await account.refresh() }
+        } else {
+            await withTaskGroup(of: Void.self) { group in
+                for account in accounts {
+                    group.addTask { await account.refresh() }
+                }
             }
         }
     }

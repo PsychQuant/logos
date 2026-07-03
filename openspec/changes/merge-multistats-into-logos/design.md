@@ -36,7 +36,7 @@ MultiStats code lands as first-class targets of the logos package. Rationale: it
 
 - LogosAccounts (library, Foundation-only): Account model, config-dir convention, filesystem discovery, config-JSON identity parsing, registry mutations (create/rename/remove), and file-based persistence. No Security, no CryptoKit needs beyond none — pure Foundation.
 - LogosUsage (library): StoredCredentials, Keychain service-name derivation (CryptoKit SHA-256), read-only SystemKeychainReader, UsageClient, AccountUsageModel. Depends on LogosAccounts. The ONLY target in the package allowed to import Security.
-- MultiStats (executable): thin shell + SwiftUI views over LogosUsage; retained so the standalone one-window viewer keeps existing.
+- MultiStats (executable): thin shell over LogosUsage; retained so the standalone one-window viewer keeps existing. (Implementation note: the per-account row views proved identical for both surfaces, so they live in LogosUsage as `UsageAccountRow` — shared by the MultiStats executable and the Logos usage window — instead of being duplicated per executable.)
 - Dependency edges: LogoSwitch -> LogosAccounts; Logos app -> LogosAccounts + LogosUsage + LogoSwitch; MultiStats -> LogosUsage.
 Rationale: the split exactly mirrors the risk gradient — registry code is credential-free and broadly consumable; keychain-touching code is small, read-only, and singly-audited. Alternative (single merged target): rejected, it would put Security inside everything that links accounts.
 

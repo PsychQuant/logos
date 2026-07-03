@@ -1,5 +1,4 @@
 import SwiftUI
-import LogosUsage
 
 /// One account's row: identity header + usage/status section.
 ///
@@ -8,10 +7,12 @@ import LogosUsage
 /// values it reads, so a change to one account's `state` invalidates just that
 /// row's usage section. The body is a single `VStack` (unary row) so `List` can
 /// template it efficiently.
-struct AccountRow: View {
-    let account: AccountUsageModel
+public struct UsageAccountRow: View {
+    public let account: AccountUsageModel
 
-    var body: some View {
+    public init(account: AccountUsageModel) { self.account = account }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             AccountHeader(
                 label: account.label,
