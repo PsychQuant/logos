@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MultiStatsCore
+@testable import LogosUsage
 
 @Suite("UsageClient.parse")
 struct UsageParseTests {

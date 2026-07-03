@@ -1,9 +1,10 @@
 import Foundation
 import Observation
+import LogosAccounts
 
 /// Observable per-account view model driving one row of the account list.
 ///
-/// One instance is created per discovered `Account` and **persisted** by
+/// One instance is created per `DiscoveredAccount` and **persisted** by
 /// `AccountsModel` (see dataflow guidance: multi-field rows observe a stored
 /// `@Observable` instance rather than reaching back into a collection). Its
 /// `state` machine is the only mutable UI surface; identity display fields are
@@ -42,12 +43,12 @@ public final class AccountUsageModel: Identifiable {
 
     public private(set) var state: LoadState = .idle
 
-    private let account: Account
+    private let account: DiscoveredAccount
     private let credentialsReader: KeychainCredentialsReader
     private let usageClient: UsageClient
 
     public init(
-        account: Account,
+        account: DiscoveredAccount,
         credentialsReader: KeychainCredentialsReader = KeychainCredentialsReader(),
         usageClient: UsageClient = UsageClient()
     ) {

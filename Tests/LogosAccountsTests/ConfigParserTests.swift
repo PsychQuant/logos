@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MultiStatsCore
+@testable import LogosAccounts
 
 @Suite("ConfigParser")
 struct ConfigParserTests {

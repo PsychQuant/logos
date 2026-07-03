@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import MultiStatsCore
+import LogosUsage
 
 @main
 struct MultiStatsApp: App {

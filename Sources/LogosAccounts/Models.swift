@@ -2,7 +2,7 @@ import Foundation
 
 /// A discovered Claude Code account — the default `~/.claude` or a Logos
 /// per-account config dir (`~/.logos/accounts/<uuid>/.claude`).
-public struct Account: Identifiable, Equatable, Sendable {
+public struct DiscoveredAccount: Identifiable, Equatable, Sendable {
     public let id: String
     public let configDir: URL
     public let isDefault: Bool

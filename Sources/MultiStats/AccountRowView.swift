@@ -1,5 +1,5 @@
 import SwiftUI
-import MultiStatsCore
+import LogosUsage
 
 /// One account's row: identity header + usage/status section.
 ///

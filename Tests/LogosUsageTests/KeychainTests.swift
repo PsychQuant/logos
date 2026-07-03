@@ -1,6 +1,7 @@
 import Foundation
 import Testing
-@testable import MultiStatsCore
+@testable import LogosUsage
+import LogosAccounts
 
 @Suite("ClaudeKeychain")
 struct ClaudeKeychainTests {
@@ -105,7 +106,7 @@ private struct StubKeychain: KeychainReading {
 struct KeychainCredentialsReaderTests {
     @Test("resolves the service name and parses the stored credentials")
     func readsAndParses() throws {
-        let account = Account(
+        let account = DiscoveredAccount(
             configDir: URL(fileURLWithPath: "/home/test/.claude"),
             isDefault: false, identity: nil)
         let service = ClaudeKeychain.serviceName(
@@ -119,7 +120,7 @@ struct KeychainCredentialsReaderTests {
 
     @Test("absent Keychain item yields nil, no crash")
     func absentItem() {
-        let account = Account(
+        let account = DiscoveredAccount(
             configDir: URL(fileURLWithPath: "/home/test/.claude"),
             isDefault: false, identity: nil)
         let reader = KeychainCredentialsReader(keychain: StubKeychain(store: [:]))

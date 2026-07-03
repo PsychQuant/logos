@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import LogosAccounts
 
 /// OAuth credentials Claude Code stores in the login Keychain.
 ///
@@ -111,7 +112,7 @@ public struct KeychainCredentialsReader: Sendable {
         self.keychain = keychain
     }
 
-    public func credentials(for account: Account) -> StoredCredentials? {
+    public func credentials(for account: DiscoveredAccount) -> StoredCredentials? {
         let service = ClaudeKeychain.serviceName(
             forConfigDir: account.configDir, isDefault: account.isDefault)
         guard let data = keychain.readGenericPassword(service: service) else { return nil }

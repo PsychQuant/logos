@@ -1,6 +1,7 @@
 import Foundation
 import Testing
-@testable import MultiStatsCore
+@testable import LogosUsage
+import LogosAccounts
 
 /// In-memory Keychain backend keyed by service name.
 private struct StubKeychain: KeychainReading {
@@ -36,7 +37,7 @@ struct AccountUsageModelTests {
         credsJSON: Data?,
         fetcher: StubFetcher
     ) -> AccountUsageModel {
-        let account = Account(
+        let account = DiscoveredAccount(
             configDir: URL(fileURLWithPath: "/home/test/.claude"),
             isDefault: false,
             identity: AccountIdentity(emailAddress: "t@example.com", userRateLimitTier: "max_20x"))

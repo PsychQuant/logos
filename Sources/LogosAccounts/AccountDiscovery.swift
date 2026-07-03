@@ -6,13 +6,13 @@ import Foundation
 /// Shell dirs left behind by never-logged-in accounts (no top-level config
 /// JSON — 50+ of them observed in practice) are filtered out.
 public enum AccountDiscovery {
-    public static func discover(home: URL) -> [Account] {
+    public static func discover(home: URL) -> [DiscoveredAccount] {
         let fm = FileManager.default
-        var accounts: [Account] = []
+        var accounts: [DiscoveredAccount] = []
 
         let defaultDir = home.appendingPathComponent(".claude")
         if ConfigParser.configJSONURL(for: defaultDir, fileManager: fm) != nil {
-            accounts.append(Account(
+            accounts.append(DiscoveredAccount(
                 configDir: defaultDir,
                 isDefault: true,
                 identity: ConfigParser.identity(forConfigDir: defaultDir, fileManager: fm)))
@@ -26,7 +26,7 @@ public enum AccountDiscovery {
         for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let configDir = entry.appendingPathComponent(".claude")
             guard ConfigParser.configJSONURL(for: configDir, fileManager: fm) != nil else { continue }
-            accounts.append(Account(
+            accounts.append(DiscoveredAccount(
                 configDir: configDir,
                 isDefault: false,
                 identity: ConfigParser.identity(forConfigDir: configDir, fileManager: fm)))
