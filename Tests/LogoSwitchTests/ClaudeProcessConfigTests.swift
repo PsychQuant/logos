@@ -93,4 +93,22 @@ struct ClaudeProcessConfigTests {
         // The hydrated PATH itself survives (the point of #33).
         #expect(cfg.environment["PATH"] == "/usr/bin:/Users/realuser/.local/bin")
     }
+
+    // #54: the system-default ("main") account reuses the system ~/.claude login.
+    // It must spawn with NO CLAUDE_CONFIG_DIR override, so claude falls through to
+    // the default ~/.claude + the bare `Claude Code-credentials` keychain entry.
+    // Zero token touch — Logos declines to isolate this one account.
+    @Test("a system-default account spawns with NO CLAUDE_CONFIG_DIR (reuses the system ~/.claude)")
+    func systemDefaultAccountReusesSystemLogin() {
+        let account = Account(id: "main", label: "Main", isSystemDefault: true)
+        let cfg = ClaudeProcessConfig(
+            executablePath: "/usr/local/bin/claude",
+            account: account,
+            baseEnvironment: ["HOME": "/Users/realuser", "PATH": "/usr/bin"]
+        )
+        #expect(cfg.environment["CLAUDE_CONFIG_DIR"] == nil)
+        #expect(cfg.environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == nil)
+        // HOME still inherited (never overridden, #21); the base env is otherwise intact.
+        #expect(cfg.environment["HOME"] == "/Users/realuser")
+    }
 }
