@@ -16,8 +16,8 @@
 
 ## 4. Red-line audit extension
 
-- [ ] 4.1 Extend the red-line audit per design "Decision 4: Red-line audit extends by scope, not by exception" so "Security framework usage is confined to the audited usage target" and "The registry target is structurally credential-free": the original LogoSwitch forbidden-token test stays unchanged and passes; new scans apply the same forbidden-token list to Sources/LogosAccounts and Sources/Logos; a package-wide test asserts a Security import appears only under Sources/LogosUsage. Verify: swift test shows the original LogoSwitch red-line test plus the new scope tests green.
-- [ ] 4.2 [P] Add the write-token audit so "Keychain writes are structurally forbidden package-wide": no SecItemAdd, SecItemUpdate, or SecItemDelete token in compiled code of any target, including LogosUsage. Verify: the new package-wide write-token audit test passes; temporarily inserting a SecItemAdd call in LogosUsage makes it fail (checked locally, then reverted).
+- [x] 4.1 Extend the red-line audit per design "Decision 4: Red-line audit extends by scope, not by exception" so "Security framework usage is confined to the audited usage target" and "The registry target is structurally credential-free": the original LogoSwitch forbidden-token test stays unchanged and passes; new scans apply the same forbidden-token list to Sources/LogosAccounts and Sources/Logos; a package-wide test asserts a Security import appears only under Sources/LogosUsage. Verify: swift test shows the original LogoSwitch red-line test plus the new scope tests green.
+- [x] 4.2 [P] Add the write-token audit so "Keychain writes are structurally forbidden package-wide": no SecItemAdd, SecItemUpdate, or SecItemDelete token in compiled code of any target, including LogosUsage. Verify: the new package-wide write-token audit test passes; temporarily inserting a SecItemAdd call in LogosUsage makes it fail (checked locally, then reverted).
 
 ## 5. Usage layer (LogosUsage)
 

@@ -21,6 +21,24 @@ private struct StubFetcher: UsageFetching {
     }
 }
 
+/// Wraps a fetcher and counts calls — proves the read-only discipline
+/// ("Keychain credential access is strictly read-only"): an expired token must
+/// short-circuit with ZERO network activity, never a refresh attempt.
+private final class CountingFetcher: UsageFetching, @unchecked Sendable {
+    private let inner: StubFetcher
+    private let lock = NSLock()
+    private var count = 0
+
+    var fetchCount: Int { lock.withLock { count } }
+
+    init(_ inner: StubFetcher) { self.inner = inner }
+
+    func fetch(accessToken: String) async throws -> (Data, Int) {
+        lock.withLock { count += 1 }
+        return try await inner.fetch(accessToken: accessToken)
+    }
+}
+
 @MainActor
 @Suite("AccountUsageModel.refresh")
 struct AccountUsageModelTests {
@@ -35,7 +53,7 @@ struct AccountUsageModelTests {
     /// account's resolved service name so credential lookup succeeds.
     private func makeModel(
         credsJSON: Data?,
-        fetcher: StubFetcher
+        fetcher: any UsageFetching
     ) -> AccountUsageModel {
         let account = DiscoveredAccount(
             configDir: URL(fileURLWithPath: "/home/test/.claude"),
@@ -83,6 +101,25 @@ struct AccountUsageModelTests {
             fetcher: StubFetcher(body: Self.usageJSON, status: 200))
         await model.refresh()
         #expect(model.state == .needsLogin)
+    }
+
+    @Test("expired token → needsLogin with ZERO network fetches (no refresh path)")
+    func expiredTokenZeroFetches() async {
+        let counting = CountingFetcher(StubFetcher(body: Self.usageJSON, status: 200))
+        let model = makeModel(credsJSON: Self.credsJSON(expiresAt: 1_000), fetcher: counting)
+        await model.refresh()
+        #expect(model.state == .needsLogin)
+        #expect(counting.fetchCount == 0)
+    }
+
+    @Test("unknown expiry defers to the endpoint — exactly one fetch, 401 decides")
+    func unknownExpiryDefersToEndpoint() async {
+        let counting = CountingFetcher(StubFetcher(status: 401))
+        let credsWithoutExpiry = Data(#"{"claudeAiOauth": {"accessToken": "tok"}}"#.utf8)
+        let model = makeModel(credsJSON: credsWithoutExpiry, fetcher: counting)
+        await model.refresh()
+        #expect(model.state == .needsLogin)
+        #expect(counting.fetchCount == 1)
     }
 
     @Test("401 from the endpoint → needsLogin")
