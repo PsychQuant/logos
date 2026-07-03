@@ -18,7 +18,7 @@ public final class AccountRegistry {
     public static func defaultIndexFileURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        home.appendingPathComponent(".logos/accounts/index.json")
+        AccountsRoot.url(home: home).appendingPathComponent("index.json")
     }
 
     public private(set) var accounts: [Account]

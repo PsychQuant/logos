@@ -21,8 +21,7 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
     /// (#21); the spawned claude inherits the real `HOME` and only its
     /// `CLAUDE_CONFIG_DIR` points here.
     public var homeDirectoryPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.logos/accounts/\(id)"
+        AccountsRoot.url().appendingPathComponent(id).path
     }
 
     /// Per-account claude config directory. claude keys its credential Keychain

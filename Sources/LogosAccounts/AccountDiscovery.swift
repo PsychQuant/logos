@@ -18,7 +18,7 @@ public enum AccountDiscovery {
                 identity: ConfigParser.identity(forConfigDir: defaultDir, fileManager: fm)))
         }
 
-        let logosRoot = home.appendingPathComponent(".logos/accounts")
+        let logosRoot = AccountsRoot.url(home: home)
         let entries = (try? fm.contentsOfDirectory(
             at: logosRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
