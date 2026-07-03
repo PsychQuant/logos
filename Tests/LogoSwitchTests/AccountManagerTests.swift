@@ -255,4 +255,33 @@ struct AccountManagerTests {
         #expect(mgr.accounts.count == 1)
         #expect(mgr.accounts.first { $0.id == a.id }?.label == "work")
     }
+
+    // MARK: - System-default (main) account (#54)
+
+    // The system-default account reuses the real ~/.claude — Logos must NEVER
+    // mkdir over it. materializeHomeTree must no-op for it (an injected throwing
+    // ensureDirectory proves the creation path is not taken).
+    @Test("materializeHomeTree no-ops for a system-default account (never mkdir over ~/.claude)")
+    func materializeHomeTreeNoOpForSystemDefault() throws {
+        let mgr = makeManager(ensureDirectory: { _ in throw DirError() })
+        let systemAccount = Account(id: "main", label: "Main", isSystemDefault: true)
+        try mgr.materializeHomeTree(for: systemAccount)   // must NOT throw
+    }
+
+    // Isolated accounts still route through ensureDirectory (regression guard).
+    @Test("materializeHomeTree still creates the dir for an isolated account")
+    func materializeHomeTreeCreatesForIsolated() {
+        let mgr = makeManager(ensureDirectory: { _ in throw DirError() })
+        let isolated = Account(id: "work", label: "work")   // isSystemDefault false
+        #expect(throws: DirError.self) { try mgr.materializeHomeTree(for: isolated) }
+    }
+
+    @Test("addSystemDefaultAccount registers exactly one system-default account, idempotently")
+    func addSystemDefaultAccountIdempotent() {
+        let mgr = makeManager()
+        mgr.addSystemDefaultAccount()
+        #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
+        mgr.addSystemDefaultAccount()   // dedup-guarded → still exactly one
+        #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
+    }
 }

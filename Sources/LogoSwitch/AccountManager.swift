@@ -96,6 +96,30 @@ public final class AccountManager {
         return account
     }
 
+    /// Register the single "main" system-default account (#54): it reuses the
+    /// system `~/.claude` login (spawns with `configDir == nil`, materializes no
+    /// config dir) instead of an isolated per-account dir. Dedup-guarded — a
+    /// second call is a no-op. First-party-safe: touches no credential, it just
+    /// declines to isolate this one account.
+    public func addSystemDefaultAccount() {
+        guard !accounts.contains(where: { $0.isSystemDefault }) else { return }
+        let account = Account(label: "Main", isSystemDefault: true)
+        do {
+            try registry.add(account)
+        } catch {
+            // e.g. a pre-existing isolated account already named "Main"
+            // (registry.add validates + dedups label) — surface it, don't
+            // silently swallow.
+            LogoSwitchLog.account.notice("addSystemDefaultAccount skipped — \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        if activeAccountId == nil {
+            activeAccountId = account.id
+            store.saveActiveAccountId(account.id)
+        }
+        LogoSwitchLog.account.notice("added system-default account — id=\(account.id, privacy: .private)")
+    }
+
     public func remove(accountId: String) {
         registry.remove(accountId: accountId)
         forcedReauthIds.remove(accountId)   // bug #7: never leak a dead id
@@ -183,6 +207,12 @@ public final class AccountManager {
     /// through the injected `ensureDirectory` so a failure is testable + can gate
     /// the spawn (bug #6). Writes no credentials. #21: HOME is never overridden.
     public func materializeHomeTree(for account: Account) throws {
+        // #54: the system-default account reuses the real ~/.claude — never
+        // mkdir over it (and #21: HOME is never overridden either).
+        guard !account.isSystemDefault else {
+            LogoSwitchLog.account.notice("system-default account — skipping config-dir materialization (reuses ~/.claude)")
+            return
+        }
         try ensureDirectory(account.configDirPath)
         LogoSwitchLog.account.notice("materialized config dir — account=\(account.id, privacy: .private)")
     }
