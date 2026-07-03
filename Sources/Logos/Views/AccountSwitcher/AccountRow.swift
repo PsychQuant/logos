@@ -42,6 +42,18 @@ struct AccountRow: View {
                 Text(account.label)
                     .font(.body)
                     .fontWeight(isActive ? .semibold : .regular)
+                // #54: distinguish the main account that reuses the system
+                // ~/.claude login from isolated per-account configs.
+                if account.isSystemDefault {
+                    Text("system")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(.quaternary))
+                        .help("Reuses your Terminal login (~/.claude) — no separate sign-in.")
+                        .accessibilityLabel("System account")
+                }
                 if needsReauth {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
