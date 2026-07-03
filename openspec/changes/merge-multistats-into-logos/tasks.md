@@ -12,7 +12,7 @@
 
 ## 3. LogoSwitch slimming
 
-- [ ] 3.1 Slim AccountManager to launcher state (active selection, live-401 observation, spawn glue) delegating create/rename/remove/persist to AccountRegistry, keeping "Active selection stays out of the shared registry": activeAccountId remains in Logos-local UserDefaults and switching the active account writes no index file. Verify: existing AccountManager behavior tests pass against the delegating implementation; a new unit test asserts setActive leaves the index file unmodified.
+- [x] 3.1 Slim AccountManager to launcher state (active selection, live-401 observation, spawn glue) delegating create/rename/remove/persist to AccountRegistry, keeping "Active selection stays out of the shared registry": activeAccountId remains in Logos-local UserDefaults and switching the active account writes no index file. Verify: existing AccountManager behavior tests pass against the delegating implementation; a new unit test asserts setActive leaves the index file unmodified.
 
 ## 4. Red-line audit extension
 

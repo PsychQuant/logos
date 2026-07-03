@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import LogosAccounts
+import Security
 
 /// OAuth credentials Claude Code stores in the login Keychain.
 ///
