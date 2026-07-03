@@ -35,13 +35,42 @@ public final class AccountRegistry {
         var accounts: [Account]
     }
 
+    /// The UserDefaults key the pre-registry Logos app stored its account list
+    /// under. Read-fallback only during migration — never written or deleted.
+    static let legacyAccountsKey = "logos.accounts"
+
+    /// - Parameter legacyDefaults: the UserDefaults domain holding the
+    ///   pre-registry account list (`logos.accounts`). Pass the Logos app's
+    ///   defaults to enable the one-time migration; leave nil (the standalone
+    ///   viewer, tests) to skip it — the legacy data lives in the Logos app's
+    ///   per-app domain and is meaningless anywhere else.
     public init(
         indexFileURL: URL = AccountRegistry.defaultIndexFileURL(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        legacyDefaults: UserDefaults? = nil
     ) {
         self.indexFileURL = indexFileURL
         self.fileManager = fileManager
         self.accounts = Self.load(from: indexFileURL, fileManager: fileManager)
+
+        // One-time migration ("Legacy per-app account data migrates
+        // non-destructively"): only when the index file is absent, and only
+        // read the legacy key — a failed decode leaves everything untouched.
+        if !fileManager.fileExists(atPath: indexFileURL.path),
+           let legacyData = legacyDefaults?.data(forKey: Self.legacyAccountsKey) {
+            // The legacy store encoded with JSONEncoder's DEFAULT date strategy
+            // (epoch-reference double), not the index file's ISO-8601.
+            if let legacy = try? JSONDecoder().decode([Account].self, from: legacyData) {
+                accounts = legacy
+                do {
+                    try save()
+                } catch {
+                    Self.log.notice("legacy migration decoded but index save failed: \(error.localizedDescription, privacy: .public)")
+                }
+            } else {
+                Self.log.notice("legacy account data undecodable — starting empty, legacy data preserved")
+            }
+        }
     }
 
     // MARK: - Mutations (each persists immediately)
