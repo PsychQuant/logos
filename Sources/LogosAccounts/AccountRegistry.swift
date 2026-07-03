@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import os
 
 /// The shared, credential-free account registry (merge-multistats-into-logos).
@@ -11,6 +12,7 @@ import os
 /// Writes are atomic (temp-file-plus-rename via `.atomic`) and happen only on
 /// explicit user mutations — create/rename/remove — which are rare and
 /// human-paced, so last-write-wins across processes is acceptable by design.
+@Observable
 @MainActor
 public final class AccountRegistry {
 
@@ -79,14 +81,22 @@ public final class AccountRegistry {
     /// materializing the config dir is the launcher's job (#34).
     @discardableResult
     public func create(label: String) throws -> Account {
-        let trimmed = try Account.validate(label: label)
+        let account = Account(label: try Account.validate(label: label))
+        try add(account)
+        return account
+    }
+
+    /// Register a pre-constructed account. This is the launcher's creation
+    /// path: the caller materializes the config dir BEFORE registering, so a
+    /// directory failure never leaves a registered-but-dirless account.
+    /// Validates exactly like `create`.
+    public func add(_ account: Account) throws {
+        let trimmed = try Account.validate(label: account.label)
         if accounts.contains(where: { $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
-        let account = Account(label: trimmed)
         accounts.append(account)
         try save()
-        return account
     }
 
     /// Rename preserves the account id (the config-dir key) and createdAt, so

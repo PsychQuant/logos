@@ -59,7 +59,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LogoSwitchTests",
-            dependencies: ["LogoSwitch"]
+            dependencies: ["LogoSwitch", "LogosAccounts"]
         ),
         .testTarget(
             name: "LogosAccountsTests",

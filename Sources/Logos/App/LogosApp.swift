@@ -1,5 +1,6 @@
 import SwiftUI
 import LogoSwitch
+import LogosAccounts
 
 @main
 struct LogosApp: App {
@@ -21,22 +22,30 @@ struct LogosApp: App {
     @State private var generalSettings = LogosApp.makeGeneralSettings()
     @State private var advancedSettings = LogosApp.makeAdvancedSettings()
 
-    /// Production: the UserDefaults-backed manager on `.standard` (no credential
-    /// store — the #34 launcher model; claude owns each account's token under its
-    /// own CLAUDE_CONFIG_DIR). Under `--ui-testing` (#27): a volatile UserDefaults
-    /// suite cleared each launch + optional `--seed-accounts <csv>` stub accounts,
-    /// so XCUITest flows get a renderable terminal + switchable accounts WITHOUT
-    /// touching the dev machine's real account list. The args never appear in production.
+    /// Production: the shared-registry manager (accounts in the
+    /// ~/.logos/accounts index file with one-time migration from this app's
+    /// legacy UserDefaults data; active selection in `.standard` — no
+    /// credential store; the #34 launcher model: claude owns each account's
+    /// token under its own CLAUDE_CONFIG_DIR). Under `--ui-testing` (#27): a
+    /// per-launch temp index file + a volatile UserDefaults suite cleared each
+    /// launch + optional `--seed-accounts <csv>` stub accounts, so XCUITest
+    /// flows get a renderable terminal + switchable accounts WITHOUT touching
+    /// the dev machine's real account list. The args never appear in production.
     @MainActor
     private static func makeAccountManager() -> AccountManager {
         let args = CommandLine.arguments
         guard args.contains("--ui-testing") else {
-            return AccountManager(store: UserDefaultsAccountStore())
+            return AccountManager()
         }
         let suiteName = "app.getlogos.logos.uitesting"
         let suite = UserDefaults(suiteName: suiteName) ?? .standard
         suite.removePersistentDomain(forName: suiteName)  // clean slate each launch
-        let mgr = AccountManager(store: UserDefaultsAccountStore(defaults: suite))
+        let indexURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("logos-uitesting-accounts-\(ProcessInfo.processInfo.processIdentifier)")
+            .appendingPathComponent("index.json")
+        let mgr = AccountManager(
+            registry: AccountRegistry(indexFileURL: indexURL),
+            store: UserDefaultsActiveAccountStore(defaults: suite))
         if let i = args.firstIndex(of: "--seed-accounts"), i + 1 < args.count {
             let labels = args[i + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
             if !labels.isEmpty { mgr.seedAccounts(labels) }

@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import LogoSwitch
+import LogosAccounts
 
 @Suite("AccountManager", .serialized)
 @MainActor
@@ -8,13 +9,24 @@ struct AccountManagerTests {
 
     private struct DirError: Error {}
 
-    /// No real FS: `ensureDirectory` no-ops. A shared `InMemoryAccountStore` stands
-    /// in for persistence across manager instances.
+    private func tempIndexURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("account-manager-tests-\(UUID().uuidString)")
+            .appendingPathComponent("index.json")
+    }
+
+    /// No real FS beyond a per-test temp index file: `ensureDirectory` no-ops.
+    /// Re-using the same `indexFileURL` + store across two managers stands in
+    /// for persistence across app launches.
     private func makeManager(
-        store: AccountStore = InMemoryAccountStore(),
+        indexFileURL: URL? = nil,
+        store: ActiveAccountStore = InMemoryActiveAccountStore(),
         ensureDirectory: @escaping (String) throws -> Void = { _ in }
     ) -> AccountManager {
-        AccountManager(store: store, ensureDirectory: ensureDirectory)
+        AccountManager(
+            registry: AccountRegistry(indexFileURL: indexFileURL ?? tempIndexURL()),
+            store: store,
+            ensureDirectory: ensureDirectory)
     }
 
     @Test("starts empty")
@@ -66,16 +78,32 @@ struct AccountManagerTests {
         #expect(mgr.active?.label == "b")
     }
 
-    @Test("accounts + active persist across a fresh manager on the same store")
+    @Test("accounts + active persist across a fresh manager on the same registry + store")
     func activePersists() throws {
-        let store = InMemoryAccountStore()
-        let mgr1 = makeManager(store: store)
+        let url = tempIndexURL()
+        let store = InMemoryActiveAccountStore()
+        let mgr1 = makeManager(indexFileURL: url, store: store)
         try mgr1.createAccount(label: "a")
         let b = try mgr1.createAccount(label: "b")
         mgr1.setActive(b.id)
-        let mgr2 = makeManager(store: store)
+        let mgr2 = makeManager(indexFileURL: url, store: store)
         #expect(mgr2.accounts.count == 2)
         #expect(mgr2.activeAccountId == b.id)
+    }
+
+    // merge-multistats-into-logos: "Active selection stays out of the shared
+    // registry" — switching writes the app-local store, never the index file.
+    @Test("setActive leaves the shared index file unmodified")
+    func setActiveDoesNotWriteIndex() throws {
+        let url = tempIndexURL()
+        let store = InMemoryActiveAccountStore()
+        let mgr = makeManager(indexFileURL: url, store: store)
+        try mgr.createAccount(label: "a")
+        let b = try mgr.createAccount(label: "b")
+        let before = try Data(contentsOf: url)
+        mgr.setActive(b.id)
+        #expect(try Data(contentsOf: url) == before)
+        #expect(store.loadActiveAccountId() == b.id)
     }
 
     @Test("materializeHomeTree routes through the injected ensureDirectory (no throw)")
@@ -88,8 +116,12 @@ struct AccountManagerTests {
     // bug #6: a config-dir creation failure must surface (so the spawn can be gated).
     @Test("materializeHomeTree throws when the directory cannot be created (bug #6)")
     func materializeThrowsOnDirFailure() {
-        let seeded = AccountIndex(accounts: [Account(id: "a", label: "a")], activeAccountId: "a")
-        let mgr = AccountManager(store: InMemoryAccountStore(seeded), ensureDirectory: { _ in throw DirError() })
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try? registry.add(Account(id: "a", label: "a"))
+        let mgr = AccountManager(
+            registry: registry,
+            store: InMemoryActiveAccountStore("a"),
+            ensureDirectory: { _ in throw DirError() })
         #expect(throws: DirError.self) { try mgr.materializeHomeTree(for: mgr.accounts[0]) }
     }
 
@@ -126,12 +158,13 @@ struct AccountManagerTests {
 
     @Test("the live-401 override is volatile — not persisted across managers")
     func forcedVolatile() throws {
-        let store = InMemoryAccountStore()
-        let mgr1 = makeManager(store: store)
+        let url = tempIndexURL()
+        let store = InMemoryActiveAccountStore()
+        let mgr1 = makeManager(indexFileURL: url, store: store)
         let a = try mgr1.createAccount(label: "a")
         mgr1.forceReauth(a.id)
         #expect(mgr1.needsReauth(a) == true)
-        let mgr2 = makeManager(store: store)
+        let mgr2 = makeManager(indexFileURL: url, store: store)
         let a2 = try #require(mgr2.accounts.first { $0.label == "a" })
         #expect(mgr2.needsReauth(a2) == false)   // session-volatile
     }
@@ -204,13 +237,13 @@ struct AccountManagerTests {
         }
     }
 
-    @Test("rename persists across a fresh manager on the same store")
+    @Test("rename persists across a fresh manager on the same registry")
     func renamePersists() throws {
-        let store = InMemoryAccountStore()
-        let mgr1 = makeManager(store: store)
+        let url = tempIndexURL()
+        let mgr1 = makeManager(indexFileURL: url)
         let a = try mgr1.createAccount(label: "work")
         try mgr1.rename(accountId: a.id, to: "office")
-        let mgr2 = makeManager(store: store)
+        let mgr2 = makeManager(indexFileURL: url)
         #expect(mgr2.accounts.first { $0.id == a.id }?.label == "office")
     }
 
