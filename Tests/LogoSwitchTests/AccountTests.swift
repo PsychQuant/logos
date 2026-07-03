@@ -39,4 +39,46 @@ struct AccountTests {
             _ = try Account.validate(label: long)
         }
     }
+
+    // MARK: - System-default (main) account (#54)
+
+    @Test("isSystemDefault defaults to false")
+    func isSystemDefaultDefault() {
+        let acc = Account(id: "abc", label: "work")
+        #expect(acc.isSystemDefault == false)
+    }
+
+    @Test("spawnConfigDir is nil for a system-default account")
+    func spawnConfigDirSystemDefault() {
+        let acc = Account(id: "main", label: "Main", isSystemDefault: true)
+        #expect(acc.spawnConfigDir == nil)
+    }
+
+    @Test("spawnConfigDir equals configDirPath for an isolated account")
+    func spawnConfigDirIsolated() {
+        let acc = Account(id: "abc", label: "work")
+        #expect(acc.spawnConfigDir == acc.configDirPath)
+    }
+
+    @Test("configDirPath is unchanged for a system-default account (still the mkdir target)")
+    func configDirPathUnchangedForSystemDefault() {
+        let acc = Account(id: "main", label: "Main", isSystemDefault: true)
+        #expect(acc.configDirPath.hasSuffix("/.logos/accounts/main/.claude"))
+    }
+
+    @Test("Codable round-trip carries isSystemDefault")
+    func codableRoundTrip() throws {
+        let acc = Account(id: "main", label: "Main", isSystemDefault: true)
+        let data = try JSONEncoder().encode(acc)
+        let decoded = try JSONDecoder().decode(Account.self, from: data)
+        #expect(decoded.isSystemDefault == true)
+    }
+
+    @Test("legacy JSON without isSystemDefault decodes as false")
+    func codableLegacyDefault() throws {
+        // an account persisted before isSystemDefault existed
+        let legacy = #"{"id":"x","label":"work","createdAt":0}"#
+        let decoded = try JSONDecoder().decode(Account.self, from: Data(legacy.utf8))
+        #expect(decoded.isSystemDefault == false)
+    }
 }
