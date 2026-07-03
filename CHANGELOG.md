@@ -15,6 +15,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **"Main" account reuses your existing system `~/.claude` login** ([#54](https://github.com/PsychQuant/logos/issues/54)).
+  Every Logos account is normally isolated in its own `CLAUDE_CONFIG_DIR`, so it is separate
+  from the login you already have when you run `claude` in a terminal. The account switcher now
+  has an **"Add system account"** action registering a single system-default "Main" account
+  (badged "system") that spawns claude with **no** `CLAUDE_CONFIG_DIR` override — it falls
+  through to the system `~/.claude` + its keychain entry, reusing that login with **zero
+  credential touch** (Logos reads no token; it just declines to isolate this one account,
+  honoring the #34 red line — not the #12-removed capture path). `HOME` is never overridden
+  (#21); the spawn strips any inherited config-dir vars so it truly falls through to `~/.claude`.
+  Opt-in MVP; usage-window integration ([#55](https://github.com/PsychQuant/logos/issues/55)) and
+  system-default hardening ([#56](https://github.com/PsychQuant/logos/issues/56)) are follow-ups.
+
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
   usage from the window's account session transcript JSONL (`message.usage` — input + cache
