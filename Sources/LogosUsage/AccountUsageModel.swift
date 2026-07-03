@@ -124,15 +124,24 @@ public final class AccountsModel {
     public private(set) var accounts: [AccountUsageModel] = []
 
     private let home: URL
+    /// Injected per-account model factory — the seam that lets tests route
+    /// stub keychains/fetchers per account while discovery stays real.
+    @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount) -> AccountUsageModel
 
-    public init(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    public init(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        makeModel: @escaping @MainActor (DiscoveredAccount) -> AccountUsageModel = {
+            AccountUsageModel(account: $0)
+        }
+    ) {
         self.home = home
+        self.makeModel = makeModel
     }
 
     /// Discovers accounts on disk and builds one persisted model each. Existing
     /// models are replaced (discovery is cheap and idempotent).
     public func load() {
-        accounts = AccountDiscovery.discover(home: home).map { AccountUsageModel(account: $0) }
+        accounts = AccountDiscovery.discover(home: home).map { makeModel($0) }
     }
 
     /// Refreshes every account's usage concurrently.
