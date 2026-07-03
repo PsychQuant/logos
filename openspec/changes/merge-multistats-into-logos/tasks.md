@@ -31,8 +31,8 @@
 
 ## 7. Standalone viewer
 
-- [ ] 7.1 Keep the thin executable working so "The standalone viewer keeps discovery-based parity": discovery-based account list (default plus convention accounts), same per-account states as the Logos window, registry labels applied when the shared index file exists. Verify: unit test overlays index labels onto discovered accounts; manual smoke — swift run MultiStats on this machine lists the default account plus Logos-convention accounts with usage bars.
+- [x] 7.1 Keep the thin executable working so "The standalone viewer keeps discovery-based parity": discovery-based account list (default plus convention accounts), same per-account states as the Logos window, registry labels applied when the shared index file exists. Verify: unit test overlays index labels onto discovered accounts; manual smoke — swift run MultiStats on this machine lists the default account plus Logos-convention accounts with usage bars.
 
 ## 8. Repo hygiene
 
-- [ ] 8.1 Finish the external migration: transfer the three open MultiStats issues (keychain prompt stacking, usage decode hardening, generation token + redirect hardening) to the logos repo, update the MultiStats README to point at logos as the new home, and archive the MultiStats repo. Verify: the transferred issues are open in logos with their bodies intact; the MultiStats repo shows as archived on GitHub with the pointer README rendered.
+- [x] 8.1 Finish the external migration: transfer the three open MultiStats issues (keychain prompt stacking, usage decode hardening, generation token + redirect hardening) to the logos repo, update the MultiStats README to point at logos as the new home, and archive the MultiStats repo. Verify: the transferred issues are open in logos with their bodies intact; the MultiStats repo shows as archived on GitHub with the pointer README rendered.
