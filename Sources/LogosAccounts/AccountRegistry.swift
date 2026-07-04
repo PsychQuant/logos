@@ -73,6 +73,9 @@ public final class AccountRegistry {
                 Self.log.notice("legacy account data undecodable — starting empty, legacy data preserved")
             }
         }
+
+        // #56: enforce the system-default invariant (at most one, fixed id) on load.
+        normalize()
     }
 
     // MARK: - Mutations (each persists immediately)
@@ -92,11 +95,51 @@ public final class AccountRegistry {
     /// Validates exactly like `create`.
     public func add(_ account: Account) throws {
         let trimmed = try Account.validate(label: account.label)
-        if accounts.contains(where: { $0.label == trimmed }) {
+        // #56: label uniqueness applies to ISOLATED accounts only. The
+        // system-default's identity is its fixed id (Account.systemDefaultID),
+        // so a "Main" system-default may coexist with an isolated "Main".
+        // System-default singleton-ness is enforced by the caller's guard +
+        // load-time `normalize()`, not by label-dedup here.
+        if !account.isSystemDefault, accounts.contains(where: { $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
         accounts.append(account)
         try save()
+    }
+
+    /// #56: enforce "at most one system-default" + a stable fixed id for it.
+    /// Keeps the earliest-`createdAt` system-default (migrating its id to
+    /// `Account.systemDefaultID` if it's a legacy UUID), demotes any extras to
+    /// isolated (non-destructive — keeps their id + dir). Idempotent + persists
+    /// ONLY when it actually changed something, so a clean 0/1 index is untouched.
+    private func normalize() {
+        let systemDefaultIdxs = accounts.indices.filter { accounts[$0].isSystemDefault }
+        guard !systemDefaultIdxs.isEmpty else { return }
+
+        // Canonical = earliest createdAt; id as a deterministic tiebreak.
+        let canonical = systemDefaultIdxs.min {
+            (accounts[$0].createdAt, accounts[$0].id) < (accounts[$1].createdAt, accounts[$1].id)
+        }!
+
+        var changed = false
+        for idx in systemDefaultIdxs {
+            let acc = accounts[idx]
+            if idx == canonical {
+                if acc.id != Account.systemDefaultID {   // migrate legacy UUID → fixed id
+                    accounts[idx] = Account(id: Account.systemDefaultID, label: acc.label,
+                                            createdAt: acc.createdAt, isSystemDefault: true)
+                    changed = true
+                }
+            } else {                                     // demote extra → isolated (keep id + dir)
+                accounts[idx] = Account(id: acc.id, label: acc.label,
+                                        createdAt: acc.createdAt, isSystemDefault: false)
+                changed = true
+            }
+        }
+        guard changed else { return }
+        do { try save() } catch {
+            Self.log.notice("normalize save failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Rename preserves the account id (the config-dir key) and createdAt, so

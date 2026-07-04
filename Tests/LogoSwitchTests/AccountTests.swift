@@ -81,4 +81,11 @@ struct AccountTests {
         let decoded = try JSONDecoder().decode(Account.self, from: Data(legacy.utf8))
         #expect(decoded.isSystemDefault == false)
     }
+
+    // #56: the system-default account has a stable well-known id so registry
+    // uniqueness keys off id, not the mutable label.
+    @Test("systemDefaultID is a stable well-known id (#56)")
+    func systemDefaultIDConstant() {
+        #expect(Account.systemDefaultID == "system-default")
+    }
 }
