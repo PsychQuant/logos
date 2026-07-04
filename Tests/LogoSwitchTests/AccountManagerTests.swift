@@ -292,11 +292,94 @@ struct AccountManagerTests {
     @Test("rename preserves isSystemDefault (#54 verify B1)")
     func renamePreservesSystemDefault() throws {
         let mgr = makeManager()
-        mgr.addSystemDefaultAccount()
+        _ = mgr.addSystemDefaultAccount()
         let main = try #require(mgr.accounts.first { $0.isSystemDefault })
         try mgr.rename(accountId: main.id, to: "Home")
         let renamed = try #require(mgr.accounts.first { $0.id == main.id })
         #expect(renamed.isSystemDefault == true)   // survives the rename
         #expect(renamed.label == "Home")
+    }
+
+    // #56 gap 3: addSystemDefaultAccount returns a result so the switcher can
+    // distinguish added from the expected idempotent already-exists.
+    @Test("addSystemDefaultAccount returns .added then .alreadyExists, with the fixed id (#56)")
+    func addSystemDefaultReturnsResult() throws {
+        let mgr = makeManager()
+        let r1 = mgr.addSystemDefaultAccount()
+        guard case .added(let acc) = r1 else { Issue.record("expected .added, got \(r1)"); return }
+        #expect(acc.id == Account.systemDefaultID)
+        let r2 = mgr.addSystemDefaultAccount()
+        guard case .alreadyExists = r2 else { Issue.record("expected .alreadyExists, got \(r2)"); return }
+        #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
+    }
+
+    // #56 gap 1: a pre-existing isolated "Main" no longer blocks the system account.
+    @Test("an isolated Main does not block addSystemDefaultAccount (#56)")
+    func isolatedMainDoesNotBlockSystemDefault() throws {
+        let mgr = makeManager()
+        try mgr.createAccount(label: "Main")   // isolated "Main"
+        let r = mgr.addSystemDefaultAccount()
+        guard case .added = r else { Issue.record("expected .added despite isolated Main, got \(r)"); return }
+        #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
+        #expect(mgr.accounts.count == 2)
+    }
+
+    // #56 verify B1 (ensemble #3): the REVERSE order must also work — a
+    // system-default "Main" present first must not block createAccount("Main").
+    @Test("createAccount coexists with a same-label system-default (#56 verify B1)")
+    func createAccountCoexistsWithSystemDefault() throws {
+        let mgr = makeManager()
+        _ = mgr.addSystemDefaultAccount()               // system-default "Main" first
+        let acc = try mgr.createAccount(label: "Main")  // isolated "Main" — must NOT throw
+        #expect(acc.label == "Main")
+        #expect(mgr.accounts.count == 2)
+    }
+
+    // #56 verify B3 (ensemble #2/#5/#13/#15): when the system-default's id migrates
+    // (UUID → fixed), the stored active id dangles; init self-heal must land on the
+    // system-default (not accounts.first), even when it isn't first.
+    @Test("active resolves to the system-default after its id migrates (#56 verify B3)")
+    func activeResolvesToSystemDefaultAfterMigration() throws {
+        let url = tempIndexURL()
+        let seed = AccountRegistry(indexFileURL: url)
+        try seed.add(Account(label: "Work"))                                        // isolated, FIRST
+        try seed.add(Account(id: "legacy-uuid", label: "Main", isSystemDefault: true))  // system-default, UUID id
+        let store = InMemoryActiveAccountStore()
+        store.saveActiveAccountId("legacy-uuid")                                     // active = the pre-migration UUID
+        // manager: its registry init migrates legacy-uuid → systemDefaultID; active dangles → self-heal
+        let mgr = makeManager(indexFileURL: url, store: store)
+        #expect(mgr.active?.isSystemDefault == true)
+        #expect(mgr.active?.id == Account.systemDefaultID)
+    }
+
+    // #56 verify B4 (ensemble #4): a persist failure must return .failed, NOT .added,
+    // and must not write a dangling active id.
+    @Test("addSystemDefaultAccount returns .failed on persist failure without setting active (#56 verify B4)")
+    func addSystemDefaultFailedPath() throws {
+        // Make the index path unwritable: its parent is a regular FILE, so save's
+        // createDirectory(parent) throws.
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("b4-blocker-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: blocker)
+        let url = blocker.appendingPathComponent("index.json")   // parent (blocker) is a file
+        let store = InMemoryActiveAccountStore()
+        let mgr = makeManager(indexFileURL: url, store: store)
+        let r = mgr.addSystemDefaultAccount()
+        guard case .failed = r else { Issue.record("expected .failed on persist failure, got \(r)"); return }
+        #expect(store.loadActiveAccountId() == nil)   // no dangling active persisted
+        #expect(mgr.accounts.isEmpty)                 // #56 verify C2: no phantom account left in memory
+    }
+
+    // #56 verify C1 (round-2 #4): a FRESH launch (no stored active id) keeps the
+    // historical accounts.first seed — only a DANGLING id heals to the system-default.
+    @Test("fresh launch (no stored active) seeds accounts.first, not the system-default (#56 verify C1)")
+    func freshActiveKeepsAccountsFirst() throws {
+        let url = tempIndexURL()
+        let seed = AccountRegistry(indexFileURL: url)
+        try seed.add(Account(label: "Work"))                                            // isolated, FIRST
+        try seed.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        let mgr = makeManager(indexFileURL: url, store: InMemoryActiveAccountStore())    // fresh store: no active
+        #expect(mgr.active?.label == "Work")            // historical accounts.first, not the system-default
+        #expect(mgr.active?.isSystemDefault == false)
     }
 }

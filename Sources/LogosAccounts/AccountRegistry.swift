@@ -73,6 +73,9 @@ public final class AccountRegistry {
                 Self.log.notice("legacy account data undecodable — starting empty, legacy data preserved")
             }
         }
+
+        // #56: enforce the system-default invariant (at most one, fixed id) on load.
+        normalize()
     }
 
     // MARK: - Mutations (each persists immediately)
@@ -92,11 +95,70 @@ public final class AccountRegistry {
     /// Validates exactly like `create`.
     public func add(_ account: Account) throws {
         let trimmed = try Account.validate(label: account.label)
-        if accounts.contains(where: { $0.label == trimmed }) {
+        // #56: label uniqueness applies to ISOLATED accounts only. The
+        // system-default's identity is its fixed id (Account.systemDefaultID),
+        // so a "Main" system-default may coexist with an isolated "Main".
+        // #56 verify B1 (ensemble #3): filter BOTH sides — skip the check when the
+        // NEW account is a system-default, AND compare only against EXISTING isolated
+        // accounts. The earlier one-sided check was order-dependent (isolated-then-
+        // system worked, but system-then-isolated wrongly threw).
+        if !account.isSystemDefault, accounts.contains(where: { !$0.isSystemDefault && $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
         accounts.append(account)
-        try save()
+        do {
+            try save()
+        } catch {
+            // #56 verify C2: roll back the append when persistence fails, so a failed
+            // add never leaves a phantom account in memory. Without this, an
+            // addSystemDefaultAccount whose save() throws would return .failed yet leave
+            // the account in `accounts` — a later retry would wrongly hit .alreadyExists
+            // on an account that isn't on disk. removeLast is exact (we just appended it).
+            accounts.removeLast()
+            throw error
+        }
+    }
+
+    /// #56: enforce "at most one system-default" + a stable fixed id for it.
+    /// Keeps the earliest-`createdAt` system-default (migrating its id to
+    /// `Account.systemDefaultID` if it's a legacy UUID), demotes any extras to
+    /// isolated (non-destructive — keeps their id + dir). Idempotent + persists
+    /// ONLY when it actually changed something, so a clean 0/1 index is untouched.
+    private func normalize() {
+        let systemDefaultIdxs = accounts.indices.filter { accounts[$0].isSystemDefault }
+        guard !systemDefaultIdxs.isEmpty else { return }
+
+        // Canonical = earliest createdAt; id as a deterministic tiebreak.
+        let canonical = systemDefaultIdxs.min {
+            (accounts[$0].createdAt, accounts[$0].id) < (accounts[$1].createdAt, accounts[$1].id)
+        }!
+
+        var changed = false
+        for idx in systemDefaultIdxs {
+            let acc = accounts[idx]
+            if idx == canonical {
+                if acc.id != Account.systemDefaultID {   // migrate legacy UUID → fixed id
+                    accounts[idx] = Account(id: Account.systemDefaultID, label: acc.label,
+                                            createdAt: acc.createdAt, isSystemDefault: true)
+                    changed = true
+                }
+            } else {                                     // demote extra → isolated
+                // #56 verify B2 (ensemble #1/#11/#12/#23): if the demoted extra already
+                // holds the fixed id it would collide with the canonical's migrated id
+                // → two accounts sharing "system-default" (breaks remove()/Identifiable).
+                // Give it a fresh id (a spurious system-default had no isolated dir anyway).
+                let demotedID = acc.id == Account.systemDefaultID ? UUID().uuidString : acc.id
+                accounts[idx] = Account(id: demotedID, label: acc.label,
+                                        createdAt: acc.createdAt, isSystemDefault: false)
+                changed = true
+            }
+        }
+        guard changed else { return }
+        do { try save() } catch {
+            // #56 verify B5 (ensemble #16): .private — localizedDescription may echo
+            // the index path (which contains the username).
+            Self.log.notice("normalize save failed: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     /// Rename preserves the account id (the config-dir key) and createdAt, so
@@ -104,10 +166,13 @@ public final class AccountRegistry {
     public func rename(accountId: String, to newLabel: String) throws {
         let trimmed = try Account.validate(label: newLabel)
         guard let idx = accounts.firstIndex(where: { $0.id == accountId }) else { return }
-        if accounts.contains(where: { $0.id != accountId && $0.label == trimmed }) {
+        let old = accounts[idx]
+        // #56 verify C3: coexistence holds under rename too — a system-default may take
+        // ANY label; an isolated account collides only with OTHER isolated accounts.
+        // (B1 fixed add()/createAccount() but missed rename — round-2 DA finding.)
+        if !old.isSystemDefault, accounts.contains(where: { $0.id != accountId && !$0.isSystemDefault && $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
-        let old = accounts[idx]
         // #54 verify B1: thread isSystemDefault — omitting it lets the memberwise
         // default (false) win, silently de-systeming the main account (flipping
         // spawnConfigDir nil→dir and losing the reused ~/.claude login).

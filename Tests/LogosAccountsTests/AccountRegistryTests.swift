@@ -129,4 +129,110 @@ struct AccountRegistryTests {
         #expect(renamed.createdAt == account.createdAt)
         #expect(renamed.label == "Work 2")
     }
+
+    // MARK: - System-default hardening (#56)
+
+    // #56 gap 1: label uniqueness applies to isolated accounts only — a
+    // system-default "Main" coexists with an isolated "Main" (identity is the id).
+    @Test("a system-default coexists with an isolated account of the same label (#56)")
+    @MainActor func systemDefaultCoexistsWithIsolatedSameLabel() throws {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try registry.add(Account(label: "Main"))                                        // isolated
+        try registry.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))  // system-default
+        #expect(registry.accounts.count == 2)
+        #expect(registry.accounts.filter(\.isSystemDefault).count == 1)
+    }
+
+    // #56 gap 2: load-time normalize enforces "at most one system-default" —
+    // keep earliest createdAt, demote the rest to isolated.
+    @Test("normalize demotes ≥2 persisted system-defaults to one (earliest kept) (#56)")
+    @MainActor func normalizeDemotesExtraSystemDefaults() throws {
+        let url = tempIndexURL()
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        let r1 = AccountRegistry(indexFileURL: url)
+        try r1.add(Account(id: "sd-early", label: "Main", createdAt: earlier, isSystemDefault: true))
+        try r1.add(Account(id: "sd-late", label: "Other", createdAt: later, isSystemDefault: true))
+        // reload → init runs normalize
+        let r2 = AccountRegistry(indexFileURL: url)
+        #expect(r2.accounts.filter(\.isSystemDefault).count == 1)
+        let survivor = try #require(r2.accounts.first(where: { $0.isSystemDefault }))
+        #expect(survivor.createdAt == earlier)      // earliest kept
+        #expect(r2.accounts.count == 2)             // the other is demoted, not deleted
+    }
+
+    // #56 gap 2 / decision 4: normalize migrates a legacy UUID system-default id
+    // to the fixed systemDefaultID.
+    @Test("normalize migrates a legacy UUID system-default id to systemDefaultID (#56)")
+    @MainActor func normalizeMigratesLegacyID() throws {
+        let url = tempIndexURL()
+        let r1 = AccountRegistry(indexFileURL: url)
+        try r1.add(Account(id: "legacy-uuid-1234", label: "Main", isSystemDefault: true))
+        let r2 = AccountRegistry(indexFileURL: url)
+        #expect(r2.accounts.first(where: { $0.isSystemDefault })?.id == Account.systemDefaultID)
+    }
+
+    // #56: a clean 0/1-system-default index must not be spuriously rewritten by normalize.
+    @Test("normalize leaves a clean single system-default index byte-unchanged (#56)")
+    @MainActor func normalizeLeavesCleanIndexUnchanged() throws {
+        let url = tempIndexURL()
+        let r1 = AccountRegistry(indexFileURL: url)
+        try r1.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        let before = try Data(contentsOf: url)
+        _ = AccountRegistry(indexFileURL: url)      // reload → normalize should be a no-op
+        #expect(try Data(contentsOf: url) == before)
+    }
+
+    // #56 verify B1 (ensemble #3/#10): coexistence must be order-INdependent — a
+    // pre-existing system-default "Main" must not block adding an isolated "Main".
+    @Test("reverse order: system-default first, then isolated same label coexist (#56 verify B1)")
+    @MainActor func systemDefaultFirstThenIsolatedSameLabel() throws {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try registry.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))  // system-default FIRST
+        try registry.add(Account(label: "Main"))                                                       // isolated same label
+        #expect(registry.accounts.count == 2)
+        #expect(registry.accounts.filter { !$0.isSystemDefault }.count == 1)
+    }
+
+    // #56 verify C2 (round-2 #1): a failed save must roll back the in-memory append —
+    // no phantom account left in `accounts`.
+    @Test("add rolls back the in-memory append when save fails (#56 verify C2)")
+    @MainActor func addRollsBackOnSaveFailure() throws {
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c2-blocker-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: blocker)
+        let url = blocker.appendingPathComponent("index.json")   // parent is a FILE → save throws
+        let registry = AccountRegistry(indexFileURL: url)
+        #expect(throws: (any Error).self) { try registry.add(Account(label: "Work")) }
+        #expect(registry.accounts.isEmpty)                       // rolled back — no phantom
+    }
+
+    // #56 verify C3 (round-2 DA #10): coexistence must hold under rename too — B1 fixed
+    // add()/createAccount() but missed rename.
+    @Test("rename an isolated account to a system-default's label is allowed (#56 verify C3)")
+    @MainActor func renameIsolatedToSystemDefaultLabel() throws {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try registry.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        let work = try registry.create(label: "Work")
+        try registry.rename(accountId: work.id, to: "Main")      // isolated → system-default's label; must NOT throw
+        #expect(registry.accounts.first(where: { $0.id == work.id })?.label == "Main")
+        #expect(registry.accounts.filter { $0.label == "Main" }.count == 2)   // coexist
+    }
+
+    // #56 verify B2 (ensemble #1/#11/#12/#23): normalize must not synthesize two
+    // accounts sharing id "system-default" when the demoted extra already holds it.
+    @Test("normalize does not create duplicate ids when a demoted extra already holds the fixed id (#56 verify B2)")
+    @MainActor func normalizeNoDuplicateIDOnCollision() throws {
+        let url = tempIndexURL()
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        let r1 = AccountRegistry(indexFileURL: url)
+        try r1.add(Account(id: "legacy-uuid", label: "Main", createdAt: earlier, isSystemDefault: true))        // canonical (earlier) → migrates INTO the fixed id
+        try r1.add(Account(id: Account.systemDefaultID, label: "Old", createdAt: later, isSystemDefault: true)) // later, already holds the fixed id → demoted
+        let r2 = AccountRegistry(indexFileURL: url)   // normalize
+        let ids = r2.accounts.map(\.id)
+        #expect(Set(ids).count == ids.count)          // no duplicate ids
+        #expect(r2.accounts.filter { $0.id == Account.systemDefaultID }.count == 1)
+        #expect(r2.accounts.filter { $0.isSystemDefault }.count == 1)
+    }
 }

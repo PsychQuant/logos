@@ -2,6 +2,13 @@ import Foundation
 
 public struct Account: Identifiable, Hashable, Sendable, Codable {
 
+    /// The stable, well-known id of the system-default ("main") account (#56).
+    /// Registry uniqueness for the system-default keys off this id, NOT the
+    /// mutable label — so a "Main" system-default coexists with an isolated
+    /// "Main". Safe as a fixed id because the system-default's `spawnConfigDir`
+    /// is nil, so the id is never used as a spawn config-dir path for it.
+    public static let systemDefaultID = "system-default"
+
     /// Stable per-account identifier. Used as the per-account **config-dir** name
     /// (the `CLAUDE_CONFIG_DIR` target), NOT the process `HOME` — Logos never
     /// overrides `HOME` (PsychQuant/logos#21), since that would move the login

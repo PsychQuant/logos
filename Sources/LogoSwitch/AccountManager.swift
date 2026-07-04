@@ -11,6 +11,16 @@ import LogosAccounts
 /// **claude's own job**, managed in claude's own terminal (#34). Logos only
 /// OBSERVES a live 401 from the terminal to surface a non-blocking "needs
 /// login" nudge (#31); it persists no auth state.
+/// The outcome of `AccountManager.addSystemDefaultAccount()` (#56) — the switcher
+/// can distinguish a fresh add from the expected idempotent already-exists.
+public enum AddSystemDefaultResult: Sendable {
+    case added(Account)
+    case alreadyExists(Account)
+    /// #56 verify B4: registry persistence failed — the account is NOT durably
+    /// registered and no active id was written. Carries the error description.
+    case failed(String)
+}
+
 @Observable
 @MainActor
 public final class AccountManager {
@@ -70,7 +80,21 @@ public final class AccountManager {
         self.store = store ?? UserDefaultsActiveAccountStore()
         self.ensureDirectory = ensureDirectory
         self.activeAccountId = self.store.loadActiveAccountId()
-        if active == nil, let first = accounts.first { self.activeAccountId = first.id }
+        // #56 verify B3/C1: distinguish a DANGLING stored id from a FRESH (never-set) one.
+        // - Dangling (e.g. after the system-default's id migrated UUID→fixed, leaving the
+        //   stored id unresolvable) heals to the system-default — NOT accounts.first — and
+        //   persists the correction so it doesn't recur.
+        // - Fresh keeps the historical accounts.first seed, in-memory only (never persist a
+        //   selection the user never made — that was an unintended round-1 behavior change).
+        if active == nil {
+            if self.activeAccountId != nil {
+                let healed = accounts.first(where: { $0.isSystemDefault }) ?? accounts.first
+                self.activeAccountId = healed?.id
+                if let id = healed?.id { self.store.saveActiveAccountId(id) }
+            } else {
+                self.activeAccountId = accounts.first?.id
+            }
+        }
     }
 
     // MARK: - Create / Remove / Rename (delegated to the shared registry)
@@ -83,7 +107,9 @@ public final class AccountManager {
     @discardableResult
     public func createAccount(label: String) throws -> Account {
         let trimmed = try Account.validate(label: label)
-        if accounts.contains(where: { $0.label == trimmed }) {
+        // #56 verify B1: isolated labels collide only with other ISOLATED accounts —
+        // a system-default may share the label (its identity is its fixed id, not label).
+        if accounts.contains(where: { !$0.isSystemDefault && $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
         let account = Account(label: trimmed)
@@ -101,24 +127,30 @@ public final class AccountManager {
     /// config dir) instead of an isolated per-account dir. Dedup-guarded — a
     /// second call is a no-op. First-party-safe: touches no credential, it just
     /// declines to isolate this one account.
-    public func addSystemDefaultAccount() {
-        guard !accounts.contains(where: { $0.isSystemDefault }) else { return }
-        let account = Account(label: "Main", isSystemDefault: true)
+    @discardableResult
+    public func addSystemDefaultAccount() -> AddSystemDefaultResult {
+        // #56: the system-default is identified by its fixed id; already-exists is
+        // expected idempotence, returned as a first-class result (not a logged error)
+        // so the switcher can react. Uniqueness is by `isSystemDefault`, not label.
+        if let existing = accounts.first(where: { $0.isSystemDefault }) {
+            return .alreadyExists(existing)
+        }
+        let account = Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true)
         do {
             try registry.add(account)
         } catch {
-            // e.g. a pre-existing isolated account already named "Main"
-            // (registry.add validates + dedups label) — surface it, don't
-            // silently swallow.
-            // #54 verify (Finding 7): .private — localizedDescription may echo a user account label.
-            LogoSwitchLog.account.notice("addSystemDefaultAccount skipped — \(error.localizedDescription, privacy: .private)")
-            return
+            // #56 verify B4 (ensemble #4): a persist (disk) failure means the account is
+            // NOT durably registered — return .failed WITHOUT touching active, so we
+            // never write a dangling active id or mislead the caller with .added.
+            LogoSwitchLog.account.notice("addSystemDefaultAccount persist failed — \(error.localizedDescription, privacy: .private)")
+            return .failed(error.localizedDescription)
         }
         if activeAccountId == nil {
             activeAccountId = account.id
             store.saveActiveAccountId(account.id)
         }
         LogoSwitchLog.account.notice("added system-default account — id=\(account.id, privacy: .private)")
+        return .added(account)
     }
 
     public func remove(accountId: String) {
