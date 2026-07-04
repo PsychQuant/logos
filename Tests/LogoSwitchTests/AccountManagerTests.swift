@@ -292,11 +292,35 @@ struct AccountManagerTests {
     @Test("rename preserves isSystemDefault (#54 verify B1)")
     func renamePreservesSystemDefault() throws {
         let mgr = makeManager()
-        mgr.addSystemDefaultAccount()
+        _ = mgr.addSystemDefaultAccount()
         let main = try #require(mgr.accounts.first { $0.isSystemDefault })
         try mgr.rename(accountId: main.id, to: "Home")
         let renamed = try #require(mgr.accounts.first { $0.id == main.id })
         #expect(renamed.isSystemDefault == true)   // survives the rename
         #expect(renamed.label == "Home")
+    }
+
+    // #56 gap 3: addSystemDefaultAccount returns a result so the switcher can
+    // distinguish added from the expected idempotent already-exists.
+    @Test("addSystemDefaultAccount returns .added then .alreadyExists, with the fixed id (#56)")
+    func addSystemDefaultReturnsResult() throws {
+        let mgr = makeManager()
+        let r1 = mgr.addSystemDefaultAccount()
+        guard case .added(let acc) = r1 else { Issue.record("expected .added, got \(r1)"); return }
+        #expect(acc.id == Account.systemDefaultID)
+        let r2 = mgr.addSystemDefaultAccount()
+        guard case .alreadyExists = r2 else { Issue.record("expected .alreadyExists, got \(r2)"); return }
+        #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
+    }
+
+    // #56 gap 1: a pre-existing isolated "Main" no longer blocks the system account.
+    @Test("an isolated Main does not block addSystemDefaultAccount (#56)")
+    func isolatedMainDoesNotBlockSystemDefault() throws {
+        let mgr = makeManager()
+        try mgr.createAccount(label: "Main")   // isolated "Main"
+        let r = mgr.addSystemDefaultAccount()
+        guard case .added = r else { Issue.record("expected .added despite isolated Main, got \(r)"); return }
+        #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
+        #expect(mgr.accounts.count == 2)
     }
 }

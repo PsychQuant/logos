@@ -11,6 +11,13 @@ import LogosAccounts
 /// **claude's own job**, managed in claude's own terminal (#34). Logos only
 /// OBSERVES a live 401 from the terminal to surface a non-blocking "needs
 /// login" nudge (#31); it persists no auth state.
+/// The outcome of `AccountManager.addSystemDefaultAccount()` (#56) — the switcher
+/// can distinguish a fresh add from the expected idempotent already-exists.
+public enum AddSystemDefaultResult: Sendable {
+    case added(Account)
+    case alreadyExists(Account)
+}
+
 @Observable
 @MainActor
 public final class AccountManager {
@@ -101,24 +108,29 @@ public final class AccountManager {
     /// config dir) instead of an isolated per-account dir. Dedup-guarded — a
     /// second call is a no-op. First-party-safe: touches no credential, it just
     /// declines to isolate this one account.
-    public func addSystemDefaultAccount() {
-        guard !accounts.contains(where: { $0.isSystemDefault }) else { return }
-        let account = Account(label: "Main", isSystemDefault: true)
+    @discardableResult
+    public func addSystemDefaultAccount() -> AddSystemDefaultResult {
+        // #56: the system-default is identified by its fixed id; already-exists is
+        // expected idempotence, returned as a first-class result (not a logged error)
+        // so the switcher can react. Uniqueness is by `isSystemDefault`, not label.
+        if let existing = accounts.first(where: { $0.isSystemDefault }) {
+            return .alreadyExists(existing)
+        }
+        let account = Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true)
         do {
             try registry.add(account)
         } catch {
-            // e.g. a pre-existing isolated account already named "Main"
-            // (registry.add validates + dedups label) — surface it, don't
-            // silently swallow.
-            // #54 verify (Finding 7): .private — localizedDescription may echo a user account label.
-            LogoSwitchLog.account.notice("addSystemDefaultAccount skipped — \(error.localizedDescription, privacy: .private)")
-            return
+            // System-default now bypasses label-dedup (#56), so this can only be a
+            // persist (disk) failure; the account is in the in-memory registry —
+            // log it, the next mutation re-persists.
+            LogoSwitchLog.account.notice("addSystemDefaultAccount persist failed — \(error.localizedDescription, privacy: .private)")
         }
         if activeAccountId == nil {
             activeAccountId = account.id
             store.saveActiveAccountId(account.id)
         }
         LogoSwitchLog.account.notice("added system-default account — id=\(account.id, privacy: .private)")
+        return .added(account)
     }
 
     public func remove(accountId: String) {
