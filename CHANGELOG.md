@@ -31,7 +31,10 @@ All notable changes to Logos are documented here. Format loosely follows
   single system-default (migrating a legacy UUID id to the fixed id, non-destructively demoting any
   extras, and re-pointing the active selection); and the add action returns a result
   (`.added` / `.alreadyExists` / `.failed`) instead of silently no-oping. Hardening surfaced via a
-  6-AI ensemble review (two rounds).
+  6-AI ensemble review (two rounds); the second round also surfaced deeper `AccountRegistry`
+  invariant gaps (global id-uniqueness, transactional persist semantics) reachable only via
+  crafted/corrupted persisted data — tracked separately in
+  [#57](https://github.com/PsychQuant/logos/issues/57).
 
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
