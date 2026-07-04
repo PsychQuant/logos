@@ -16,6 +16,9 @@ import LogosAccounts
 public enum AddSystemDefaultResult: Sendable {
     case added(Account)
     case alreadyExists(Account)
+    /// #56 verify B4: registry persistence failed — the account is NOT durably
+    /// registered and no active id was written. Carries the error description.
+    case failed(String)
 }
 
 @Observable
@@ -77,7 +80,15 @@ public final class AccountManager {
         self.store = store ?? UserDefaultsActiveAccountStore()
         self.ensureDirectory = ensureDirectory
         self.activeAccountId = self.store.loadActiveAccountId()
-        if active == nil, let first = accounts.first { self.activeAccountId = first.id }
+        // #56 verify B3: a dangling active (e.g. after the system-default's id migrated
+        // UUID→fixed, leaving the stored active id unresolvable) must self-heal to the
+        // system-default — NOT accounts.first, which is a different account when the
+        // system-default isn't first. Persist the correction so it doesn't recur.
+        if active == nil {
+            let healed = accounts.first(where: { $0.isSystemDefault }) ?? accounts.first
+            self.activeAccountId = healed?.id
+            if let id = healed?.id { self.store.saveActiveAccountId(id) }
+        }
     }
 
     // MARK: - Create / Remove / Rename (delegated to the shared registry)
@@ -90,7 +101,9 @@ public final class AccountManager {
     @discardableResult
     public func createAccount(label: String) throws -> Account {
         let trimmed = try Account.validate(label: label)
-        if accounts.contains(where: { $0.label == trimmed }) {
+        // #56 verify B1: isolated labels collide only with other ISOLATED accounts —
+        // a system-default may share the label (its identity is its fixed id, not label).
+        if accounts.contains(where: { !$0.isSystemDefault && $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
         let account = Account(label: trimmed)
@@ -120,10 +133,11 @@ public final class AccountManager {
         do {
             try registry.add(account)
         } catch {
-            // System-default now bypasses label-dedup (#56), so this can only be a
-            // persist (disk) failure; the account is in the in-memory registry —
-            // log it, the next mutation re-persists.
+            // #56 verify B4 (ensemble #4): a persist (disk) failure means the account is
+            // NOT durably registered — return .failed WITHOUT touching active, so we
+            // never write a dangling active id or mislead the caller with .added.
             LogoSwitchLog.account.notice("addSystemDefaultAccount persist failed — \(error.localizedDescription, privacy: .private)")
+            return .failed(error.localizedDescription)
         }
         if activeAccountId == nil {
             activeAccountId = account.id

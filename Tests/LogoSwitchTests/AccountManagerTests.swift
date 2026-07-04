@@ -323,4 +323,49 @@ struct AccountManagerTests {
         #expect(mgr.accounts.filter(\.isSystemDefault).count == 1)
         #expect(mgr.accounts.count == 2)
     }
+
+    // #56 verify B1 (ensemble #3): the REVERSE order must also work — a
+    // system-default "Main" present first must not block createAccount("Main").
+    @Test("createAccount coexists with a same-label system-default (#56 verify B1)")
+    func createAccountCoexistsWithSystemDefault() throws {
+        let mgr = makeManager()
+        _ = mgr.addSystemDefaultAccount()               // system-default "Main" first
+        let acc = try mgr.createAccount(label: "Main")  // isolated "Main" — must NOT throw
+        #expect(acc.label == "Main")
+        #expect(mgr.accounts.count == 2)
+    }
+
+    // #56 verify B3 (ensemble #2/#5/#13/#15): when the system-default's id migrates
+    // (UUID → fixed), the stored active id dangles; init self-heal must land on the
+    // system-default (not accounts.first), even when it isn't first.
+    @Test("active resolves to the system-default after its id migrates (#56 verify B3)")
+    func activeResolvesToSystemDefaultAfterMigration() throws {
+        let url = tempIndexURL()
+        let seed = AccountRegistry(indexFileURL: url)
+        try seed.add(Account(label: "Work"))                                        // isolated, FIRST
+        try seed.add(Account(id: "legacy-uuid", label: "Main", isSystemDefault: true))  // system-default, UUID id
+        let store = InMemoryActiveAccountStore()
+        store.saveActiveAccountId("legacy-uuid")                                     // active = the pre-migration UUID
+        // manager: its registry init migrates legacy-uuid → systemDefaultID; active dangles → self-heal
+        let mgr = makeManager(indexFileURL: url, store: store)
+        #expect(mgr.active?.isSystemDefault == true)
+        #expect(mgr.active?.id == Account.systemDefaultID)
+    }
+
+    // #56 verify B4 (ensemble #4): a persist failure must return .failed, NOT .added,
+    // and must not write a dangling active id.
+    @Test("addSystemDefaultAccount returns .failed on persist failure without setting active (#56 verify B4)")
+    func addSystemDefaultFailedPath() throws {
+        // Make the index path unwritable: its parent is a regular FILE, so save's
+        // createDirectory(parent) throws.
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("b4-blocker-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: blocker)
+        let url = blocker.appendingPathComponent("index.json")   // parent (blocker) is a file
+        let store = InMemoryActiveAccountStore()
+        let mgr = makeManager(indexFileURL: url, store: store)
+        let r = mgr.addSystemDefaultAccount()
+        guard case .failed = r else { Issue.record("expected .failed on persist failure, got \(r)"); return }
+        #expect(store.loadActiveAccountId() == nil)   // no dangling active persisted
+    }
 }

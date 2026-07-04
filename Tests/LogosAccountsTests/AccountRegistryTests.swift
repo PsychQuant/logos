@@ -182,4 +182,32 @@ struct AccountRegistryTests {
         _ = AccountRegistry(indexFileURL: url)      // reload → normalize should be a no-op
         #expect(try Data(contentsOf: url) == before)
     }
+
+    // #56 verify B1 (ensemble #3/#10): coexistence must be order-INdependent — a
+    // pre-existing system-default "Main" must not block adding an isolated "Main".
+    @Test("reverse order: system-default first, then isolated same label coexist (#56 verify B1)")
+    @MainActor func systemDefaultFirstThenIsolatedSameLabel() throws {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try registry.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))  // system-default FIRST
+        try registry.add(Account(label: "Main"))                                                       // isolated same label
+        #expect(registry.accounts.count == 2)
+        #expect(registry.accounts.filter { !$0.isSystemDefault }.count == 1)
+    }
+
+    // #56 verify B2 (ensemble #1/#11/#12/#23): normalize must not synthesize two
+    // accounts sharing id "system-default" when the demoted extra already holds it.
+    @Test("normalize does not create duplicate ids when a demoted extra already holds the fixed id (#56 verify B2)")
+    @MainActor func normalizeNoDuplicateIDOnCollision() throws {
+        let url = tempIndexURL()
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        let r1 = AccountRegistry(indexFileURL: url)
+        try r1.add(Account(id: "legacy-uuid", label: "Main", createdAt: earlier, isSystemDefault: true))        // canonical (earlier) → migrates INTO the fixed id
+        try r1.add(Account(id: Account.systemDefaultID, label: "Old", createdAt: later, isSystemDefault: true)) // later, already holds the fixed id → demoted
+        let r2 = AccountRegistry(indexFileURL: url)   // normalize
+        let ids = r2.accounts.map(\.id)
+        #expect(Set(ids).count == ids.count)          // no duplicate ids
+        #expect(r2.accounts.filter { $0.id == Account.systemDefaultID }.count == 1)
+        #expect(r2.accounts.filter { $0.isSystemDefault }.count == 1)
+    }
 }

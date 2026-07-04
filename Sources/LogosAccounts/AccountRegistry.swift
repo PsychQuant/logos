@@ -98,9 +98,11 @@ public final class AccountRegistry {
         // #56: label uniqueness applies to ISOLATED accounts only. The
         // system-default's identity is its fixed id (Account.systemDefaultID),
         // so a "Main" system-default may coexist with an isolated "Main".
-        // System-default singleton-ness is enforced by the caller's guard +
-        // load-time `normalize()`, not by label-dedup here.
-        if !account.isSystemDefault, accounts.contains(where: { $0.label == trimmed }) {
+        // #56 verify B1 (ensemble #3): filter BOTH sides — skip the check when the
+        // NEW account is a system-default, AND compare only against EXISTING isolated
+        // accounts. The earlier one-sided check was order-dependent (isolated-then-
+        // system worked, but system-then-isolated wrongly threw).
+        if !account.isSystemDefault, accounts.contains(where: { !$0.isSystemDefault && $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
         accounts.append(account)
@@ -130,15 +132,22 @@ public final class AccountRegistry {
                                             createdAt: acc.createdAt, isSystemDefault: true)
                     changed = true
                 }
-            } else {                                     // demote extra → isolated (keep id + dir)
-                accounts[idx] = Account(id: acc.id, label: acc.label,
+            } else {                                     // demote extra → isolated
+                // #56 verify B2 (ensemble #1/#11/#12/#23): if the demoted extra already
+                // holds the fixed id it would collide with the canonical's migrated id
+                // → two accounts sharing "system-default" (breaks remove()/Identifiable).
+                // Give it a fresh id (a spurious system-default had no isolated dir anyway).
+                let demotedID = acc.id == Account.systemDefaultID ? UUID().uuidString : acc.id
+                accounts[idx] = Account(id: demotedID, label: acc.label,
                                         createdAt: acc.createdAt, isSystemDefault: false)
                 changed = true
             }
         }
         guard changed else { return }
         do { try save() } catch {
-            Self.log.notice("normalize save failed: \(error.localizedDescription, privacy: .public)")
+            // #56 verify B5 (ensemble #16): .private — localizedDescription may echo
+            // the index path (which contains the username).
+            Self.log.notice("normalize save failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
