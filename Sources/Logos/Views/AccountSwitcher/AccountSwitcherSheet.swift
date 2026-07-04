@@ -91,9 +91,28 @@ struct AccountSwitcherSheet: View {
                 Label("Add account", systemImage: "plus.circle.fill")
                     .padding(.vertical, 4)
             }
-            .padding(8)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
             .accessibilityIdentifier("logos.account.add")
             .help("Create a new labeled account. Each account gets its own isolated claude config; sign in with `claude auth login`.")
+
+            // #54: reuse the login you already have in Terminal (~/.claude) as a
+            // "main" account — no separate sign-in. Offered only while none exists
+            // (`addSystemDefaultAccount` is dedup-guarded regardless).
+            if !mgr.accounts.contains(where: \.isSystemDefault) {
+                Button {
+                    mgr.addSystemDefaultAccount()
+                } label: {
+                    Label("Add system account", systemImage: "person.crop.circle.badge.checkmark")
+                        .padding(.vertical, 4)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .accessibilityIdentifier("logos.account.addSystemDefault")
+                .help("Reuse the login you already have in Terminal (~/.claude). No new sign-in — this account shares your system claude login.")
+            } else {
+                Color.clear.frame(height: 8)
+            }
         }
         .dialogFrame(.switcher)
         .sheet(isPresented: $showAddSheet) {

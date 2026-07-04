@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import LogoSwitch
+import LogosAccounts
 @testable import Logos
 
 /// End-to-end-at-the-Coordinator-seam tests for the passive 401 re-auth banner
@@ -16,9 +17,15 @@ import LogoSwitch
 @MainActor
 struct SwiftTermViewCoordinatorTests {
 
+    private func tempRegistry() -> AccountRegistry {
+        AccountRegistry(indexFileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("coordinator-tests-\(UUID().uuidString)")
+            .appendingPathComponent("index.json"))
+    }
+
     private func makeCoordinator(engine: AutoHandleEngine) -> SwiftTermView.Coordinator {
         let config = ClaudeProcessConfig(executablePath: "/bin/echo")
-        let mgr = AccountManager(store: InMemoryAccountStore())
+        let mgr = AccountManager(registry: tempRegistry(), store: InMemoryActiveAccountStore())
         return SwiftTermView.Coordinator(
             processConfig: config,
             engine: engine,
@@ -65,7 +72,7 @@ struct SwiftTermViewCoordinatorTests {
     /// tests prove the override fires + clears, not just the default.
     private func makeCoordinatorWithAuthedActive() throws
         -> (SwiftTermView.Coordinator, AccountManager, Account) {
-        let mgr = AccountManager(store: InMemoryAccountStore())
+        let mgr = AccountManager(registry: tempRegistry(), store: InMemoryActiveAccountStore())
         let acc = try mgr.createAccount(label: "work")   // first account → active
         // #42: the pane spawns claude WITH this account, so the Coordinator's processConfig
         // carries it — the live-401 path forces THIS pane's account (per-window-correct),

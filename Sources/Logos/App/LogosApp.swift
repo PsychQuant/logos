@@ -1,5 +1,7 @@
 import SwiftUI
 import LogoSwitch
+import LogosAccounts
+import LogosUsage
 
 @main
 struct LogosApp: App {
@@ -16,27 +18,48 @@ struct LogosApp: App {
     @State private var terminalConfig = TerminalConfig()
     @State private var autoHandleEngine = AutoHandleEngine()
     @State private var accountManager = LogosApp.makeAccountManager()
+    @State private var registryUsage = RegistryUsageModel(registry: LogosApp.sharedRegistry)
     @State private var workspace = WorkspaceModel()
     @State private var pdfPreview = PDFLivePreviewModel()
     @State private var generalSettings = LogosApp.makeGeneralSettings()
     @State private var advancedSettings = LogosApp.makeAdvancedSettings()
 
-    /// Production: the UserDefaults-backed manager on `.standard` (no credential
-    /// store — the #34 launcher model; claude owns each account's token under its
-    /// own CLAUDE_CONFIG_DIR). Under `--ui-testing` (#27): a volatile UserDefaults
-    /// suite cleared each launch + optional `--seed-accounts <csv>` stub accounts,
-    /// so XCUITest flows get a renderable terminal + switchable accounts WITHOUT
-    /// touching the dev machine's real account list. The args never appear in production.
+    /// Production: the shared-registry manager (accounts in the
+    /// ~/.logos/accounts index file with one-time migration from this app's
+    /// legacy UserDefaults data; active selection in `.standard` — no
+    /// credential store; the #34 launcher model: claude owns each account's
+    /// token under its own CLAUDE_CONFIG_DIR). Under `--ui-testing` (#27): a
+    /// per-launch temp index file + a volatile UserDefaults suite cleared each
+    /// launch + optional `--seed-accounts <csv>` stub accounts, so XCUITest
+    /// flows get a renderable terminal + switchable accounts WITHOUT touching
+    /// the dev machine's real account list. The args never appear in production.
+    /// The ONE registry instance the whole app shares — AccountManager mutates
+    /// it, the 帳號用量 window renders it, so the two can never disagree.
+    /// Production: the shared index file (+ one-time legacy migration).
+    /// `--ui-testing`: a per-launch temp index, never the real account list.
+    @MainActor
+    private static let sharedRegistry: AccountRegistry = {
+        guard CommandLine.arguments.contains("--ui-testing") else {
+            return AccountRegistry(legacyDefaults: .standard)
+        }
+        let indexURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("logos-uitesting-accounts-\(ProcessInfo.processInfo.processIdentifier)")
+            .appendingPathComponent("index.json")
+        return AccountRegistry(indexFileURL: indexURL)
+    }()
+
     @MainActor
     private static func makeAccountManager() -> AccountManager {
         let args = CommandLine.arguments
         guard args.contains("--ui-testing") else {
-            return AccountManager(store: UserDefaultsAccountStore())
+            return AccountManager(registry: sharedRegistry)
         }
         let suiteName = "app.getlogos.logos.uitesting"
         let suite = UserDefaults(suiteName: suiteName) ?? .standard
         suite.removePersistentDomain(forName: suiteName)  // clean slate each launch
-        let mgr = AccountManager(store: UserDefaultsAccountStore(defaults: suite))
+        let mgr = AccountManager(
+            registry: sharedRegistry,
+            store: UserDefaultsActiveAccountStore(defaults: suite))
         if let i = args.firstIndex(of: "--seed-accounts"), i + 1 < args.count {
             let labels = args[i + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
             if !labels.isEmpty { mgr.seedAccounts(labels) }
@@ -82,6 +105,15 @@ struct LogosApp: App {
             generalSettings: generalSettings,
             advancedSettings: advancedSettings
         )
+
+        // merge-multistats-into-logos: display-only per-account plan-usage
+        // window (opens from the Window menu). Shares the registry instance
+        // with accountManager — see sharedRegistry.
+        Window("帳號用量", id: "account-usage") {
+            AccountUsageWindow()
+                .environment(registryUsage)
+        }
+        .defaultSize(width: 480, height: 480)
 
         Settings {
             SettingsWindow()

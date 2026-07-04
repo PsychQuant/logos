@@ -11,15 +11,17 @@ import Foundation
 /// credential — claude itself manages its per-`CLAUDE_CONFIG_DIR` keychain item.
 public enum ClaudeConfigEnvironment {
 
-    /// Layer per-account isolation onto `base`. `configDir == nil` ⇒ no override
-    /// (a non-account spawn), but the `TERM`/`LC_ALL` defaults and the
-    /// empty-securestorage collapse guard still apply.
+    /// Layer per-account isolation onto `base`. `configDir == nil` ⇒ strip any
+    /// inherited config-dir vars so the spawn falls through to the system
+    /// `~/.claude` (#54); the `TERM`/`LC_ALL` defaults still apply.
     ///
     /// - Forces `TERM=xterm-256color`; defaults `LC_ALL` to `en_US.UTF-8`.
-    /// - Strips an inherited **empty** `CLAUDE_SECURESTORAGE_CONFIG_DIR`: an empty
-    ///   value silently collapses claude's credential service name back to the
-    ///   shared bare `Claude Code-credentials` entry, defeating per-account
-    ///   isolation (#12).
+    /// - When `configDir` is nil (a system-default / non-account spawn), strips
+    ///   BOTH `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR` from the
+    ///   base env so claude falls through to the system `~/.claude` rather than a
+    ///   stale inherited value (#54). This subsumes the old empty-securestorage
+    ///   collapse guard — an empty securestorage value would otherwise revert the
+    ///   credential service name to the shared bare entry, defeating isolation (#12).
     /// - When `configDir` is given, sets BOTH `CLAUDE_CONFIG_DIR` and
     ///   `CLAUDE_SECURESTORAGE_CONFIG_DIR` to it (claude resolves the keychain
     ///   service from securestorage first, config dir only as fallback), so creds
@@ -34,13 +36,18 @@ public enum ClaudeConfigEnvironment {
         env["TERM"] = "xterm-256color"
         env["LC_ALL"] = env["LC_ALL"] ?? "en_US.UTF-8"
 
-        if env["CLAUDE_SECURESTORAGE_CONFIG_DIR"]?.isEmpty == true {
-            env.removeValue(forKey: "CLAUDE_SECURESTORAGE_CONFIG_DIR")
-        }
-
         if let configDir {
             env["CLAUDE_CONFIG_DIR"] = configDir
             env["CLAUDE_SECURESTORAGE_CONFIG_DIR"] = configDir
+        } else {
+            // #54 verify B2: a system-default (main) account — and any non-account
+            // spawn — must NOT inherit a stale CLAUDE_CONFIG_DIR /
+            // CLAUDE_SECURESTORAGE_CONFIG_DIR from the base (login-shell) env, or it
+            // silently pins claude to that dir instead of falling through to the
+            // system ~/.claude + the bare `Claude Code-credentials` entry. Stripping
+            // both also subsumes the old empty-securestorage collapse guard (#12).
+            env.removeValue(forKey: "CLAUDE_CONFIG_DIR")
+            env.removeValue(forKey: "CLAUDE_SECURESTORAGE_CONFIG_DIR")
         }
         return env
     }

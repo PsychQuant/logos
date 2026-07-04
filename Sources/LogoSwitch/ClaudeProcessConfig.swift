@@ -30,10 +30,12 @@ public struct ClaudeProcessConfig: Sendable {
         // Per-account credential isolation (#12) + #21 HOME-not-overridden +
         // the empty-securestorage collapse guard all live in the single pure
         // transform, so this descriptor just supplies the base env + the
-        // account's config dir (nil for a non-account spawn).
+        // account's spawn config dir. `spawnConfigDir` is nil for a non-account
+        // spawn AND for a system-default ("main") account (#54) — both fall
+        // through to the system ~/.claude; an isolated account gets its own dir.
         self.environment = ClaudeConfigEnvironment.apply(
             base: baseEnvironment,
-            configDir: account?.configDirPath
+            configDir: account.flatMap(\.spawnConfigDir)
         )
     }
 }
