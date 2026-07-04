@@ -24,8 +24,14 @@ All notable changes to Logos are documented here. Format loosely follows
   credential touch** (Logos reads no token; it just declines to isolate this one account,
   honoring the #34 red line — not the #12-removed capture path). `HOME` is never overridden
   (#21); the spawn strips any inherited config-dir vars so it truly falls through to `~/.claude`.
-  Opt-in MVP; usage-window integration ([#55](https://github.com/PsychQuant/logos/issues/55)) and
-  system-default hardening ([#56](https://github.com/PsychQuant/logos/issues/56)) are follow-ups.
+  Opt-in MVP; usage-window integration ([#55](https://github.com/PsychQuant/logos/issues/55)) is a
+  follow-up. The system-default is now **hardened** ([#56](https://github.com/PsychQuant/logos/issues/56)):
+  it has a stable **fixed id** (not the mutable label), so a "Main" system-default coexists with an
+  isolated "Main" in either creation order; a **load-time invariant** self-heals a corrupt index to a
+  single system-default (migrating a legacy UUID id to the fixed id, non-destructively demoting any
+  extras, and re-pointing the active selection); and the add action returns a result
+  (`.added` / `.alreadyExists` / `.failed`) instead of silently no-oping. Hardening surfaced via a
+  6-AI ensemble review (two rounds).
 
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
