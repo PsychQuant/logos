@@ -83,6 +83,10 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         case emptyLabel
         case labelTooLong
         case duplicateLabel
+        /// #57 F1: an account with this id already exists (global id-uniqueness).
+        case duplicateID
+        /// #57 F2: a system-default account already exists (at most one).
+        case duplicateSystemDefault
     }
 
     /// Validate label only (duplicate-check requires AccountManager).
