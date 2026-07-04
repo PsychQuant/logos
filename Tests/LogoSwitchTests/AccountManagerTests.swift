@@ -367,5 +367,19 @@ struct AccountManagerTests {
         let r = mgr.addSystemDefaultAccount()
         guard case .failed = r else { Issue.record("expected .failed on persist failure, got \(r)"); return }
         #expect(store.loadActiveAccountId() == nil)   // no dangling active persisted
+        #expect(mgr.accounts.isEmpty)                 // #56 verify C2: no phantom account left in memory
+    }
+
+    // #56 verify C1 (round-2 #4): a FRESH launch (no stored active id) keeps the
+    // historical accounts.first seed — only a DANGLING id heals to the system-default.
+    @Test("fresh launch (no stored active) seeds accounts.first, not the system-default (#56 verify C1)")
+    func freshActiveKeepsAccountsFirst() throws {
+        let url = tempIndexURL()
+        let seed = AccountRegistry(indexFileURL: url)
+        try seed.add(Account(label: "Work"))                                            // isolated, FIRST
+        try seed.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        let mgr = makeManager(indexFileURL: url, store: InMemoryActiveAccountStore())    // fresh store: no active
+        #expect(mgr.active?.label == "Work")            // historical accounts.first, not the system-default
+        #expect(mgr.active?.isSystemDefault == false)
     }
 }

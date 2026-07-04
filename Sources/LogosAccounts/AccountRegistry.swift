@@ -106,7 +106,17 @@ public final class AccountRegistry {
             throw Account.ValidationError.duplicateLabel
         }
         accounts.append(account)
-        try save()
+        do {
+            try save()
+        } catch {
+            // #56 verify C2: roll back the append when persistence fails, so a failed
+            // add never leaves a phantom account in memory. Without this, an
+            // addSystemDefaultAccount whose save() throws would return .failed yet leave
+            // the account in `accounts` — a later retry would wrongly hit .alreadyExists
+            // on an account that isn't on disk. removeLast is exact (we just appended it).
+            accounts.removeLast()
+            throw error
+        }
     }
 
     /// #56: enforce "at most one system-default" + a stable fixed id for it.
@@ -156,10 +166,13 @@ public final class AccountRegistry {
     public func rename(accountId: String, to newLabel: String) throws {
         let trimmed = try Account.validate(label: newLabel)
         guard let idx = accounts.firstIndex(where: { $0.id == accountId }) else { return }
-        if accounts.contains(where: { $0.id != accountId && $0.label == trimmed }) {
+        let old = accounts[idx]
+        // #56 verify C3: coexistence holds under rename too — a system-default may take
+        // ANY label; an isolated account collides only with OTHER isolated accounts.
+        // (B1 fixed add()/createAccount() but missed rename — round-2 DA finding.)
+        if !old.isSystemDefault, accounts.contains(where: { $0.id != accountId && !$0.isSystemDefault && $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
-        let old = accounts[idx]
         // #54 verify B1: thread isSystemDefault — omitting it lets the memberwise
         // default (false) win, silently de-systeming the main account (flipping
         // spawnConfigDir nil→dir and losing the reused ~/.claude login).

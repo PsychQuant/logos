@@ -80,14 +80,20 @@ public final class AccountManager {
         self.store = store ?? UserDefaultsActiveAccountStore()
         self.ensureDirectory = ensureDirectory
         self.activeAccountId = self.store.loadActiveAccountId()
-        // #56 verify B3: a dangling active (e.g. after the system-default's id migrated
-        // UUID→fixed, leaving the stored active id unresolvable) must self-heal to the
-        // system-default — NOT accounts.first, which is a different account when the
-        // system-default isn't first. Persist the correction so it doesn't recur.
+        // #56 verify B3/C1: distinguish a DANGLING stored id from a FRESH (never-set) one.
+        // - Dangling (e.g. after the system-default's id migrated UUID→fixed, leaving the
+        //   stored id unresolvable) heals to the system-default — NOT accounts.first — and
+        //   persists the correction so it doesn't recur.
+        // - Fresh keeps the historical accounts.first seed, in-memory only (never persist a
+        //   selection the user never made — that was an unintended round-1 behavior change).
         if active == nil {
-            let healed = accounts.first(where: { $0.isSystemDefault }) ?? accounts.first
-            self.activeAccountId = healed?.id
-            if let id = healed?.id { self.store.saveActiveAccountId(id) }
+            if self.activeAccountId != nil {
+                let healed = accounts.first(where: { $0.isSystemDefault }) ?? accounts.first
+                self.activeAccountId = healed?.id
+                if let id = healed?.id { self.store.saveActiveAccountId(id) }
+            } else {
+                self.activeAccountId = accounts.first?.id
+            }
         }
     }
 

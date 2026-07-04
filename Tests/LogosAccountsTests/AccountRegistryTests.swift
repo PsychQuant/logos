@@ -194,6 +194,31 @@ struct AccountRegistryTests {
         #expect(registry.accounts.filter { !$0.isSystemDefault }.count == 1)
     }
 
+    // #56 verify C2 (round-2 #1): a failed save must roll back the in-memory append —
+    // no phantom account left in `accounts`.
+    @Test("add rolls back the in-memory append when save fails (#56 verify C2)")
+    @MainActor func addRollsBackOnSaveFailure() throws {
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c2-blocker-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: blocker)
+        let url = blocker.appendingPathComponent("index.json")   // parent is a FILE → save throws
+        let registry = AccountRegistry(indexFileURL: url)
+        #expect(throws: (any Error).self) { try registry.add(Account(label: "Work")) }
+        #expect(registry.accounts.isEmpty)                       // rolled back — no phantom
+    }
+
+    // #56 verify C3 (round-2 DA #10): coexistence must hold under rename too — B1 fixed
+    // add()/createAccount() but missed rename.
+    @Test("rename an isolated account to a system-default's label is allowed (#56 verify C3)")
+    @MainActor func renameIsolatedToSystemDefaultLabel() throws {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try registry.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        let work = try registry.create(label: "Work")
+        try registry.rename(accountId: work.id, to: "Main")      // isolated → system-default's label; must NOT throw
+        #expect(registry.accounts.first(where: { $0.id == work.id })?.label == "Main")
+        #expect(registry.accounts.filter { $0.label == "Main" }.count == 2)   // coexist
+    }
+
     // #56 verify B2 (ensemble #1/#11/#12/#23): normalize must not synthesize two
     // accounts sharing id "system-default" when the demoted extra already holds it.
     @Test("normalize does not create duplicate ids when a demoted extra already holds the fixed id (#56 verify B2)")
