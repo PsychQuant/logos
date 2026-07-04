@@ -90,7 +90,12 @@ public final class AccountManager {
             if self.activeAccountId != nil {
                 let healed = accounts.first(where: { $0.isSystemDefault }) ?? accounts.first
                 self.activeAccountId = healed?.id
-                if let id = healed?.id { self.store.saveActiveAccountId(id) }
+                // #57 F4: persist the correction ONLY when the registry's normalize repair
+                // actually persisted — else the store would point at an id the on-disk
+                // index doesn't hold.
+                if let id = healed?.id, self.registry.normalizeDidPersist {
+                    self.store.saveActiveAccountId(id)
+                }
             } else {
                 self.activeAccountId = accounts.first?.id
             }
