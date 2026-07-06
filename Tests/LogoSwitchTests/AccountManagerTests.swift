@@ -383,6 +383,29 @@ struct AccountManagerTests {
         #expect(mgr.active?.isSystemDefault == false)
     }
 
+    // #57 verify A: a registry persist failure rolls the removal back — the manager must
+    // NOT clear its launcher-local state (active selection, live-401 flag) for an
+    // account that is still alive, or the switcher desyncs from the registry.
+    @Test("remove keeps active + reauth state when the registry persist fails (#57 verify A)")
+    func removeKeepsStateOnPersistFailure() throws {
+        let url = tempIndexURL()
+        let mgr = makeManager(indexFileURL: url)
+        try mgr.createAccount(label: "a")
+        // remove the NON-first account: a wrongly-healed active would visibly move
+        // to accounts.first (removing the first one masks the desync — same id).
+        let b = try mgr.createAccount(label: "b")
+        mgr.setActive(b.id)
+        mgr.forceReauth(b.id)
+        let parent = url.deletingLastPathComponent()
+        // read-only parent → the registry's save throws → removal rolls back
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        #expect(mgr.remove(accountId: b.id) == false)   // reports the failure
+        #expect(mgr.accounts.count == 2)          // removal rolled back — account alive
+        #expect(mgr.active?.id == b.id)           // active NOT reassigned
+        #expect(mgr.needsReauth(b) == true)       // live-401 flag NOT cleared
+    }
+
     // #57 F4 (round-2 #6): when the registry's normalize repair did NOT persist (disk
     // write failed), a healed active id must NOT be written to the store — else the store
     // would point at an id the on-disk index doesn't hold.

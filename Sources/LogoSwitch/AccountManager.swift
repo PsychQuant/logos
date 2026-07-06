@@ -158,13 +158,24 @@ public final class AccountManager {
         return .added(account)
     }
 
-    public func remove(accountId: String) {
-        registry.remove(accountId: accountId)
+    /// Remove an account. #57 verify A: launcher-local state (the live-401 flag,
+    /// the active selection) is updated ONLY when the registry removal actually
+    /// persisted — a failed persist rolls the registry back, so the account is
+    /// still alive and nothing here may be cleared. Returns whether it happened.
+    @discardableResult
+    public func remove(accountId: String) -> Bool {
+        do {
+            try registry.remove(accountId: accountId)
+        } catch {
+            LogoSwitchLog.account.notice("remove not applied — registry persist failed: \(error.localizedDescription, privacy: .private)")
+            return false
+        }
         forcedReauthIds.remove(accountId)   // bug #7: never leak a dead id
         if activeAccountId == accountId {
             activeAccountId = accounts.first?.id
             store.saveActiveAccountId(activeAccountId)
         }
+        return true
     }
 
     /// Rename `accountId`'s label. Pure registry metadata — the account **id**

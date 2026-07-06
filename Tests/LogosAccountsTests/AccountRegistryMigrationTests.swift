@@ -61,6 +61,24 @@ struct AccountRegistryMigrationTests {
         #expect(defaults.data(forKey: "logos.accounts") == garbage)
     }
 
+    // #57 verify C: a DECODED legacy migration whose index save fails leaves the list
+    // in memory but NOT on disk — `normalizeDidPersist` must report false, or
+    // AccountManager would persist a healed active id against a phantom index.
+    @Test("migration save failure surfaces via normalizeDidPersist (#57 verify C)")
+    @MainActor func migrationSaveFailureNotPersisted() throws {
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mig-blocker-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: blocker)
+        let url = blocker.appendingPathComponent("index.json")   // parent is a FILE → save throws
+        let defaults = try freshSuite()
+        defaults.set(try JSONEncoder().encode([Account(label: "legacy")]), forKey: "logos.accounts")
+
+        let registry = AccountRegistry(indexFileURL: url, legacyDefaults: defaults)
+
+        #expect(registry.accounts.map(\.label) == ["legacy"])   // migrated in memory
+        #expect(registry.normalizeDidPersist == false)          // but NOT on disk — flag must say so
+    }
+
     @Test("an existing index file wins over legacy data")
     @MainActor func indexFileWins() throws {
         let url = tempIndexURL()

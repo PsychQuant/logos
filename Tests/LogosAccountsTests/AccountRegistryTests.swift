@@ -40,7 +40,7 @@ struct AccountRegistryTests {
         let work = try registry.create(label: "work")
         let personal = try registry.create(label: "personal")
         try registry.rename(accountId: personal.id, to: "Personal 2")
-        registry.remove(accountId: work.id)
+        try registry.remove(accountId: work.id)
 
         // A second instance on the same file = "the other executable".
         let reloaded = AccountRegistry(indexFileURL: url)
@@ -287,6 +287,75 @@ struct AccountRegistryTests {
         #expect(Set(isolatedMains.map(\.label)).count == 2)                     // but with DISTINCT labels
     }
 
+    // #57 verify B (a): a steady-state canonical (already holding the fixed id) used to
+    // skip the id-uniqueness sweep entirely — an isolated squatter of the reserved id
+    // survived normalize and kept a duplicate id on disk.
+    @Test("normalize evicts a reserved-id squatter when the canonical already holds the fixed id (#57 verify B)")
+    @MainActor func normalizeEvictsSquatterInSteadyState() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: Account.systemDefaultID, label: "Main", epoch: 1_000, sd: true),          // clean canonical
+            (id: Account.systemDefaultID, label: "Squatter", epoch: 2_000, sd: false),     // duplicate reserved id
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        let ids = r.accounts.map(\.id)
+        #expect(Set(ids).count == ids.count)                                               // ids unique
+        #expect(r.accounts.first(where: { $0.isSystemDefault })?.id == Account.systemDefaultID)
+        #expect(r.accounts.first(where: { $0.label == "Squatter" })?.id != Account.systemDefaultID)
+        // and the repair PERSISTS — a reload must not resurrect the duplicate
+        let reloaded = AccountRegistry(indexFileURL: url)
+        #expect(Set(reloaded.accounts.map(\.id)).count == reloaded.accounts.count)
+    }
+
+    // #57 verify B (b): zero system-defaults used to early-return — duplicate ids among
+    // isolated accounts were never repaired.
+    @Test("normalize repairs duplicate ids when no system-default exists (#57 verify B)")
+    @MainActor func normalizeRepairsDuplicateIDsWithoutSystemDefault() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "dup", label: "A", epoch: 1_000, sd: false),
+            (id: "dup", label: "B", epoch: 2_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.count == 2)                                       // both survive
+        #expect(Set(r.accounts.map(\.id)).count == 2)                        // ids unique
+        #expect(r.accounts.first(where: { $0.label == "A" })?.id == "dup")   // first occurrence keeps its id
+    }
+
+    // #57 verify B (b): an isolated squatter of the reserved id blocks
+    // addSystemDefaultAccount forever (add's F1 gate throws duplicateID) — normalize
+    // must free the reserved id even when NO system-default exists yet.
+    @Test("normalize frees the reserved id when no system-default exists (#57 verify B)")
+    @MainActor func normalizeFreesReservedIDWithoutSystemDefault() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: Account.systemDefaultID, label: "Squatter", epoch: 1_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.first(where: { $0.label == "Squatter" })?.id != Account.systemDefaultID)
+        // the reserved id is usable again — the "Main" add path is unblocked:
+        try r.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        #expect(r.accounts.filter(\.isSystemDefault).count == 1)
+    }
+
+    // #57 verify B (c): with MULTIPLE occupants of the reserved id, only the FIRST was
+    // re-idded — the canonical migration still landed on a duplicate.
+    @Test("normalize re-ids ALL reserved-id occupants during canonical migration (#57 verify B)")
+    @MainActor func normalizeReIDsAllOccupants() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "legacy-uuid", label: "Main", epoch: 1_000, sd: true),                 // canonical → migrates INTO fixed id
+            (id: Account.systemDefaultID, label: "Sq1", epoch: 2_000, sd: false),
+            (id: Account.systemDefaultID, label: "Sq2", epoch: 3_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.count == 3)
+        let ids = r.accounts.map(\.id)
+        #expect(Set(ids).count == ids.count)                                            // all unique
+        #expect(r.accounts.filter { $0.id == Account.systemDefaultID }.count == 1)
+        #expect(r.accounts.first(where: { $0.id == Account.systemDefaultID })?.isSystemDefault == true)
+    }
+
     // #57 F1 (round-2 #2): add rejects a duplicate id (global id-uniqueness).
     @Test("add rejects a duplicate id (#57 F1)")
     @MainActor func addRejectsDuplicateID() throws {
@@ -305,6 +374,21 @@ struct AccountRegistryTests {
         #expect(throws: Account.ValidationError.duplicateSystemDefault) {
             try registry.add(Account(id: "other-sd", label: "Other", isSystemDefault: true))
         }
+    }
+
+    // #57 verify A: remove must PROPAGATE a persist failure (not swallow it) so callers
+    // (AccountManager) can keep their own state in sync with the rolled-back list.
+    @Test("remove throws and rolls back on save failure (#57 verify A)")
+    @MainActor func removeThrowsAndRollsBackOnSaveFailure() throws {
+        let url = tempIndexURL()
+        let registry = AccountRegistry(indexFileURL: url)
+        let acc = try registry.create(label: "work")           // saves OK
+        let parent = url.deletingLastPathComponent()
+        // read-only parent → the atomic write's temp file can't be created → save throws
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        #expect(throws: (any Error).self) { try registry.remove(accountId: acc.id) }
+        #expect(registry.accounts.map(\.id) == [acc.id])       // rolled back — still present
     }
 
     // #57 (round-2 transactional primitive): rename rolls back on save failure, like add.
