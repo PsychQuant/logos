@@ -14,6 +14,22 @@ struct AccountRegistryTests {
             .appendingPathComponent("index.json")
     }
 
+    /// #57: write a raw index file directly, bypassing `add()` — simulates a corrupt /
+    /// externally-edited index. `add()` now enforces invariants it cannot itself produce
+    /// (two system-defaults, a duplicate id), so a corrupt state must be injected on disk.
+    private func writeCorruptIndex(
+        _ rows: [(id: String, label: String, epoch: TimeInterval, sd: Bool)], to url: URL
+    ) throws {
+        let iso = ISO8601DateFormatter()
+        let entries = rows.map {
+            "{\"id\":\"\($0.id)\",\"label\":\"\($0.label)\",\"createdAt\":\"\(iso.string(from: Date(timeIntervalSince1970: $0.epoch)))\",\"isSystemDefault\":\($0.sd)}"
+        }.joined(separator: ",")
+        let json = "{\"version\":1,\"accounts\":[\(entries)]}"
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
+    }
+
     // MARK: - "Account list persists in a shared file-based index"
 
     @Test("create/rename/remove round-trips through the index file")
@@ -24,7 +40,7 @@ struct AccountRegistryTests {
         let work = try registry.create(label: "work")
         let personal = try registry.create(label: "personal")
         try registry.rename(accountId: personal.id, to: "Personal 2")
-        registry.remove(accountId: work.id)
+        try registry.remove(accountId: work.id)
 
         // A second instance on the same file = "the other executable".
         let reloaded = AccountRegistry(indexFileURL: url)
@@ -148,16 +164,15 @@ struct AccountRegistryTests {
     @Test("normalize demotes ≥2 persisted system-defaults to one (earliest kept) (#56)")
     @MainActor func normalizeDemotesExtraSystemDefaults() throws {
         let url = tempIndexURL()
-        let earlier = Date(timeIntervalSince1970: 1_000)
-        let later = Date(timeIntervalSince1970: 2_000)
-        let r1 = AccountRegistry(indexFileURL: url)
-        try r1.add(Account(id: "sd-early", label: "Main", createdAt: earlier, isSystemDefault: true))
-        try r1.add(Account(id: "sd-late", label: "Other", createdAt: later, isSystemDefault: true))
-        // reload → init runs normalize
-        let r2 = AccountRegistry(indexFileURL: url)
+        // #57: two system-defaults can only exist via a corrupt index now (add F2 blocks it).
+        try writeCorruptIndex([
+            (id: "sd-early", label: "Main", epoch: 1_000, sd: true),
+            (id: "sd-late", label: "Other", epoch: 2_000, sd: true),
+        ], to: url)
+        let r2 = AccountRegistry(indexFileURL: url)   // load + normalize
         #expect(r2.accounts.filter(\.isSystemDefault).count == 1)
         let survivor = try #require(r2.accounts.first(where: { $0.isSystemDefault }))
-        #expect(survivor.createdAt == earlier)      // earliest kept
+        #expect(survivor.createdAt == Date(timeIntervalSince1970: 1_000))   // earliest kept
         #expect(r2.accounts.count == 2)             // the other is demoted, not deleted
     }
 
@@ -166,8 +181,11 @@ struct AccountRegistryTests {
     @Test("normalize migrates a legacy UUID system-default id to systemDefaultID (#56)")
     @MainActor func normalizeMigratesLegacyID() throws {
         let url = tempIndexURL()
-        let r1 = AccountRegistry(indexFileURL: url)
-        try r1.add(Account(id: "legacy-uuid-1234", label: "Main", isSystemDefault: true))
+        // #57 round-2: a legacy-id system-default can only exist as PERSISTED data now —
+        // add()'s reserved-id ownership gate blocks producing it via the API.
+        try writeCorruptIndex([
+            (id: "legacy-uuid-1234", label: "Main", epoch: 1_000, sd: true),
+        ], to: url)
         let r2 = AccountRegistry(indexFileURL: url)
         #expect(r2.accounts.first(where: { $0.isSystemDefault })?.id == Account.systemDefaultID)
     }
@@ -224,15 +242,221 @@ struct AccountRegistryTests {
     @Test("normalize does not create duplicate ids when a demoted extra already holds the fixed id (#56 verify B2)")
     @MainActor func normalizeNoDuplicateIDOnCollision() throws {
         let url = tempIndexURL()
-        let earlier = Date(timeIntervalSince1970: 1_000)
-        let later = Date(timeIntervalSince1970: 2_000)
-        let r1 = AccountRegistry(indexFileURL: url)
-        try r1.add(Account(id: "legacy-uuid", label: "Main", createdAt: earlier, isSystemDefault: true))        // canonical (earlier) → migrates INTO the fixed id
-        try r1.add(Account(id: Account.systemDefaultID, label: "Old", createdAt: later, isSystemDefault: true)) // later, already holds the fixed id → demoted
+        // #57: corrupt index (two system-defaults) — add F2 blocks producing this via API.
+        try writeCorruptIndex([
+            (id: "legacy-uuid", label: "Main", epoch: 1_000, sd: true),           // canonical → migrates INTO fixed id
+            (id: Account.systemDefaultID, label: "Old", epoch: 2_000, sd: true),  // later, already holds fixed id → demoted
+        ], to: url)
         let r2 = AccountRegistry(indexFileURL: url)   // normalize
         let ids = r2.accounts.map(\.id)
         #expect(Set(ids).count == ids.count)          // no duplicate ids
         #expect(r2.accounts.filter { $0.id == Account.systemDefaultID }.count == 1)
         #expect(r2.accounts.filter { $0.isSystemDefault }.count == 1)
+
+        // #57 F1: an ISOLATED account crafted with the reserved id must also not collide —
+        // the canonical migration reassigns the occupant a fresh id first.
+    }
+
+    // #57 F1 (round-2 #2): normalize must not create a duplicate when an ISOLATED
+    // account already holds the reserved id and a legacy system-default migrates into it.
+    @Test("normalize reassigns an isolated account that squats the reserved id (#57 F1)")
+    @MainActor func normalizeIsolatedHoldsFixedID() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "legacy-uuid", label: "Main", epoch: 1_000, sd: true),           // system-default → migrates to fixed id
+            (id: Account.systemDefaultID, label: "Squatter", epoch: 2_000, sd: false),  // isolated squatting the reserved id
+        ], to: url)
+        let r2 = AccountRegistry(indexFileURL: url)
+        let ids = r2.accounts.map(\.id)
+        #expect(Set(ids).count == ids.count)          // no duplicate ids
+        // the system-default now holds the fixed id; the squatter got a fresh one
+        #expect(r2.accounts.first(where: { $0.isSystemDefault })?.id == Account.systemDefaultID)
+        #expect(r2.accounts.first(where: { $0.label == "Squatter" })?.id != Account.systemDefaultID)
+    }
+
+    // #57 F3 (round-2 #5): a demoted extra whose label collides with an existing
+    // isolated label is suffixed, preserving isolated-label-uniqueness.
+    @Test("normalize uniquifies a demoted label that collides with an isolated one (#57 F3)")
+    @MainActor func normalizeDemoteLabelCollision() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "iso", label: "Main", epoch: 500, sd: false),          // isolated "Main"
+            (id: "sd-1", label: "Canonical", epoch: 1_000, sd: true),   // canonical system-default (kept)
+            (id: "sd-2", label: "Main", epoch: 2_000, sd: true),        // extra system-default named "Main" → demoted
+        ], to: url)
+        let r2 = AccountRegistry(indexFileURL: url)
+        let isolatedMains = r2.accounts.filter { !$0.isSystemDefault && $0.label.hasPrefix("Main") }
+        #expect(isolatedMains.count == 2)                                       // both survive
+        #expect(Set(isolatedMains.map(\.label)).count == 2)                     // but with DISTINCT labels
+    }
+
+    // #57 verify B (a): a steady-state canonical (already holding the fixed id) used to
+    // skip the id-uniqueness sweep entirely — an isolated squatter of the reserved id
+    // survived normalize and kept a duplicate id on disk.
+    @Test("normalize evicts a reserved-id squatter when the canonical already holds the fixed id (#57 verify B)")
+    @MainActor func normalizeEvictsSquatterInSteadyState() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: Account.systemDefaultID, label: "Main", epoch: 1_000, sd: true),          // clean canonical
+            (id: Account.systemDefaultID, label: "Squatter", epoch: 2_000, sd: false),     // duplicate reserved id
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        let ids = r.accounts.map(\.id)
+        #expect(Set(ids).count == ids.count)                                               // ids unique
+        #expect(r.accounts.first(where: { $0.isSystemDefault })?.id == Account.systemDefaultID)
+        #expect(r.accounts.first(where: { $0.label == "Squatter" })?.id != Account.systemDefaultID)
+        // and the repair PERSISTS — a reload must not resurrect the duplicate
+        let reloaded = AccountRegistry(indexFileURL: url)
+        #expect(Set(reloaded.accounts.map(\.id)).count == reloaded.accounts.count)
+    }
+
+    // #57 verify B (b): zero system-defaults used to early-return — duplicate ids among
+    // isolated accounts were never repaired.
+    @Test("normalize repairs duplicate ids when no system-default exists (#57 verify B)")
+    @MainActor func normalizeRepairsDuplicateIDsWithoutSystemDefault() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "dup", label: "A", epoch: 1_000, sd: false),
+            (id: "dup", label: "B", epoch: 2_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.count == 2)                                       // both survive
+        #expect(Set(r.accounts.map(\.id)).count == 2)                        // ids unique
+        #expect(r.accounts.first(where: { $0.label == "A" })?.id == "dup")   // first occurrence keeps its id
+    }
+
+    // #57 verify B (b): an isolated squatter of the reserved id blocks
+    // addSystemDefaultAccount forever (add's F1 gate throws duplicateID) — normalize
+    // must free the reserved id even when NO system-default exists yet.
+    @Test("normalize frees the reserved id when no system-default exists (#57 verify B)")
+    @MainActor func normalizeFreesReservedIDWithoutSystemDefault() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: Account.systemDefaultID, label: "Squatter", epoch: 1_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.first(where: { $0.label == "Squatter" })?.id != Account.systemDefaultID)
+        // the reserved id is usable again — the "Main" add path is unblocked:
+        try r.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        #expect(r.accounts.filter(\.isSystemDefault).count == 1)
+    }
+
+    // #57 verify B (c): with MULTIPLE occupants of the reserved id, only the FIRST was
+    // re-idded — the canonical migration still landed on a duplicate.
+    @Test("normalize re-ids ALL reserved-id occupants during canonical migration (#57 verify B)")
+    @MainActor func normalizeReIDsAllOccupants() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "legacy-uuid", label: "Main", epoch: 1_000, sd: true),                 // canonical → migrates INTO fixed id
+            (id: Account.systemDefaultID, label: "Sq1", epoch: 2_000, sd: false),
+            (id: Account.systemDefaultID, label: "Sq2", epoch: 3_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.count == 3)
+        let ids = r.accounts.map(\.id)
+        #expect(Set(ids).count == ids.count)                                            // all unique
+        #expect(r.accounts.filter { $0.id == Account.systemDefaultID }.count == 1)
+        #expect(r.accounts.first(where: { $0.id == Account.systemDefaultID })?.isSystemDefault == true)
+    }
+
+    // #57 F1 (round-2 #2): add rejects a duplicate id (global id-uniqueness).
+    @Test("add rejects a duplicate id (#57 F1)")
+    @MainActor func addRejectsDuplicateID() throws {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try registry.add(Account(id: "dup", label: "A"))
+        #expect(throws: Account.ValidationError.duplicateID) {
+            try registry.add(Account(id: "dup", label: "B"))
+        }
+    }
+
+    // #57 F2 (round-2 #3): add rejects a second system-default.
+    @Test("add rejects a second system-default (#57 F2)")
+    @MainActor func addRejectsSecondSystemDefault() throws {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        try registry.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        #expect(throws: Account.ValidationError.duplicateSystemDefault) {
+            try registry.add(Account(id: "other-sd", label: "Other", isSystemDefault: true))
+        }
+    }
+
+    // #57 verify A: remove must PROPAGATE a persist failure (not swallow it) so callers
+    // (AccountManager) can keep their own state in sync with the rolled-back list.
+    @Test("remove throws and rolls back on save failure (#57 verify A)")
+    @MainActor func removeThrowsAndRollsBackOnSaveFailure() throws {
+        let url = tempIndexURL()
+        let registry = AccountRegistry(indexFileURL: url)
+        let acc = try registry.create(label: "work")           // saves OK
+        let parent = url.deletingLastPathComponent()
+        // read-only parent → the atomic write's temp file can't be created → save throws
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        #expect(throws: (any Error).self) { try registry.remove(accountId: acc.id) }
+        #expect(registry.accounts.map(\.id) == [acc.id])       // rolled back — still present
+    }
+
+    // #57 round-2 verify #1: the reserved id belongs to the system-default alone —
+    // add() must enforce OWNERSHIP at mutation time (not only normalize() at next load).
+    @Test("add rejects an isolated account holding the reserved id (#57 round-2)")
+    @MainActor func addRejectsIsolatedReservedID() {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        #expect(throws: Account.ValidationError.reservedID) {
+            try registry.add(Account(id: Account.systemDefaultID, label: "Squatter"))
+        }
+        #expect(registry.accounts.isEmpty)
+    }
+
+    // #57 round-2 verify #1 (other direction): a system-default must hold the fixed id.
+    @Test("add rejects a system-default whose id is not the fixed id (#57 round-2)")
+    @MainActor func addRejectsSystemDefaultWithWrongID() {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        #expect(throws: Account.ValidationError.reservedID) {
+            try registry.add(Account(id: "legacy-uuid", label: "Main", isSystemDefault: true))
+        }
+        #expect(registry.accounts.isEmpty)
+    }
+
+    // #57 round-2 verify #5: removing a nonexistent id is a no-op — it must not touch
+    // the disk at all, so it cannot spuriously throw on a broken disk (parity with
+    // rename's nonexistent-id guard).
+    @Test("remove of a nonexistent id is a no-op even when the disk is unwritable (#57 round-2)")
+    @MainActor func removeGhostNoOpOnBrokenDisk() throws {
+        let url = tempIndexURL()
+        let registry = AccountRegistry(indexFileURL: url)
+        let acc = try registry.create(label: "work")
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        try registry.remove(accountId: "ghost")            // must NOT throw
+        #expect(registry.accounts.map(\.id) == [acc.id])   // unchanged
+    }
+
+    // #57 round-2 (requirements F3 note): two demoted extras sharing a label must be
+    // uniquified against EACH OTHER, not only against pre-existing isolated labels.
+    @Test("normalize uniquifies two demoted extras sharing the same label (#57 F3)")
+    @MainActor func normalizeDemoteLabelCollisionBetweenExtras() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "sd-1", label: "Canonical", epoch: 1_000, sd: true),
+            (id: "sd-2", label: "Main", epoch: 2_000, sd: true),
+            (id: "sd-3", label: "Main", epoch: 3_000, sd: true),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        let demoted = r.accounts.filter { !$0.isSystemDefault }
+        #expect(demoted.count == 2)
+        #expect(Set(demoted.map(\.label)).count == 2)   // distinct labels
+    }
+
+    // #57 (round-2 transactional primitive): rename rolls back on save failure, like add.
+    @Test("rename rolls back on save failure (#57 mutate)")
+    @MainActor func renameRollsBackOnSaveFailure() throws {
+        let url = tempIndexURL()
+        let registry = AccountRegistry(indexFileURL: url)
+        let acc = try registry.create(label: "work")           // saves OK
+        let parent = url.deletingLastPathComponent()
+        // read-only parent → the atomic write's temp file can't be created → save throws
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        #expect(throws: (any Error).self) { try registry.rename(accountId: acc.id, to: "work2") }
+        #expect(registry.accounts.first?.label == "work")      // rolled back — label unchanged
     }
 }

@@ -341,9 +341,17 @@ struct AccountManagerTests {
     @Test("active resolves to the system-default after its id migrates (#56 verify B3)")
     func activeResolvesToSystemDefaultAfterMigration() throws {
         let url = tempIndexURL()
-        let seed = AccountRegistry(indexFileURL: url)
-        try seed.add(Account(label: "Work"))                                        // isolated, FIRST
-        try seed.add(Account(id: "legacy-uuid", label: "Main", isSystemDefault: true))  // system-default, UUID id
+        // #57 round-2: a legacy-id system-default can only exist as PERSISTED data now —
+        // add()'s reserved-id ownership gate blocks producing it via the API, so inject
+        // the corrupt index directly (isolated "Work" FIRST, legacy-uuid system-default).
+        let iso = ISO8601DateFormatter()
+        let json = """
+        {"version":1,"accounts":[\
+        {"id":"work-id","label":"Work","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 500)))","isSystemDefault":false},\
+        {"id":"legacy-uuid","label":"Main","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 1_000)))","isSystemDefault":true}]}
+        """
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
         let store = InMemoryActiveAccountStore()
         store.saveActiveAccountId("legacy-uuid")                                     // active = the pre-migration UUID
         // manager: its registry init migrates legacy-uuid → systemDefaultID; active dangles → self-heal
@@ -381,5 +389,50 @@ struct AccountManagerTests {
         let mgr = makeManager(indexFileURL: url, store: InMemoryActiveAccountStore())    // fresh store: no active
         #expect(mgr.active?.label == "Work")            // historical accounts.first, not the system-default
         #expect(mgr.active?.isSystemDefault == false)
+    }
+
+    // #57 verify A: a registry persist failure rolls the removal back — the manager must
+    // NOT clear its launcher-local state (active selection, live-401 flag) for an
+    // account that is still alive, or the switcher desyncs from the registry.
+    @Test("remove keeps active + reauth state when the registry persist fails (#57 verify A)")
+    func removeKeepsStateOnPersistFailure() throws {
+        let url = tempIndexURL()
+        let mgr = makeManager(indexFileURL: url)
+        try mgr.createAccount(label: "a")
+        // remove the NON-first account: a wrongly-healed active would visibly move
+        // to accounts.first (removing the first one masks the desync — same id).
+        let b = try mgr.createAccount(label: "b")
+        mgr.setActive(b.id)
+        mgr.forceReauth(b.id)
+        let parent = url.deletingLastPathComponent()
+        // read-only parent → the registry's save throws → removal rolls back
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        #expect(mgr.remove(accountId: b.id) == false)   // reports the failure
+        #expect(mgr.accounts.count == 2)          // removal rolled back — account alive
+        #expect(mgr.active?.id == b.id)           // active NOT reassigned
+        #expect(mgr.needsReauth(b) == true)       // live-401 flag NOT cleared
+    }
+
+    // #57 F4 (round-2 #6): when the registry's normalize repair did NOT persist (disk
+    // write failed), a healed active id must NOT be written to the store — else the store
+    // would point at an id the on-disk index doesn't hold.
+    @Test("healed active is not persisted when normalize's repair didn't persist (#57 F4)")
+    func healedActiveNotPersistedOnNormalizeFail() throws {
+        let url = tempIndexURL()
+        // corrupt index: a legacy-uuid system-default normalize will want to migrate.
+        let iso = ISO8601DateFormatter()
+        let json = "{\"version\":1,\"accounts\":[{\"id\":\"legacy-uuid\",\"label\":\"Main\",\"createdAt\":\"\(iso.string(from: Date(timeIntervalSince1970: 1_000)))\",\"isSystemDefault\":true}]}"
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
+        let store = InMemoryActiveAccountStore()
+        store.saveActiveAccountId("legacy-uuid")               // active = the pre-migration id
+        // read-only dir → normalize's migrate save fails → normalizeDidPersist == false
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        let mgr = makeManager(indexFileURL: url, store: store)
+        #expect(store.loadActiveAccountId() == "legacy-uuid")  // F4: NOT overwritten (repair didn't persist)
+        #expect(mgr.active?.isSystemDefault == true)           // but in-memory still heals correctly
     }
 }

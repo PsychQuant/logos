@@ -25,6 +25,12 @@ public final class AccountRegistry {
 
     public private(set) var accounts: [Account]
 
+    /// #57 F4: whether the load-time `normalize()` repair was persisted to disk.
+    /// `AccountManager` reads this to avoid persisting a healed active id against an
+    /// un-persisted repair (true = on disk / no repair needed; false = repaired in
+    /// memory but save failed).
+    public private(set) var normalizeDidPersist: Bool = true
+
     private let indexFileURL: URL
     private let fileManager: FileManager
     private static let log = Logger(subsystem: "app.getlogos.logos", category: "account-registry")
@@ -58,6 +64,9 @@ public final class AccountRegistry {
         // One-time migration ("Legacy per-app account data migrates
         // non-destructively"): only when the index file is absent, and only
         // read the legacy key — a failed decode leaves everything untouched.
+        // #57 verify C: a migration whose index save fails leaves the list in memory
+        // only — that MUST fold into `normalizeDidPersist`, so track it here.
+        var migrationSaveFailed = false
         if !fileManager.fileExists(atPath: indexFileURL.path),
            let legacyData = legacyDefaults?.data(forKey: Self.legacyAccountsKey) {
             // The legacy store encoded with JSONEncoder's DEFAULT date strategy
@@ -67,15 +76,20 @@ public final class AccountRegistry {
                 do {
                     try save()
                 } catch {
-                    Self.log.notice("legacy migration decoded but index save failed: \(error.localizedDescription, privacy: .public)")
+                    migrationSaveFailed = true
+                    Self.log.notice("legacy migration decoded but index save failed: \(error.localizedDescription, privacy: .private)")
                 }
             } else {
                 Self.log.notice("legacy account data undecodable — starting empty, legacy data preserved")
             }
         }
 
-        // #56: enforce the system-default invariant (at most one, fixed id) on load.
-        normalize()
+        // #56/#57: enforce the system-default + uniqueness invariants on load; capture
+        // whether the repair persisted (F4) for AccountManager to coordinate. #57
+        // verify C: an un-persisted migration forces one more save attempt inside
+        // normalize, so the returned flag reflects the TRUE on-disk state (a normalize
+        // save that succeeds heals the failed migration save — it writes the whole index).
+        self.normalizeDidPersist = normalize(forceSave: migrationSaveFailed)
     }
 
     // MARK: - Mutations (each persists immediately)
@@ -95,70 +109,150 @@ public final class AccountRegistry {
     /// Validates exactly like `create`.
     public func add(_ account: Account) throws {
         let trimmed = try Account.validate(label: account.label)
-        // #56: label uniqueness applies to ISOLATED accounts only. The
-        // system-default's identity is its fixed id (Account.systemDefaultID),
-        // so a "Main" system-default may coexist with an isolated "Main".
-        // #56 verify B1 (ensemble #3): filter BOTH sides — skip the check when the
-        // NEW account is a system-default, AND compare only against EXISTING isolated
-        // accounts. The earlier one-sided check was order-dependent (isolated-then-
-        // system worked, but system-then-isolated wrongly threw).
+        // #57 F1: global id-uniqueness — no two accounts may share an id.
+        if accounts.contains(where: { $0.id == account.id }) {
+            throw Account.ValidationError.duplicateID
+        }
+        // #57 F2: at most one system-default account (the load-time normalize is the
+        // recovery net; this is the mutation-time gate that keeps the invariant live).
+        if account.isSystemDefault, accounts.contains(where: { $0.isSystemDefault }) {
+            throw Account.ValidationError.duplicateSystemDefault
+        }
+        // #57 round-2 verify #1: reserved-id OWNERSHIP is a mutation-time gate too —
+        // an isolated account may not take the reserved id, and a system-default may
+        // not take any other. Previously only normalize() repaired this at next load,
+        // so a mis-constructed account lived in memory for the whole session.
+        if account.isSystemDefault != (account.id == Account.systemDefaultID) {
+            throw Account.ValidationError.reservedID
+        }
+        // #56 B1: label uniqueness applies to ISOLATED accounts only — filter BOTH the
+        // new account (skip for system-default) AND the existing set (isolated only), so
+        // a "Main" system-default coexists with an isolated "Main" in either order.
         if !account.isSystemDefault, accounts.contains(where: { !$0.isSystemDefault && $0.label == trimmed }) {
             throw Account.ValidationError.duplicateLabel
         }
-        accounts.append(account)
+        // #57: transactional — rolls back the append if save fails (generalizes #56 C2).
+        try mutate { accounts.append(account) }
+    }
+
+    /// #57: run a mutation transactionally — snapshot, mutate, persist, and roll
+    /// back the snapshot if `body` OR `save()` throws, so a failed mutation or
+    /// persist never leaves the in-memory list diverged from disk. Generalizes
+    /// #56's add-only rollback (C2) to every user mutation path (add / rename /
+    /// remove). #57 round-2 verify #3: `body` runs INSIDE the do-catch — the
+    /// rollback guarantee holds even for a future throwing body, not just the
+    /// current non-throwing closures. NOT used by `normalize`, which keeps its
+    /// repaired state in memory + signals via its Bool return.
+    private func mutate(_ body: () throws -> Void) throws {
+        let snapshot = accounts
         do {
+            try body()
             try save()
         } catch {
-            // #56 verify C2: roll back the append when persistence fails, so a failed
-            // add never leaves a phantom account in memory. Without this, an
-            // addSystemDefaultAccount whose save() throws would return .failed yet leave
-            // the account in `accounts` — a later retry would wrongly hit .alreadyExists
-            // on an account that isn't on disk. removeLast is exact (we just appended it).
-            accounts.removeLast()
+            accounts = snapshot
             throw error
         }
     }
 
-    /// #56: enforce "at most one system-default" + a stable fixed id for it.
-    /// Keeps the earliest-`createdAt` system-default (migrating its id to
-    /// `Account.systemDefaultID` if it's a legacy UUID), demotes any extras to
-    /// isolated (non-destructive — keeps their id + dir). Idempotent + persists
-    /// ONLY when it actually changed something, so a clean 0/1 index is untouched.
-    private func normalize() {
-        let systemDefaultIdxs = accounts.indices.filter { accounts[$0].isSystemDefault }
-        guard !systemDefaultIdxs.isEmpty else { return }
-
-        // Canonical = earliest createdAt; id as a deterministic tiebreak.
-        let canonical = systemDefaultIdxs.min {
-            (accounts[$0].createdAt, accounts[$0].id) < (accounts[$1].createdAt, accounts[$1].id)
-        }!
-
+    /// #56/#57: enforce "at most one system-default" + a stable fixed id + global
+    /// id/label uniqueness on load. Keeps the earliest-`createdAt` system-default
+    /// (migrating its id to `Account.systemDefaultID`), demotes extras to isolated
+    /// (uniquified label if they'd collide). #57 verify B: a second pass then
+    /// enforces global id uniqueness UNCONDITIONALLY — the reserved id belongs to
+    /// the system-default alone, and every other id may appear once — so a crafted
+    /// index can't keep a duplicate just because the canonical needed no migration
+    /// or no system-default exists at all. Idempotent — a clean index isn't re-saved.
+    /// #57 F4: returns whether the repair is PERSISTED (true = on disk / no-op;
+    /// false = repaired in memory but save failed). Unlike `mutate`, normalize keeps
+    /// its in-memory repair on save failure — the clean state is still correct for
+    /// this session — and signals the caller via this Bool.
+    /// #57 verify C: `forceSave` saves even when nothing changed — the init passes it
+    /// when a legacy-migration save failed, so the in-memory list gets one more write
+    /// attempt and the return value reports the true on-disk state either way.
+    @discardableResult
+    private func normalize(forceSave: Bool = false) -> Bool {
         var changed = false
-        for idx in systemDefaultIdxs {
-            let acc = accounts[idx]
-            if idx == canonical {
-                if acc.id != Account.systemDefaultID {   // migrate legacy UUID → fixed id
-                    accounts[idx] = Account(id: Account.systemDefaultID, label: acc.label,
-                                            createdAt: acc.createdAt, isSystemDefault: true)
+
+        // Phase 1: at most one system-default, and it holds the reserved fixed id.
+        let systemDefaultIdxs = accounts.indices.filter { accounts[$0].isSystemDefault }
+        if !systemDefaultIdxs.isEmpty {
+            // Canonical = earliest createdAt; id as a deterministic tiebreak.
+            let canonical = systemDefaultIdxs.min {
+                (accounts[$0].createdAt, accounts[$0].id) < (accounts[$1].createdAt, accounts[$1].id)
+            }!
+            for idx in systemDefaultIdxs {
+                let acc = accounts[idx]
+                if idx == canonical {
+                    if acc.id != Account.systemDefaultID {   // migrate legacy UUID → fixed id
+                        accounts[idx] = Account(id: Account.systemDefaultID, label: acc.label,
+                                                createdAt: acc.createdAt, isSystemDefault: true)
+                        changed = true
+                    }
+                } else {                                     // demote extra → isolated
+                    // #57 F3: uniquify the label if it collides with an existing isolated
+                    // one. The id is kept as-is — phase 2 re-ids it if it collides (which
+                    // subsumes #56 B2's demoted-extra-holds-the-fixed-id special case).
+                    let demotedLabel = uniqueIsolatedLabel(acc.label, excludingIndex: idx)
+                    accounts[idx] = Account(id: acc.id, label: demotedLabel,
+                                            createdAt: acc.createdAt, isSystemDefault: false)
                     changed = true
                 }
-            } else {                                     // demote extra → isolated
-                // #56 verify B2 (ensemble #1/#11/#12/#23): if the demoted extra already
-                // holds the fixed id it would collide with the canonical's migrated id
-                // → two accounts sharing "system-default" (breaks remove()/Identifiable).
-                // Give it a fresh id (a spurious system-default had no isolated dir anyway).
-                let demotedID = acc.id == Account.systemDefaultID ? UUID().uuidString : acc.id
-                accounts[idx] = Account(id: demotedID, label: acc.label,
+            }
+        }
+
+        // Phase 2 (#57 verify B): global id uniqueness. The system-default owns its
+        // (fixed) id outright — seeded first so a squatter earlier in the array can't
+        // win the dedup — the reserved id may belong ONLY to the system-default, and
+        // any other id may appear once: first occurrence keeps it, later ones get a
+        // fresh UUID. (Re-idding an account orphans its config dir, but every such id
+        // is crafted/corrupt data — `add` F1 rejects duplicates at mutation time.)
+        var seen = Set<String>()
+        // #57 round-2 verify #4: fresh ids must avoid EVERY current id (visited or
+        // not) plus previously generated ones — `seen` alone can't see ids later in
+        // the array, so a fresh UUID could in principle re-collide. `taken` closes
+        // that (astronomically unlikely) hole outright.
+        var taken = Set(accounts.map(\.id))
+        if let sd = accounts.first(where: { $0.isSystemDefault }) {
+            seen.insert(sd.id)
+        }
+        for idx in accounts.indices where !accounts[idx].isSystemDefault {
+            let acc = accounts[idx]
+            if seen.contains(acc.id) || acc.id == Account.systemDefaultID {
+                var fresh = UUID().uuidString
+                while taken.contains(fresh) { fresh = UUID().uuidString }
+                taken.insert(fresh)
+                accounts[idx] = Account(id: fresh, label: acc.label,
                                         createdAt: acc.createdAt, isSystemDefault: false)
                 changed = true
             }
+            seen.insert(accounts[idx].id)
         }
-        guard changed else { return }
-        do { try save() } catch {
-            // #56 verify B5 (ensemble #16): .private — localizedDescription may echo
-            // the index path (which contains the username).
+
+        guard changed || forceSave else { return true }
+        do {
+            try save()
+            return true
+        } catch {
+            // #56 B5: .private — localizedDescription may echo the index path (username).
             Self.log.notice("normalize save failed: \(error.localizedDescription, privacy: .private)")
+            return false   // #57 F4: repaired in memory, not persisted
         }
+    }
+
+    /// #57 F3: a label unique among EXISTING isolated accounts (excluding the account
+    /// at `excludingIndex`), suffixing "(recovered)" / "(recovered N)" on collision.
+    private func uniqueIsolatedLabel(_ label: String, excludingIndex: Int) -> String {
+        let taken = Set(accounts.indices
+            .filter { $0 != excludingIndex && !accounts[$0].isSystemDefault }
+            .map { accounts[$0].label })
+        guard taken.contains(label) else { return label }
+        var candidate = "\(label) (recovered)"
+        var n = 2
+        while taken.contains(candidate) {
+            candidate = "\(label) (recovered \(n))"
+            n += 1
+        }
+        return candidate
     }
 
     /// Rename preserves the account id (the config-dir key) and createdAt, so
@@ -176,20 +270,23 @@ public final class AccountRegistry {
         // #54 verify B1: thread isSystemDefault — omitting it lets the memberwise
         // default (false) win, silently de-systeming the main account (flipping
         // spawnConfigDir nil→dir and losing the reused ~/.claude login).
-        accounts[idx] = Account(id: old.id, label: trimmed, createdAt: old.createdAt,
-                                isSystemDefault: old.isSystemDefault)
-        try save()
+        // #57: transactional — roll back if save fails (parity with add/remove).
+        try mutate {
+            accounts[idx] = Account(id: old.id, label: trimmed, createdAt: old.createdAt,
+                                    isSystemDefault: old.isSystemDefault)
+        }
     }
 
-    public func remove(accountId: String) {
-        accounts.removeAll { $0.id == accountId }
-        do {
-            try save()
-        } catch {
-            // Removal already succeeded in memory; a failed persist must not be
-            // silent — surface it in the log so a stale index is explainable.
-            Self.log.notice("account index save failed after remove: \(error.localizedDescription, privacy: .public)")
-        }
+    /// #57: transactional — a failed persist rolls back, so remove never leaves
+    /// the in-memory list diverged from disk (parity with add/rename).
+    /// #57 verify A: throwing — the failure PROPAGATES (not swallowed) so callers
+    /// can keep their own state (active selection, live-401 flags) in sync with
+    /// the rolled-back list instead of desyncing against a phantom removal.
+    public func remove(accountId: String) throws {
+        // #57 round-2 verify #5: a nonexistent id is a no-op — don't touch the disk
+        // (parity with rename's guard; a broken disk must not fail a vacuous remove).
+        guard accounts.contains(where: { $0.id == accountId }) else { return }
+        try mutate { accounts.removeAll { $0.id == accountId } }
     }
 
     // MARK: - Persistence
@@ -202,7 +299,7 @@ public final class AccountRegistry {
             decoder.dateDecodingStrategy = .iso8601
             return try decoder.decode(IndexFile.self, from: data).accounts
         } catch {
-            log.notice("account index unreadable — starting empty, file preserved: \(error.localizedDescription, privacy: .public)")
+            log.notice("account index unreadable — starting empty, file preserved: \(error.localizedDescription, privacy: .private)")
             return []
         }
     }

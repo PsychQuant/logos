@@ -36,6 +36,35 @@ All notable changes to Logos are documented here. Format loosely follows
   crafted/corrupted persisted data — tracked separately in
   [#57](https://github.com/PsychQuant/logos/issues/57).
 
+- **Account registry enforces global invariants with transactional persists** ([#57](https://github.com/PsychQuant/logos/issues/57)).
+  The #56 follow-up: `AccountRegistry` now guarantees — at mutation time AND against
+  crafted/corrupted persisted data at load time — that no two accounts share an id, the
+  reserved fixed id belongs to the system-default alone, and at most one system-default
+  exists. Every user mutation (add / rename / remove) runs through a transactional
+  `mutate` primitive: a failed disk persist rolls the in-memory list back, so memory
+  never diverges from disk. The round-1 6-AI verify hardened three more edges:
+  `remove()` now **throws** on a failed persist (and `AccountManager.remove()` returns
+  `Bool`, updating the active selection / live-401 flag only when the removal really
+  happened — no more desync against a rolled-back registry); the load-time `normalize()`
+  gained an unconditional global id-uniqueness sweep (steady-state reserved-id squatters,
+  duplicate ids with zero system-defaults, and multiple reserved-id occupants are all
+  repaired — previously each survived a specific corruption shape); and a legacy-migration
+  save failure now folds into `normalizeDidPersist` via `normalize(forceSave:)`, so the
+  flag reports the true on-disk state and the healed active id is never persisted against
+  a phantom index. The round-2 6-AI verify (first with a completed cross-model Codex leg)
+  hardened four more edges in-scope: `add()` now gates **reserved-id ownership** at
+  mutation time (an isolated account may not take the fixed id, a system-default may not
+  take any other — previously only the next launch's `normalize()` repaired this);
+  `mutate`'s rollback now also covers a throwing mutation body, not just a failed save;
+  normalize's fresh-id generation is collision-proof against every current id (not just
+  already-visited ones); and removing a nonexistent id is a true no-op that never touches
+  the disk. Residual (non-blocking) findings were filed as follow-ups:
+  [#58](https://github.com/PsychQuant/logos/issues/58) (heal a resolvable-but-wrong active
+  id after normalize reassigns ids), [#59](https://github.com/PsychQuant/logos/issues/59)
+  (load-time label invariants), [#60](https://github.com/PsychQuant/logos/issues/60)
+  (surface remove failure in the switcher UI), and
+  [#61](https://github.com/PsychQuant/logos/issues/61) (crafted-index defense-in-depth).
+
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
   usage from the window's account session transcript JSONL (`message.usage` — input + cache
