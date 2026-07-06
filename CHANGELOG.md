@@ -36,6 +36,23 @@ All notable changes to Logos are documented here. Format loosely follows
   crafted/corrupted persisted data — tracked separately in
   [#57](https://github.com/PsychQuant/logos/issues/57).
 
+- **Account registry enforces global invariants with transactional persists** ([#57](https://github.com/PsychQuant/logos/issues/57)).
+  The #56 follow-up: `AccountRegistry` now guarantees — at mutation time AND against
+  crafted/corrupted persisted data at load time — that no two accounts share an id, the
+  reserved fixed id belongs to the system-default alone, and at most one system-default
+  exists. Every user mutation (add / rename / remove) runs through a transactional
+  `mutate` primitive: a failed disk persist rolls the in-memory list back, so memory
+  never diverges from disk. The round-1 6-AI verify hardened three more edges:
+  `remove()` now **throws** on a failed persist (and `AccountManager.remove()` returns
+  `Bool`, updating the active selection / live-401 flag only when the removal really
+  happened — no more desync against a rolled-back registry); the load-time `normalize()`
+  gained an unconditional global id-uniqueness sweep (steady-state reserved-id squatters,
+  duplicate ids with zero system-defaults, and multiple reserved-id occupants are all
+  repaired — previously each survived a specific corruption shape); and a legacy-migration
+  save failure now folds into `normalizeDidPersist` via `normalize(forceSave:)`, so the
+  flag reports the true on-disk state and the healed active id is never persisted against
+  a phantom index.
+
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
   usage from the window's account session transcript JSONL (`message.usage` — input + cache
