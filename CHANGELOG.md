@@ -51,7 +51,19 @@ All notable changes to Logos are documented here. Format loosely follows
   repaired — previously each survived a specific corruption shape); and a legacy-migration
   save failure now folds into `normalizeDidPersist` via `normalize(forceSave:)`, so the
   flag reports the true on-disk state and the healed active id is never persisted against
-  a phantom index.
+  a phantom index. The round-2 6-AI verify (first with a completed cross-model Codex leg)
+  hardened four more edges in-scope: `add()` now gates **reserved-id ownership** at
+  mutation time (an isolated account may not take the fixed id, a system-default may not
+  take any other — previously only the next launch's `normalize()` repaired this);
+  `mutate`'s rollback now also covers a throwing mutation body, not just a failed save;
+  normalize's fresh-id generation is collision-proof against every current id (not just
+  already-visited ones); and removing a nonexistent id is a true no-op that never touches
+  the disk. Residual (non-blocking) findings were filed as follow-ups:
+  [#58](https://github.com/PsychQuant/logos/issues/58) (heal a resolvable-but-wrong active
+  id after normalize reassigns ids), [#59](https://github.com/PsychQuant/logos/issues/59)
+  (load-time label invariants), [#60](https://github.com/PsychQuant/logos/issues/60)
+  (surface remove failure in the switcher UI), and
+  [#61](https://github.com/PsychQuant/logos/issues/61) (crafted-index defense-in-depth).
 
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real

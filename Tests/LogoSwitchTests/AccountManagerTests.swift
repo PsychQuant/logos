@@ -341,9 +341,17 @@ struct AccountManagerTests {
     @Test("active resolves to the system-default after its id migrates (#56 verify B3)")
     func activeResolvesToSystemDefaultAfterMigration() throws {
         let url = tempIndexURL()
-        let seed = AccountRegistry(indexFileURL: url)
-        try seed.add(Account(label: "Work"))                                        // isolated, FIRST
-        try seed.add(Account(id: "legacy-uuid", label: "Main", isSystemDefault: true))  // system-default, UUID id
+        // #57 round-2: a legacy-id system-default can only exist as PERSISTED data now —
+        // add()'s reserved-id ownership gate blocks producing it via the API, so inject
+        // the corrupt index directly (isolated "Work" FIRST, legacy-uuid system-default).
+        let iso = ISO8601DateFormatter()
+        let json = """
+        {"version":1,"accounts":[\
+        {"id":"work-id","label":"Work","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 500)))","isSystemDefault":false},\
+        {"id":"legacy-uuid","label":"Main","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 1_000)))","isSystemDefault":true}]}
+        """
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
         let store = InMemoryActiveAccountStore()
         store.saveActiveAccountId("legacy-uuid")                                     // active = the pre-migration UUID
         // manager: its registry init migrates legacy-uuid → systemDefaultID; active dangles → self-heal

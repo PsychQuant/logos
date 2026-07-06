@@ -181,8 +181,11 @@ struct AccountRegistryTests {
     @Test("normalize migrates a legacy UUID system-default id to systemDefaultID (#56)")
     @MainActor func normalizeMigratesLegacyID() throws {
         let url = tempIndexURL()
-        let r1 = AccountRegistry(indexFileURL: url)
-        try r1.add(Account(id: "legacy-uuid-1234", label: "Main", isSystemDefault: true))
+        // #57 round-2: a legacy-id system-default can only exist as PERSISTED data now —
+        // add()'s reserved-id ownership gate blocks producing it via the API.
+        try writeCorruptIndex([
+            (id: "legacy-uuid-1234", label: "Main", epoch: 1_000, sd: true),
+        ], to: url)
         let r2 = AccountRegistry(indexFileURL: url)
         #expect(r2.accounts.first(where: { $0.isSystemDefault })?.id == Account.systemDefaultID)
     }
@@ -389,6 +392,58 @@ struct AccountRegistryTests {
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
         #expect(throws: (any Error).self) { try registry.remove(accountId: acc.id) }
         #expect(registry.accounts.map(\.id) == [acc.id])       // rolled back — still present
+    }
+
+    // #57 round-2 verify #1: the reserved id belongs to the system-default alone —
+    // add() must enforce OWNERSHIP at mutation time (not only normalize() at next load).
+    @Test("add rejects an isolated account holding the reserved id (#57 round-2)")
+    @MainActor func addRejectsIsolatedReservedID() {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        #expect(throws: Account.ValidationError.reservedID) {
+            try registry.add(Account(id: Account.systemDefaultID, label: "Squatter"))
+        }
+        #expect(registry.accounts.isEmpty)
+    }
+
+    // #57 round-2 verify #1 (other direction): a system-default must hold the fixed id.
+    @Test("add rejects a system-default whose id is not the fixed id (#57 round-2)")
+    @MainActor func addRejectsSystemDefaultWithWrongID() {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        #expect(throws: Account.ValidationError.reservedID) {
+            try registry.add(Account(id: "legacy-uuid", label: "Main", isSystemDefault: true))
+        }
+        #expect(registry.accounts.isEmpty)
+    }
+
+    // #57 round-2 verify #5: removing a nonexistent id is a no-op — it must not touch
+    // the disk at all, so it cannot spuriously throw on a broken disk (parity with
+    // rename's nonexistent-id guard).
+    @Test("remove of a nonexistent id is a no-op even when the disk is unwritable (#57 round-2)")
+    @MainActor func removeGhostNoOpOnBrokenDisk() throws {
+        let url = tempIndexURL()
+        let registry = AccountRegistry(indexFileURL: url)
+        let acc = try registry.create(label: "work")
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        try registry.remove(accountId: "ghost")            // must NOT throw
+        #expect(registry.accounts.map(\.id) == [acc.id])   // unchanged
+    }
+
+    // #57 round-2 (requirements F3 note): two demoted extras sharing a label must be
+    // uniquified against EACH OTHER, not only against pre-existing isolated labels.
+    @Test("normalize uniquifies two demoted extras sharing the same label (#57 F3)")
+    @MainActor func normalizeDemoteLabelCollisionBetweenExtras() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "sd-1", label: "Canonical", epoch: 1_000, sd: true),
+            (id: "sd-2", label: "Main", epoch: 2_000, sd: true),
+            (id: "sd-3", label: "Main", epoch: 3_000, sd: true),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        let demoted = r.accounts.filter { !$0.isSystemDefault }
+        #expect(demoted.count == 2)
+        #expect(Set(demoted.map(\.label)).count == 2)   // distinct labels
     }
 
     // #57 (round-2 transactional primitive): rename rolls back on save failure, like add.

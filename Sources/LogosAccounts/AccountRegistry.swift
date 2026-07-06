@@ -118,6 +118,13 @@ public final class AccountRegistry {
         if account.isSystemDefault, accounts.contains(where: { $0.isSystemDefault }) {
             throw Account.ValidationError.duplicateSystemDefault
         }
+        // #57 round-2 verify #1: reserved-id OWNERSHIP is a mutation-time gate too —
+        // an isolated account may not take the reserved id, and a system-default may
+        // not take any other. Previously only normalize() repaired this at next load,
+        // so a mis-constructed account lived in memory for the whole session.
+        if account.isSystemDefault != (account.id == Account.systemDefaultID) {
+            throw Account.ValidationError.reservedID
+        }
         // #56 B1: label uniqueness applies to ISOLATED accounts only — filter BOTH the
         // new account (skip for system-default) AND the existing set (isolated only), so
         // a "Main" system-default coexists with an isolated "Main" in either order.
@@ -129,14 +136,17 @@ public final class AccountRegistry {
     }
 
     /// #57: run a mutation transactionally — snapshot, mutate, persist, and roll
-    /// back the snapshot if `save()` fails, so a failed persist never leaves the
-    /// in-memory list diverged from disk. Generalizes #56's add-only rollback (C2)
-    /// to every user mutation path (add / rename / remove). NOT used by `normalize`,
-    /// which keeps its repaired state in memory + signals via its Bool return.
+    /// back the snapshot if `body` OR `save()` throws, so a failed mutation or
+    /// persist never leaves the in-memory list diverged from disk. Generalizes
+    /// #56's add-only rollback (C2) to every user mutation path (add / rename /
+    /// remove). #57 round-2 verify #3: `body` runs INSIDE the do-catch — the
+    /// rollback guarantee holds even for a future throwing body, not just the
+    /// current non-throwing closures. NOT used by `normalize`, which keeps its
+    /// repaired state in memory + signals via its Bool return.
     private func mutate(_ body: () throws -> Void) throws {
         let snapshot = accounts
-        try body()
         do {
+            try body()
             try save()
         } catch {
             accounts = snapshot
@@ -197,13 +207,21 @@ public final class AccountRegistry {
         // fresh UUID. (Re-idding an account orphans its config dir, but every such id
         // is crafted/corrupt data — `add` F1 rejects duplicates at mutation time.)
         var seen = Set<String>()
+        // #57 round-2 verify #4: fresh ids must avoid EVERY current id (visited or
+        // not) plus previously generated ones — `seen` alone can't see ids later in
+        // the array, so a fresh UUID could in principle re-collide. `taken` closes
+        // that (astronomically unlikely) hole outright.
+        var taken = Set(accounts.map(\.id))
         if let sd = accounts.first(where: { $0.isSystemDefault }) {
             seen.insert(sd.id)
         }
         for idx in accounts.indices where !accounts[idx].isSystemDefault {
             let acc = accounts[idx]
             if seen.contains(acc.id) || acc.id == Account.systemDefaultID {
-                accounts[idx] = Account(id: UUID().uuidString, label: acc.label,
+                var fresh = UUID().uuidString
+                while taken.contains(fresh) { fresh = UUID().uuidString }
+                taken.insert(fresh)
+                accounts[idx] = Account(id: fresh, label: acc.label,
                                         createdAt: acc.createdAt, isSystemDefault: false)
                 changed = true
             }
@@ -265,6 +283,9 @@ public final class AccountRegistry {
     /// can keep their own state (active selection, live-401 flags) in sync with
     /// the rolled-back list instead of desyncing against a phantom removal.
     public func remove(accountId: String) throws {
+        // #57 round-2 verify #5: a nonexistent id is a no-op — don't touch the disk
+        // (parity with rename's guard; a broken disk must not fail a vacuous remove).
+        guard accounts.contains(where: { $0.id == accountId }) else { return }
         try mutate { accounts.removeAll { $0.id == accountId } }
     }
 
