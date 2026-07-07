@@ -65,11 +65,14 @@ struct WindowRoot: View {
     }
 
     /// The config dir of the window's currently-shown account (#47 usage source), or nil.
+    /// #55 C4: `usageConfigDir`, not `configDirPath` — for a Main-bound window the real
+    /// transcripts live under `~/.claude` (the system-default reuses it and never
+    /// materializes its per-account dir), so the status bar must read there.
     private var currentConfigDir: String? {
         WindowAccountResolver.resolve(
             selected: selection.accountId,
             accounts: accountManager.accounts
-        )?.configDirPath
+        )?.usageConfigDir
     }
 
     /// Seed once per window. Guards on `nil` so a SwiftUI re-render (or a window the
