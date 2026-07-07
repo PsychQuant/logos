@@ -683,6 +683,40 @@ struct AccountRegistryTests {
         #expect(filePerms.uint16Value == 0o600)
     }
 
+    // #61 verify (blocking): the accounts root must converge to 0o700 even when it
+    // ALREADY EXISTS at a looser mode — the create-time `attributes:` param is a
+    // no-op on a pre-existing dir, and in the real createAccount flow
+    // AccountManager.ensureDirectory creates the chain (umask default) BEFORE save()
+    // runs. A 0o700 root blocks other-user traversal into every `<id>/.claude`
+    // beneath it, so the root converging is the load-bearing hardening.
+    @Test("save hardens a pre-existing accounts root to 0o700 (#61 verify)")
+    @MainActor func saveHardensPreExistingRoot() throws {
+        let url = tempIndexURL()
+        let root = url.deletingLastPathComponent()
+        // Simulate ensureDirectory building the chain first at a looser umask mode.
+        try FileManager.default.createDirectory(
+            at: root, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755])
+        let registry = AccountRegistry(indexFileURL: url)
+        try registry.create(label: "work")                 // triggers save() against the pre-existing root
+        let perms = try #require(try FileManager.default.attributesOfItem(
+            atPath: root.path)[.posixPermissions] as? NSNumber)
+        #expect(perms.uint16Value == 0o700)                // converged despite pre-existing 0o755
+    }
+
+    // #61 verify (LOW): an oversized index is rejected WITHOUT reading the whole file
+    // into memory first — stat before read. (Same load-empty + preserve semantics.)
+    @Test("oversized index is rejected by stat before a full read (#61 verify)")
+    @MainActor func loadStatsBeforeReadingOversized() throws {
+        let url = tempIndexURL()
+        let bigLabel = String(repeating: "b", count: 1_200_000)
+        try writeCorruptIndex([(id: "a", label: bigLabel, epoch: 1_000, sd: false)], to: url)
+        let before = try Data(contentsOf: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.isEmpty)
+        #expect(try Data(contentsOf: url) == before)       // preserved
+    }
+
     // #57 (round-2 transactional primitive): rename rolls back on save failure, like add.
     @Test("rename rolls back on save failure (#57 mutate)")
     @MainActor func renameRollsBackOnSaveFailure() throws {

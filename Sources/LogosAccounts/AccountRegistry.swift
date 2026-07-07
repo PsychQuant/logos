@@ -405,6 +405,14 @@ public final class AccountRegistry {
     private static func load(from url: URL, fileManager: FileManager) -> [Account] {
         guard fileManager.fileExists(atPath: url.path) else { return [] }
         do {
+            // #61 verify: stat BEFORE read — reject an oversized index without pulling
+            // the whole file into memory first (the byte cap should bound the READ
+            // footprint, not just the decode footprint).
+            if let size = try? fileManager.attributesOfItem(atPath: url.path)[.size] as? Int,
+               size > maxIndexBytes {
+                log.notice("account index exceeds size cap (stat) — starting empty, file preserved")
+                return []
+            }
             let data = try Data(contentsOf: url)
             guard data.count <= maxIndexBytes else {
                 log.notice("account index exceeds size cap — starting empty, file preserved")
@@ -429,18 +437,38 @@ public final class AccountRegistry {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(IndexFile(version: 1, accounts: accounts))
-        // #61: restrictive modes, defense-in-depth. `attributes` applies only to
-        // directories this call CREATES — pre-existing dirs keep their mode (no
-        // forced migration).
+        // #61: restrictive modes, defense-in-depth. `attributes` hardens directories
+        // this call creates, but a sibling module (AccountManager.ensureDirectory)
+        // usually creates the chain FIRST in the createAccount flow, and the
+        // create-time `attributes:` param is a no-op on an already-existing dir — so
+        // the hardening is re-applied unconditionally AFTER the write below.
+        let accountsRoot = indexFileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
-            at: indexFileURL.deletingLastPathComponent(),
+            at: accountsRoot,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         try data.write(to: indexFileURL, options: .atomic)
-        // #61: the atomic replace inherits the temp file's permissions — re-apply
-        // each save. Best-effort by design: the write above already succeeded, and
-        // throwing here would make `mutate` roll back memory against a disk that
-        // DID change (breaking the "rollback ⇒ disk unchanged" invariant).
+        // #61 + #61 verify: harden BOTH the accounts root (0o700) and the index file
+        // (0o600) after the write — best-effort, mirroring each other. Two reasons the
+        // re-apply lands HERE, after the write, not before:
+        //   1. The atomic replace inherits the temp file's mode, so the index 0o600
+        //      must be re-applied post-write anyway.
+        //   2. (verify, blocking) A 0o700 accounts root is the load-bearing hardening
+        //      (it blocks other-user traversal into every `<id>/.claude` beneath it),
+        //      but re-chmodding it BEFORE the write would reset a deliberately
+        //      read-only parent to writable and defeat the transactional save-failure
+        //      path — a read-only root MUST still make save() throw so `mutate` rolls
+        //      back. Placing it after the write means a read-only root fails the write
+        //      first and this never runs.
+        // Best-effort by design: the write already succeeded, so throwing here would
+        // make `mutate` roll back memory against a disk that DID change (breaking the
+        // "rollback ⇒ disk unchanged" invariant). Separate do/catch so one failing
+        // doesn't skip the other.
+        do {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: accountsRoot.path)
+        } catch {
+            Self.log.notice("accounts-root permission set failed: \(error.localizedDescription, privacy: .private)")
+        }
         do {
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: indexFileURL.path)
         } catch {
