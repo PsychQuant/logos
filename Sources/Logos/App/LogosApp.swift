@@ -112,6 +112,11 @@ struct LogosApp: App {
         Window("帳號用量", id: "account-usage") {
             AccountUsageWindow()
                 .environment(registryUsage)
+                // #55 C3: the usage window highlights the launcher's active selection,
+                // so it needs the SAME accountManager instance (read-only) to read
+                // activeAccountId. Without this an @Environment(AccountManager) read
+                // traps (#20 pattern).
+                .environment(accountManager)
         }
         .defaultSize(width: 480, height: 480)
 

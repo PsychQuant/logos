@@ -123,6 +123,24 @@ extension AccountsModelTests {
         #expect(defaultAccount.label != "工作用")
     }
 
+    // #55 C2: when the registry has a system-default ("Main") entry, the discovered
+    // default `~/.claude` row takes that launcher label — so the standalone viewer
+    // shows it under the launcher's "Main" identity, not a nil/derived label.
+    @Test("the discovered default row takes the registry system-default label (#55 C2)")
+    func defaultRowTakesSystemDefaultLabel() async throws {
+        let home = try makeFixtureHome()
+        let registry = AccountRegistry(indexFileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("sysdefault-label-\(UUID().uuidString)")
+            .appendingPathComponent("index.json"))
+        try registry.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+
+        let model = AccountsModel(home: home, labelRegistry: registry)
+        model.load()
+
+        let defaultAccount = try #require(model.accounts.first { $0.isDefault })
+        #expect(defaultAccount.label == "Main")
+    }
+
     // "First authorization pass serializes Keychain reads": dialogs stack when
     // reads overlap, so the first pass must hold at most one read in flight;
     // concurrency is restored on subsequent (already-authorized) refreshes.

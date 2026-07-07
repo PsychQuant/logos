@@ -8,10 +8,13 @@ import LogosAccounts
 /// always matches Settings → Accounts and discovery-vs-registry drift is
 /// impossible in-app.
 ///
-/// Registry accounts are convention accounts under the accounts root, never
-/// the bare default `~/.claude` — so every Keychain lookup this model triggers
-/// uses a hash-suffixed service name and the bare `Claude Code-credentials`
-/// entry is structurally out of reach.
+/// Isolated registry accounts are convention accounts under the accounts root,
+/// so their Keychain lookup uses a hash-suffixed service name. The **one**
+/// exception (#55) is the system-default ("Main") account (#54): it reuses the
+/// system `~/.claude`, so its row is built `isDefault: true` and its lookup
+/// READS the bare `Claude Code-credentials` entry — read-only, to display Main's
+/// plan usage. The bare entry is never mutated here (account-credential-isolation
+/// spec: the read-only usage target may read, never write/delete).
 @MainActor
 @Observable
 public final class RegistryUsageModel {
@@ -21,13 +24,16 @@ public final class RegistryUsageModel {
     /// Injected factory (account, registryLabel) → row model; the test seam
     /// for stub keychains/fetchers. The registry label wins over any
     /// identity-derived label.
-    @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount, String) -> AccountUsageModel
+    /// Factory (account, registryLabel, registryAccountId) → row model. #55 C3: the
+    /// registry id is threaded so the usage window can highlight the active selection
+    /// (the row's own id is a config-dir path, not the registry id).
+    @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount, String, String) -> AccountUsageModel
     @ObservationIgnored private var hasCompletedFirstPass = false
 
     public init(
         registry: AccountRegistry,
-        makeModel: @escaping @MainActor (DiscoveredAccount, String) -> AccountUsageModel = {
-            AccountUsageModel(account: $0, labelOverride: $1)
+        makeModel: @escaping @MainActor (DiscoveredAccount, String, String) -> AccountUsageModel = {
+            AccountUsageModel(account: $0, labelOverride: $1, registryAccountId: $2)
         }
     ) {
         self.registry = registry
@@ -38,12 +44,16 @@ public final class RegistryUsageModel {
     /// idempotent — call on window open and after registry mutations.
     public func load() {
         accounts = registry.accounts.map { entry in
-            let configDir = URL(fileURLWithPath: entry.configDirPath)
+            // #55 C1: the system-default ("Main") account reuses ~/.claude — build its
+            // row against the real config dir with isDefault:true so the keychain
+            // lookup hits the bare `Claude Code-credentials` (isDefault gates the
+            // service name). Isolated accounts keep their per-account dir + hash-suffix.
+            let configDir = URL(fileURLWithPath: entry.usageConfigDir)
             let discovered = DiscoveredAccount(
                 configDir: configDir,
-                isDefault: false,
+                isDefault: entry.isSystemDefault,
                 identity: ConfigParser.identity(forConfigDir: configDir))
-            return makeModel(discovered, entry.label)
+            return makeModel(discovered, entry.label, entry.id)
         }
     }
 

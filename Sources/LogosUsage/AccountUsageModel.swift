@@ -40,6 +40,11 @@ public final class AccountUsageModel: Identifiable {
     public let email: String?
     public let tier: String?
     public let isDefault: Bool
+    /// #55 C3: the launcher registry account id this row corresponds to (nil for
+    /// discovery-built rows). The row's own `id` is the config-dir path, so this is
+    /// what the usage window compares against `AccountManager.activeAccountId` to
+    /// highlight the active selection.
+    public let registryAccountId: String?
 
     public private(set) var state: LoadState = .idle
 
@@ -50,9 +55,12 @@ public final class AccountUsageModel: Identifiable {
     /// - Parameter labelOverride: display label that wins over the
     ///   identity-derived one — the registry's user-chosen label when the row
     ///   is built from the shared registry.
+    /// - Parameter registryAccountId: the launcher registry id (#55 C3); nil for
+    ///   discovery-built rows.
     public init(
         account: DiscoveredAccount,
         labelOverride: String? = nil,
+        registryAccountId: String? = nil,
         credentialsReader: KeychainCredentialsReader = KeychainCredentialsReader(),
         usageClient: UsageClient = UsageClient()
     ) {
@@ -61,6 +69,7 @@ public final class AccountUsageModel: Identifiable {
         self.email = account.identity?.emailAddress
         self.tier = Self.tier(from: account.identity)
         self.isDefault = account.isDefault
+        self.registryAccountId = registryAccountId
         self.account = account
         self.credentialsReader = credentialsReader
         self.usageClient = usageClient
@@ -158,9 +167,14 @@ public final class AccountsModel {
         let labelsById = Dictionary(
             (labelRegistry?.accounts ?? []).map { ($0.id, $0.label) },
             uniquingKeysWith: { first, _ in first })
+        // #55 C2: the discovered default (`~/.claude`) row is the launcher's
+        // system-default ("Main") account — surface its registry label so the viewer
+        // shows it under the launcher identity, not a derived/nil label. nil when the
+        // registry has no system-default entry (backward-compatible).
+        let systemDefaultLabel = labelRegistry?.accounts.first(where: { $0.isSystemDefault })?.label
         accounts = AccountDiscovery.discover(home: home).map { discovered in
             let dirName = discovered.configDir.deletingLastPathComponent().lastPathComponent
-            let label = discovered.isDefault ? nil : labelsById[dirName]
+            let label = discovered.isDefault ? systemDefaultLabel : labelsById[dirName]
             return makeModel(discovered, label)
         }
     }

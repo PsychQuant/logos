@@ -9,8 +9,13 @@ import SwiftUI
 /// template it efficiently.
 public struct UsageAccountRow: View {
     public let account: AccountUsageModel
+    /// #55 C3: this row is the launcher's active/seed selection.
+    public let isActive: Bool
 
-    public init(account: AccountUsageModel) { self.account = account }
+    public init(account: AccountUsageModel, isActive: Bool = false) {
+        self.account = account
+        self.isActive = isActive
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -18,7 +23,8 @@ public struct UsageAccountRow: View {
                 label: account.label,
                 email: account.email,
                 tier: account.tier,
-                isDefault: account.isDefault)
+                isDefault: account.isDefault,
+                isActive: isActive)
             AccountUsageSection(state: account.state)
         }
         .padding(.vertical, 4)
@@ -31,12 +37,23 @@ struct AccountHeader: View {
     let email: String?
     let tier: String?
     let isDefault: Bool
+    /// #55 C3: launcher active-selection highlight (mirrors the switcher's AccountRow).
+    var isActive: Bool = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(label).font(.headline)
+                    Text(label)
+                        .font(.headline)
+                        .fontWeight(isActive ? .semibold : .regular)
+                    if isActive {
+                        Text("使用中")
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.18), in: Capsule())
+                    }
                     if isDefault {
                         Text("預設")
                             .font(.caption2)

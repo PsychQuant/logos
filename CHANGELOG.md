@@ -100,6 +100,19 @@ All notable changes to Logos are documented here. Format loosely follows
   first (the round-1 verify caught that a create-time attribute alone was a no-op when
   a sibling module built the chain first).
 
+- **The "Main" (system-default) account is now integrated into the usage-tracking layer**
+  ([#55](https://github.com/PsychQuant/logos/issues/55)). The #54 Main account reuses the
+  system `~/.claude` and never materializes a per-account config dir, but the usage layer
+  keyed everything off `configDirPath` (`~/.logos/accounts/system-default/.claude`), so
+  Main showed a broken/empty row everywhere. A new `Account.usageConfigDir` resolves each
+  account's REAL claude config dir (`~/.claude` for the system-default, `configDirPath`
+  otherwise), and both usage surfaces now use it: the dedicated usage window
+  (`RegistryUsageModel`) builds Main's row with the bare `Claude Code-credentials` keychain
+  so it shows real plan usage under the "Main" label, and a Main-bound window's status bar
+  (`WindowUsageModel`) reads the `~/.claude` session transcript. The dedicated window also
+  highlights the launcher's active/seed selection ("使用中" badge), and the standalone
+  MultiStats viewer labels the discovered `~/.claude` row "Main" instead of a derived name.
+
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
   usage from the window's account session transcript JSONL (`message.usage` — input + cache
