@@ -88,7 +88,7 @@ struct AccountSwitcherSheet: View {
 
             Divider()
 
-            Button(action: { showAddSheet = true }) {
+            Button(action: { deleteError = nil; renameError = nil; showAddSheet = true }) {
                 Label("Add account", systemImage: "plus.circle.fill")
                     .padding(.vertical, 4)
             }
@@ -102,6 +102,8 @@ struct AccountSwitcherSheet: View {
             // (`addSystemDefaultAccount` is dedup-guarded regardless).
             if !mgr.accounts.contains(where: \.isSystemDefault) {
                 Button {
+                    deleteError = nil
+                    renameError = nil
                     mgr.addSystemDefaultAccount()
                 } label: {
                     Label("Add system account", systemImage: "person.crop.circle.badge.checkmark")
@@ -189,7 +191,17 @@ struct AccountSwitcherSheet: View {
     private func cancelRename(_ accountId: String) {
         guard editingAccountId == accountId else { return }
         renameError = nil
-        deleteError = nil   // #60
+        // #60 verify (round-2 DA): deliberately does NOT clear `deleteError`. A single
+        // click on the trash button of the row being edited synthesizes THIS callback
+        // (via AccountRow's focus-loss `.onChange`) alongside `delete()`'s own action.
+        // If it ran after delete()'s failure branch set `deleteError`, it would silently
+        // erase the just-set failure message — resurrecting #60's original silent no-op
+        // through a different door, regardless of the (unverifiable) SwiftUI/AppKit
+        // action-vs-focus-resign ordering. cancelRename tears down RENAME state only; the
+        // mutual-exclusivity invariant is upheld by the two error SETTERS (`delete`,
+        // `commitRename`), which each clear BOTH captions before setting one. In the
+        // deliberate-cancel path `deleteError` is already nil (beginRename cleared it), so
+        // not clearing it here is a no-op there.
         editingAccountId = nil
     }
 
@@ -199,14 +211,21 @@ struct AccountSwitcherSheet: View {
     /// happened (a rolled-back remove must not exit edit mode as if the row were gone;
     /// #36 verify, logic reviewer, still holds for the success path).
     private func delete(_ accountId: String) {
+        // #60 verify (6-AI round 1): clear BOTH captions at entry, not just
+        // `deleteError`. Delete is a user action, so it clears the sibling's stale
+        // error too — the mutual-exclusivity invariant this change claims. Without
+        // the unconditional `renameError = nil`, a failed delete while a row shows a
+        // lingering rename error left both captions stacked; the cross-row path
+        // (rename row A fails → delete row B fails) is unconditionally reachable
+        // because the trash button is never gated on edit state.
         deleteError = nil
+        renameError = nil
         guard mgr.remove(accountId: accountId) else {
             deleteError = "無法移除帳號——變更未能儲存，請再試一次。"
             return
         }
         if editingAccountId == accountId {
             editingAccountId = nil
-            renameError = nil
         }
     }
 
