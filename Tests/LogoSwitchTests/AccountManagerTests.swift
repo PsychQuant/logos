@@ -414,6 +414,44 @@ struct AccountManagerTests {
         #expect(mgr.needsReauth(b) == true)       // live-401 flag NOT cleared
     }
 
+    // #58: a stored active id whose OWNERSHIP was reassigned during normalize still
+    // RESOLVES — to a different logical account. The heal must fire for it (same
+    // policy as dangling: system-default first, persist gated on normalizeDidPersist)
+    // instead of silently keeping the resolvable-but-wrong binding.
+    @Test("active heals when the stored id was reassigned during normalize (#58)")
+    func activeHealsWhenStoredIDReassigned() throws {
+        let url = tempIndexURL()
+        let iso = ISO8601DateFormatter()
+        let json = """
+        {"version":1,"accounts":[\
+        {"id":"\(Account.systemDefaultID)","label":"Main","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 100)))","isSystemDefault":true},\
+        {"id":"dup","label":"A","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 500)))","isSystemDefault":false},\
+        {"id":"dup","label":"B","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 900)))","isSystemDefault":false}]}
+        """
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
+        let store = InMemoryActiveAccountStore()
+        store.saveActiveAccountId("dup")                        // the user's active was a "dup" holder
+        let mgr = makeManager(indexFileURL: url, store: store)
+        #expect(mgr.active?.isSystemDefault == true)            // healed — NOT silently bound to "A"
+        #expect(store.loadActiveAccountId() == Account.systemDefaultID)   // persisted (repair persisted)
+    }
+
+    // #58 regression guard: a stored id that was NOT reassigned stays untouched —
+    // the new heal condition must not fire on a clean reload.
+    @Test("a valid stored active id is untouched by the reassigned-id heal (#58)")
+    func validStoredActiveUntouched() throws {
+        let url = tempIndexURL()
+        let store = InMemoryActiveAccountStore()
+        let mgr1 = makeManager(indexFileURL: url, store: store)
+        try mgr1.createAccount(label: "a")
+        let b = try mgr1.createAccount(label: "b")
+        mgr1.setActive(b.id)
+        let mgr2 = makeManager(indexFileURL: url, store: store)  // clean reload
+        #expect(mgr2.active?.id == b.id)                         // unchanged
+        #expect(store.loadActiveAccountId() == b.id)
+    }
+
     // #57 F4 (round-2 #6): when the registry's normalize repair did NOT persist (disk
     // write failed), a healed active id must NOT be written to the store — else the store
     // would point at an id the on-disk index doesn't hold.

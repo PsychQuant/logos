@@ -31,6 +31,16 @@ public final class AccountRegistry {
     /// memory but save failed).
     public private(set) var normalizeDidPersist: Bool = true
 
+    /// #58: ids whose OWNERSHIP became ambiguous during the last load-time
+    /// `normalize()` repair — each was some account's id that phase 2 took away
+    /// (that account got a fresh UUID). The old id may STILL resolve afterwards
+    /// (to the system-default or the first occupant), so a stored active
+    /// selection pointing at one of these is untrustworthy: `AccountManager`
+    /// treats it as needing heal, exactly like a dangling id. Session-scoped —
+    /// set once by init's normalize, regardless of whether the repair persisted
+    /// (the in-memory ownership changed either way).
+    public private(set) var reassignedIDs: Set<String> = []
+
     private let indexFileURL: URL
     private let fileManager: FileManager
     private static let log = Logger(subsystem: "app.getlogos.logos", category: "account-registry")
@@ -212,6 +222,10 @@ public final class AccountRegistry {
         // the array, so a fresh UUID could in principle re-collide. `taken` closes
         // that (astronomically unlikely) hole outright.
         var taken = Set(accounts.map(\.id))
+        // #58: every id phase 2 takes AWAY from an account has ambiguous ownership
+        // afterwards (it may still resolve — to whoever kept it). Collect them so
+        // AccountManager can distrust a stored active selection pointing at one.
+        var reassigned = Set<String>()
         if let sd = accounts.first(where: { $0.isSystemDefault }) {
             seen.insert(sd.id)
         }
@@ -221,12 +235,17 @@ public final class AccountRegistry {
                 var fresh = UUID().uuidString
                 while taken.contains(fresh) { fresh = UUID().uuidString }
                 taken.insert(fresh)
+                reassigned.insert(acc.id)
                 accounts[idx] = Account(id: fresh, label: acc.label,
                                         createdAt: acc.createdAt, isSystemDefault: false)
                 changed = true
             }
             seen.insert(accounts[idx].id)
         }
+        // #58: recorded regardless of the save outcome below — the in-memory
+        // ownership changed either way. (Phase-1 canonical migration old-ids become
+        // DANGLING, covered by the existing heal; demotes keep their id — excluded.)
+        reassignedIDs = reassigned
 
         guard changed || forceSave else { return true }
         do {

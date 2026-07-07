@@ -86,8 +86,15 @@ public final class AccountManager {
         //   persists the correction so it doesn't recur.
         // - Fresh keeps the historical accounts.first seed, in-memory only (never persist a
         //   selection the user never made — that was an unintended round-1 behavior change).
-        if active == nil {
-            if self.activeAccountId != nil {
+        if let stored = self.activeAccountId {
+            // #58: heal fires for a DANGLING stored id (unresolvable) OR one whose
+            // ownership was reassigned by the registry's load-time repair — the
+            // latter still resolves, but to a DIFFERENT logical account, so keeping
+            // it would silently swap the identity that seeds new windows'
+            // CLAUDE_CONFIG_DIR. Deterministic recovery (system-default first) is
+            // applied even if the stale id happens to resolve "correctly" — which
+            // account the user meant is unknowable after a corruption repair.
+            if active == nil || self.registry.reassignedIDs.contains(stored) {
                 let healed = accounts.first(where: { $0.isSystemDefault }) ?? accounts.first
                 self.activeAccountId = healed?.id
                 // #57 F4: persist the correction ONLY when the registry's normalize repair
@@ -96,9 +103,9 @@ public final class AccountManager {
                 if let id = healed?.id, self.registry.normalizeDidPersist {
                     self.store.saveActiveAccountId(id)
                 }
-            } else {
-                self.activeAccountId = accounts.first?.id
             }
+        } else {
+            self.activeAccountId = accounts.first?.id
         }
     }
 
