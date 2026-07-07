@@ -4,10 +4,12 @@ import Testing
 import LogosAccounts
 
 /// The Logos usage window's model (merge-multistats-into-logos, spec
-/// usage-display: "The Logos usage window renders the registry" + the
-/// account-credential-isolation delta: the window never touches the bare
-/// Keychain entry). Consumer, not discoverer: accounts come from the shared
-/// registry, never from filesystem discovery.
+/// usage-display: "The Logos usage window renders the registry"). Consumer, not
+/// discoverer: accounts come from the shared registry, never from filesystem
+/// discovery. Keychain reads are hash-suffixed for isolated accounts; the
+/// system-default ("Main") account (#54/#55) READS the bare `Claude
+/// Code-credentials` entry (read-only) to show its plan usage — see
+/// `systemDefaultReadsBareEntry`. The bare entry is never mutated.
 @MainActor
 @Suite("RegistryUsageModel")
 struct RegistryUsageModelTests {
@@ -111,7 +113,9 @@ struct RegistryUsageModelTests {
         #expect(recorder.requestedServices == ["Claude Code-credentials"])            // bare, no hash suffix
     }
 
-    @Test("every Keychain lookup uses a hash-suffixed service — never the bare entry")
+    // ISOLATED accounts only: their lookups are hash-suffixed. (The system-default
+    // exception — reading the bare entry — is covered by `systemDefaultReadsBareEntry`.)
+    @Test("every ISOLATED account's Keychain lookup uses a hash-suffixed service")
     func neverReadsBareEntry() async throws {
         let registry = makeRegistry()
         try registry.create(label: "work")

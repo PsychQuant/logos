@@ -8,10 +8,13 @@ import LogosAccounts
 /// always matches Settings → Accounts and discovery-vs-registry drift is
 /// impossible in-app.
 ///
-/// Registry accounts are convention accounts under the accounts root, never
-/// the bare default `~/.claude` — so every Keychain lookup this model triggers
-/// uses a hash-suffixed service name and the bare `Claude Code-credentials`
-/// entry is structurally out of reach.
+/// Isolated registry accounts are convention accounts under the accounts root,
+/// so their Keychain lookup uses a hash-suffixed service name. The **one**
+/// exception (#55) is the system-default ("Main") account (#54): it reuses the
+/// system `~/.claude`, so its row is built `isDefault: true` and its lookup
+/// READS the bare `Claude Code-credentials` entry — read-only, to display Main's
+/// plan usage. The bare entry is never mutated here (account-credential-isolation
+/// spec: the read-only usage target may read, never write/delete).
 @MainActor
 @Observable
 public final class RegistryUsageModel {
