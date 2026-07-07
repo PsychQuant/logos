@@ -1,5 +1,6 @@
 import SwiftUI
 import LogosUsage
+import LogoSwitch
 
 /// 帳號用量 — per-account Claude plan-usage window (merge-multistats-into-logos).
 ///
@@ -11,6 +12,10 @@ import LogosUsage
 /// usage (#47): this is the plan/rate-limit quota per account.
 struct AccountUsageWindow: View {
     @Environment(RegistryUsageModel.self) private var model
+    /// #55 C3: read the launcher's active/seed selection to highlight the matching
+    /// row. Bridge lives at the view layer only — `RegistryUsageModel` stays
+    /// decoupled from `LogoSwitch`.
+    @Environment(AccountManager.self) private var accountManager
 
     var body: some View {
         content
@@ -45,7 +50,9 @@ struct AccountUsageWindow: View {
                 description: Text("在 設定 → 帳號 新增帳號後，這裡會顯示各帳號的方案用量。"))
         } else {
             List(model.accounts) { account in
-                UsageAccountRow(account: account)
+                UsageAccountRow(
+                    account: account,
+                    isActive: account.registryAccountId == accountManager.activeAccountId)
             }
         }
     }
