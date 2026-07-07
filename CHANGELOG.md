@@ -85,6 +85,21 @@ All notable changes to Logos are documented here. Format loosely follows
   keeps; the system-default stays exempt so a system-default "Main" still coexists
   with an isolated "Main"). Idempotent — a clean index is never rewritten.
 
+- **Crafted-index defense-in-depth: id format validation, decode caps, restrictive
+  permissions** ([#61](https://github.com/PsychQuant/logos/issues/61)). An account id
+  is a path component (`~/.logos/accounts/<id>/.claude` → the spawned claude's
+  `CLAUDE_CONFIG_DIR`), yet a crafted `index.json` could carry a traversal id like
+  `../../…` straight into that path. Ids are now format-checked (ASCII
+  letters/digits/hyphen, 1–64 chars) at the `add()` gate AND repaired (fresh UUID) by
+  a new `normalize()` phase 0 at load. The attacker-writable index also gains decode
+  caps (1 MB / 500 accounts — beyond either it loads like a corrupt file: empty, bytes
+  preserved as evidence), and persistence applies restrictive modes — accounts root
+  `0o700` and index `0o600`, both re-applied after every atomic write (best-effort). A
+  `0o700` accounts root blocks other-user traversal into every per-account config dir
+  beneath it, so it converges regardless of which module created the directory chain
+  first (the round-1 verify caught that a create-time attribute alone was a no-op when
+  a sibling module built the chain first).
+
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
   usage from the window's account session transcript JSONL (`message.usage` — input + cache
