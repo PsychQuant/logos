@@ -437,6 +437,56 @@ struct AccountManagerTests {
         #expect(store.loadActiveAccountId() == Account.systemDefaultID)   // persisted (repair persisted)
     }
 
+    // #58 verify (DA coverage gap): the reassigned-id heal composed with a FAILED
+    // normalize save — heal happens in memory, but the store must keep its old
+    // value (the #57 F4 gate applies to the new trigger identically).
+    @Test("reassigned-id heal does not persist when the repair didn't persist (#58)")
+    func reassignedHealNotPersistedOnRepairFailure() throws {
+        let url = tempIndexURL()
+        let iso = ISO8601DateFormatter()
+        let json = """
+        {"version":1,"accounts":[\
+        {"id":"\(Account.systemDefaultID)","label":"Main","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 100)))","isSystemDefault":true},\
+        {"id":"dup","label":"A","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 500)))","isSystemDefault":false},\
+        {"id":"dup","label":"B","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 900)))","isSystemDefault":false}]}
+        """
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
+        let store = InMemoryActiveAccountStore()
+        store.saveActiveAccountId("dup")
+        // read-only parent → normalize's repair save fails → normalizeDidPersist == false
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        let mgr = makeManager(indexFileURL: url, store: store)
+        #expect(mgr.active?.isSystemDefault == true)      // healed in memory
+        #expect(store.loadActiveAccountId() == "dup")     // NOT persisted — F4 gate holds
+    }
+
+    // #58 pin (requirements reviewer item 6): the LITERAL #57 round-2 DA-probe shape —
+    // stored active = the reserved id, held by a squatter, canonical migrates in.
+    // Provably a no-observable-difference case for the reserved id (canonical always
+    // wins it before phase 2), pinned here so the original probe scenario stays covered
+    // end-to-end through AccountManager.
+    @Test("DA-probe shape: reserved-id squatter with stored active heals deterministically (#58)")
+    func daProbeShapeHealsDeterministically() throws {
+        let url = tempIndexURL()
+        let iso = ISO8601DateFormatter()
+        let json = """
+        {"version":1,"accounts":[\
+        {"id":"legacy-uuid","label":"Main","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 100)))","isSystemDefault":true},\
+        {"id":"\(Account.systemDefaultID)","label":"Squatter","createdAt":"\(iso.string(from: Date(timeIntervalSince1970: 900)))","isSystemDefault":false}]}
+        """
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
+        let store = InMemoryActiveAccountStore()
+        store.saveActiveAccountId(Account.systemDefaultID)   // the user's active was the squatter
+        let mgr = makeManager(indexFileURL: url, store: store)
+        #expect(mgr.active?.id == Account.systemDefaultID)   // deterministic heal target
+        #expect(mgr.active?.isSystemDefault == true)         // = the canonical, not the squatter
+        #expect(store.loadActiveAccountId() == Account.systemDefaultID)   // persisted (repair persisted)
+    }
+
     // #58 regression guard: a stored id that was NOT reassigned stays untouched —
     // the new heal condition must not fire on a clean reload.
     @Test("a valid stored active id is untouched by the reassigned-id heal (#58)")
