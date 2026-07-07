@@ -21,13 +21,16 @@ public final class RegistryUsageModel {
     /// Injected factory (account, registryLabel) → row model; the test seam
     /// for stub keychains/fetchers. The registry label wins over any
     /// identity-derived label.
-    @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount, String) -> AccountUsageModel
+    /// Factory (account, registryLabel, registryAccountId) → row model. #55 C3: the
+    /// registry id is threaded so the usage window can highlight the active selection
+    /// (the row's own id is a config-dir path, not the registry id).
+    @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount, String, String) -> AccountUsageModel
     @ObservationIgnored private var hasCompletedFirstPass = false
 
     public init(
         registry: AccountRegistry,
-        makeModel: @escaping @MainActor (DiscoveredAccount, String) -> AccountUsageModel = {
-            AccountUsageModel(account: $0, labelOverride: $1)
+        makeModel: @escaping @MainActor (DiscoveredAccount, String, String) -> AccountUsageModel = {
+            AccountUsageModel(account: $0, labelOverride: $1, registryAccountId: $2)
         }
     ) {
         self.registry = registry
@@ -38,12 +41,16 @@ public final class RegistryUsageModel {
     /// idempotent — call on window open and after registry mutations.
     public func load() {
         accounts = registry.accounts.map { entry in
-            let configDir = URL(fileURLWithPath: entry.configDirPath)
+            // #55 C1: the system-default ("Main") account reuses ~/.claude — build its
+            // row against the real config dir with isDefault:true so the keychain
+            // lookup hits the bare `Claude Code-credentials` (isDefault gates the
+            // service name). Isolated accounts keep their per-account dir + hash-suffix.
+            let configDir = URL(fileURLWithPath: entry.usageConfigDir)
             let discovered = DiscoveredAccount(
                 configDir: configDir,
-                isDefault: false,
+                isDefault: entry.isSystemDefault,
                 identity: ConfigParser.identity(forConfigDir: configDir))
-            return makeModel(discovered, entry.label)
+            return makeModel(discovered, entry.label, entry.id)
         }
     }
 

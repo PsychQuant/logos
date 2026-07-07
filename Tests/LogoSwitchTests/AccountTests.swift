@@ -66,6 +66,25 @@ struct AccountTests {
         #expect(acc.configDirPath.hasSuffix("/.logos/accounts/main/.claude"))
     }
 
+    // #55: usageConfigDir is the account's REAL claude config dir — where the usage
+    // layer reads its transcript / keys its keychain lookup. For the system-default
+    // account this is the bare `~/.claude` (it spawns with no CLAUDE_CONFIG_DIR and
+    // never materializes its per-account dir), NOT the configDirPath the isolation
+    // path uses.
+    @Test("usageConfigDir is ~/.claude for a system-default account (#55)")
+    func usageConfigDirSystemDefault() {
+        let acc = Account(id: "main", label: "Main", isSystemDefault: true)
+        let home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path
+        #expect(acc.usageConfigDir == home)
+        #expect(!acc.usageConfigDir.contains("/.logos/accounts/"))
+    }
+
+    @Test("usageConfigDir equals configDirPath for an isolated account (#55)")
+    func usageConfigDirIsolated() {
+        let acc = Account(id: "abc", label: "work")
+        #expect(acc.usageConfigDir == acc.configDirPath)
+    }
+
     @Test("Codable round-trip carries isSystemDefault")
     func codableRoundTrip() throws {
         let acc = Account(id: "main", label: "Main", isSystemDefault: true)

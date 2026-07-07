@@ -79,6 +79,20 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         isSystemDefault ? nil : configDirPath
     }
 
+    /// #55: the account's REAL claude config dir — where the usage layer reads its
+    /// session transcript AND keys its Keychain lookup. For the system-default
+    /// account this is the bare `~/.claude` (it spawns with no `CLAUDE_CONFIG_DIR`
+    /// and never materializes `configDirPath`), so usage must read there, not the
+    /// per-account isolation path. For an isolated account it IS `configDirPath`.
+    /// Distinct from `spawnConfigDir` (which is `nil` for the system-default,
+    /// meaning "no override" — unusable as a concrete dir); this always resolves to
+    /// a real directory.
+    public var usageConfigDir: String {
+        isSystemDefault
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path
+            : configDirPath
+    }
+
     public enum ValidationError: Error, Equatable {
         case emptyLabel
         case labelTooLong
