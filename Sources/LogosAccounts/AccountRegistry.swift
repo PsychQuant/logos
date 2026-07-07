@@ -119,6 +119,11 @@ public final class AccountRegistry {
     /// Validates exactly like `create`.
     public func add(_ account: Account) throws {
         let trimmed = try Account.validate(label: account.label)
+        // #61: the id is a config-dir path component — malformed ids (traversal,
+        // control chars) are rejected at the gate, not just repaired at next load.
+        guard Account.isValidID(account.id) else {
+            throw Account.ValidationError.invalidID
+        }
         // #57 F1: global id-uniqueness — no two accounts may share an id.
         if accounts.contains(where: { $0.id == account.id }) {
             throw Account.ValidationError.duplicateID
@@ -182,6 +187,23 @@ public final class AccountRegistry {
     @discardableResult
     private func normalize(forceSave: Bool = false) -> Bool {
         var changed = false
+
+        // Phase 0 (#61): id FORMAT. A malformed id (traversal, control chars, empty,
+        // over-long) is a security problem the moment it's used as a path component
+        // (`configDirPath` → `CLAUDE_CONFIG_DIR`), so it's repaired before anything
+        // else keys off ids. Fresh ids avoid every current id. The OLD malformed id
+        // is NOT recorded in `reassignedIDs`: nothing can hold it afterwards
+        // (dangling), so the existing active==nil heal covers a stored selection.
+        var allIDs = Set(accounts.map(\.id))
+        for idx in accounts.indices where !Account.isValidID(accounts[idx].id) {
+            let acc = accounts[idx]
+            var fresh = UUID().uuidString
+            while allIDs.contains(fresh) { fresh = UUID().uuidString }
+            allIDs.insert(fresh)
+            accounts[idx] = Account(id: fresh, label: acc.label,
+                                    createdAt: acc.createdAt, isSystemDefault: acc.isSystemDefault)
+            changed = true
+        }
 
         // Phase 1: at most one system-default, and it holds the reserved fixed id.
         let systemDefaultIdxs = accounts.indices.filter { accounts[$0].isSystemDefault }
@@ -373,13 +395,29 @@ public final class AccountRegistry {
 
     // MARK: - Persistence
 
+    /// #61: caps on the attacker-writable index. Beyond either cap the file is
+    /// treated exactly like a corrupt one — load empty, preserve the bytes as
+    /// evidence. 500 accounts × ~200 bytes ≈ 100 KB, so 1 MB leaves ~10× headroom
+    /// over any legitimate index.
+    static let maxIndexBytes = 1_048_576
+    static let maxAccounts = 500
+
     private static func load(from url: URL, fileManager: FileManager) -> [Account] {
         guard fileManager.fileExists(atPath: url.path) else { return [] }
         do {
             let data = try Data(contentsOf: url)
+            guard data.count <= maxIndexBytes else {
+                log.notice("account index exceeds size cap — starting empty, file preserved")
+                return []
+            }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(IndexFile.self, from: data).accounts
+            let decoded = try decoder.decode(IndexFile.self, from: data).accounts
+            guard decoded.count <= maxAccounts else {
+                log.notice("account index exceeds account-count cap — starting empty, file preserved")
+                return []
+            }
+            return decoded
         } catch {
             log.notice("account index unreadable — starting empty, file preserved: \(error.localizedDescription, privacy: .private)")
             return []
@@ -391,9 +429,22 @@ public final class AccountRegistry {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(IndexFile(version: 1, accounts: accounts))
+        // #61: restrictive modes, defense-in-depth. `attributes` applies only to
+        // directories this call CREATES — pre-existing dirs keep their mode (no
+        // forced migration).
         try fileManager.createDirectory(
             at: indexFileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
         try data.write(to: indexFileURL, options: .atomic)
+        // #61: the atomic replace inherits the temp file's permissions — re-apply
+        // each save. Best-effort by design: the write above already succeeded, and
+        // throwing here would make `mutate` roll back memory against a disk that
+        // DID change (breaking the "rollback ⇒ disk unchanged" invariant).
+        do {
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: indexFileURL.path)
+        } catch {
+            Self.log.notice("index permission set failed: \(error.localizedDescription, privacy: .private)")
+        }
     }
 }

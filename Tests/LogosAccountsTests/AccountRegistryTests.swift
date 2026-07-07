@@ -615,6 +615,74 @@ struct AccountRegistryTests {
         #expect(AccountRegistry(indexFileURL: url).accounts.first?.label == String(repeating: "x", count: 29))
     }
 
+    // #61: the id is a config-dir path component — malformed ids are rejected at the
+    // mutation gate, not just repaired at next load.
+    @Test("add rejects a malformed id (#61)")
+    @MainActor func addRejectsMalformedID() {
+        let registry = AccountRegistry(indexFileURL: tempIndexURL())
+        #expect(throws: Account.ValidationError.invalidID) {
+            try registry.add(Account(id: "../../evil", label: "X"))
+        }
+        #expect(throws: Account.ValidationError.invalidID) {
+            try registry.add(Account(id: "", label: "Y"))
+        }
+        #expect(registry.accounts.isEmpty)
+    }
+
+    // #61: a persisted malformed id is re-idded at load. The OLD id must NOT enter
+    // reassignedIDs — nothing can hold it afterwards (dangling), so the existing
+    // active==nil heal covers a stored selection pointing at it.
+    @Test("normalize re-ids a malformed persisted id, not flagged reassigned (#61)")
+    @MainActor func normalizeReIDsMalformedID() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([(id: "../../evil", label: "X", epoch: 1_000, sd: false)], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        let id = try #require(r.accounts.first?.id)
+        #expect(Account.isValidID(id))
+        #expect(id != "../../evil")
+        #expect(!r.reassignedIDs.contains("../../evil"))
+        #expect(AccountRegistry(indexFileURL: url).accounts.first?.id == id)   // repair persisted
+    }
+
+    // #61: caps on the attacker-writable index — beyond either cap the file is
+    // treated exactly like a corrupt one (load empty, preserve the bytes as evidence).
+    @Test("an index over the byte cap loads empty and is preserved (#61)")
+    @MainActor func loadRejectsOversizedIndex() throws {
+        let url = tempIndexURL()
+        let bigLabel = String(repeating: "a", count: 1_100_000)
+        try writeCorruptIndex([(id: "a", label: bigLabel, epoch: 1_000, sd: false)], to: url)
+        let before = try Data(contentsOf: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.isEmpty)
+        #expect(try Data(contentsOf: url) == before)
+    }
+
+    @Test("an index over the account-count cap loads empty and is preserved (#61)")
+    @MainActor func loadRejectsTooManyAccounts() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex((1...501).map { (id: "a\($0)", label: "L\($0)", epoch: TimeInterval($0), sd: false) }, to: url)
+        let before = try Data(contentsOf: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.isEmpty)
+        #expect(try Data(contentsOf: url) == before)
+    }
+
+    // #61: defense-in-depth permissions — the index may carry user-chosen labels, and
+    // the accounts root holds per-account config dirs.
+    @Test("save applies restrictive permissions — 0o700 dir, 0o600 index (#61)")
+    @MainActor func savePermissions() throws {
+        let url = tempIndexURL()               // parent does not exist — save creates it
+        let registry = AccountRegistry(indexFileURL: url)
+        try registry.create(label: "work")
+        let fm = FileManager.default
+        let dirPerms = try #require(try fm.attributesOfItem(
+            atPath: url.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber)
+        let filePerms = try #require(try fm.attributesOfItem(
+            atPath: url.path)[.posixPermissions] as? NSNumber)
+        #expect(dirPerms.uint16Value == 0o700)
+        #expect(filePerms.uint16Value == 0o600)
+    }
+
     // #57 (round-2 transactional primitive): rename rolls back on save failure, like add.
     @Test("rename rolls back on save failure (#57 mutate)")
     @MainActor func renameRollsBackOnSaveFailure() throws {

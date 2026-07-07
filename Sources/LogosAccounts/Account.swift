@@ -90,6 +90,21 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         /// #57 round-2: reserved-id ownership — the fixed `systemDefaultID` may
         /// only (and must only) be held by the system-default account.
         case reservedID
+        /// #61: the id is a CONFIG-DIR PATH COMPONENT — malformed format
+        /// (traversal, control chars, empty, over-long) is a security boundary
+        /// violation, not just bad data.
+        case invalidID
+    }
+
+    /// #61: id format — the id becomes a path component
+    /// (`~/.logos/accounts/<id>/.claude` → the spawned claude's
+    /// `CLAUDE_CONFIG_DIR`), so its format IS a security boundary: ASCII
+    /// letters/digits/hyphen only, 1–64 chars. Covers every legitimate producer
+    /// (UUID strings, the fixed `systemDefaultID`) and excludes traversal
+    /// (`/`, `..` needs `.`), empties, and control characters.
+    public static func isValidID(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64
+            && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
     }
 
     /// Validate label only (duplicate-check requires AccountManager).
