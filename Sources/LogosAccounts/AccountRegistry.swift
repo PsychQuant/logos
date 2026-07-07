@@ -244,7 +244,9 @@ public final class AccountRegistry {
         }
         // #58: recorded regardless of the save outcome below — the in-memory
         // ownership changed either way. (Phase-1 canonical migration old-ids become
-        // DANGLING, covered by the existing heal; demotes keep their id — excluded.)
+        // DANGLING, covered by the existing heal. Demotes keep their id at the
+        // demote step itself — but phase 2 re-checks every final id, so a demoted
+        // account still holding a colliding/reserved id IS evicted and recorded here.)
         reassignedIDs = reassigned
 
         guard changed || forceSave else { return true }
