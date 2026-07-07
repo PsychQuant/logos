@@ -249,6 +249,36 @@ public final class AccountRegistry {
         // account still holding a colliding/reserved id IS evicted and recorded here.)
         reassignedIDs = reassigned
 
+        // Phase 3 (#59): label invariants. Labels from DISK bypass `Account.validate`
+        // (init(from:) doesn't trim), so re-impose the mutation-path bounds here —
+        // trim, placeholder an empty label, clamp to 30 chars — then uniquify
+        // duplicate ISOLATED labels (first occurrence keeps; the system-default is
+        // exempt: a system-default "Main" coexists with an isolated "Main", #56 B1).
+        // Cleanup runs FIRST because trimming itself can create a duplicate. Labels
+        // are cosmetic — config dirs key off `id` — so this repair is identity-safe.
+        for idx in accounts.indices {
+            let acc = accounts[idx]
+            var label = acc.label.trimmingCharacters(in: .whitespaces)
+            if label.isEmpty { label = "(unnamed)" }
+            if label.count > 30 { label = String(label.prefix(30)) }
+            if label != acc.label {
+                accounts[idx] = Account(id: acc.id, label: label,
+                                        createdAt: acc.createdAt, isSystemDefault: acc.isSystemDefault)
+                changed = true
+            }
+        }
+        var seenLabels = Set<String>()
+        for idx in accounts.indices where !accounts[idx].isSystemDefault {
+            let acc = accounts[idx]
+            if seenLabels.contains(acc.label) {
+                accounts[idx] = Account(id: acc.id,
+                                        label: uniqueIsolatedLabel(acc.label, excludingIndex: idx),
+                                        createdAt: acc.createdAt, isSystemDefault: false)
+                changed = true
+            }
+            seenLabels.insert(accounts[idx].label)
+        }
+
         guard changed || forceSave else { return true }
         do {
             try save()

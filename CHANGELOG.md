@@ -76,6 +76,15 @@ All notable changes to Logos are documented here. Format loosely follows
   dangling one (system-default first, persist gated on the repair having landed).
   Surfaced by the #57 round-2 Devil's Advocate via an empirical probe.
 
+- **Labels from a crafted index are repaired at load** ([#59](https://github.com/PsychQuant/logos/issues/59)).
+  Persisted labels bypass the mutation-path validation (decode doesn't trim), so a
+  crafted/corrupted `index.json` could carry empty, whitespace-padded, over-long, or
+  duplicate isolated labels straight into the switcher UI. `normalize()` gains a
+  phase-3 label pass: trim, `(unnamed)` placeholder for empties, 30-char clamp, and
+  `(recovered)`-suffix uniquification for duplicate isolated labels (first occurrence
+  keeps; the system-default stays exempt so a system-default "Main" still coexists
+  with an isolated "Main"). Idempotent — a clean index is never rewritten.
+
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
   usage from the window's account session transcript JSONL (`message.usage` — input + cache
