@@ -569,6 +569,52 @@ struct AccountRegistryTests {
         #expect(try Data(contentsOf: url) == after)
     }
 
+    // #59 verify (blocking): at an exact-cap collision (two identical 30-char labels)
+    // the cleanup clamp and the uniquify suffix undo each other — a per-step changed
+    // flag fires save() on EVERY load forever even though the bytes are stable. The
+    // pass must converge: after the first repairing save, later loads must not write.
+    // (Read-only parent makes a write ATTEMPT observable: any attempted save would
+    // fail and flip normalizeDidPersist to false.)
+    @Test("label repair converges — no rewrite on subsequent loads at exact-cap collision (#59 verify)")
+    @MainActor func labelRepairConvergesAtExactCapCollision() throws {
+        let url = tempIndexURL()
+        let cap = String(repeating: "x", count: 30)
+        try writeCorruptIndex([
+            (id: "a", label: cap, epoch: 1_000, sd: false),
+            (id: "b", label: cap, epoch: 2_000, sd: false),
+        ], to: url)
+        _ = AccountRegistry(indexFileURL: url)               // load 1: repairs + saves
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        let r2 = AccountRegistry(indexFileURL: url)          // load 2: MUST be a no-op
+        #expect(r2.normalizeDidPersist == true)              // no write attempted — converged
+        #expect(r2.accounts.first(where: { $0.id == "a" })?.label == cap)
+        #expect(r2.accounts.first(where: { $0.id == "b" })?.label == "\(cap) (recovered)")
+    }
+
+    // #59 verify: `.whitespaces` misses newline-only labels — a "\n" label dodged the
+    // empty-placeholder repair. Phase 3 trims newlines too (decode can carry them).
+    @Test("normalize replaces a newline-only persisted label with the placeholder (#59 verify)")
+    @MainActor func normalizeReplacesNewlineOnlyLabel() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([(id: "a", label: "\\n", epoch: 1_000, sd: false)], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.first?.label == "(unnamed)")
+    }
+
+    // #59 verify (pin): a clamp that lands on trailing whitespace re-trims via
+    // Account.init to a 29-char stable result — converges, no tug-of-war.
+    @Test("clamp landing on trailing whitespace converges to the trimmed result (#59 verify)")
+    @MainActor func clampOnTrailingWhitespaceConverges() throws {
+        let url = tempIndexURL()
+        let label = String(repeating: "x", count: 29) + " y"    // 31 chars; prefix(30) ends in space
+        try writeCorruptIndex([(id: "a", label: label, epoch: 1_000, sd: false)], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.accounts.first?.label == String(repeating: "x", count: 29))
+        #expect(AccountRegistry(indexFileURL: url).accounts.first?.label == String(repeating: "x", count: 29))
+    }
+
     // #57 (round-2 transactional primitive): rename rolls back on save failure, like add.
     @Test("rename rolls back on save failure (#57 mutate)")
     @MainActor func renameRollsBackOnSaveFailure() throws {

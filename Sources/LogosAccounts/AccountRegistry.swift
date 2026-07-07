@@ -251,32 +251,61 @@ public final class AccountRegistry {
 
         // Phase 3 (#59): label invariants. Labels from DISK bypass `Account.validate`
         // (init(from:) doesn't trim), so re-impose the mutation-path bounds here —
-        // trim, placeholder an empty label, clamp to 30 chars — then uniquify
-        // duplicate ISOLATED labels (first occurrence keeps; the system-default is
-        // exempt: a system-default "Main" coexists with an isolated "Main", #56 B1).
-        // Cleanup runs FIRST because trimming itself can create a duplicate. Labels
-        // are cosmetic — config dirs key off `id` — so this repair is identity-safe.
+        // trim (incl. newlines, which only the decode path can carry), placeholder an
+        // empty label, clamp to 30 chars — then uniquify duplicate ISOLATED labels.
+        // First occurrence in array order keeps its label (the same deterministic
+        // tie-break as the phase-2 id sweep; note phase 1's demote uniquify instead
+        // defers to ANY existing isolated label regardless of position — both are
+        // recovery policies, not intent reconstruction). The system-default is exempt
+        // from uniqueness: a system-default "Main" coexists with an isolated "Main"
+        // (#56 B1). Cleanup runs FIRST because trimming itself can create a duplicate.
+        // Labels are cosmetic — config dirs key off `id` — so the repair is identity-safe.
+        //
+        // #59 verify (blocking): `changed` reflects the NET label change of the whole
+        // pass, compared at the end — at an exact-cap collision the cleanup clamp and
+        // the uniquify suffix undo each other back to the stored bytes, and a per-step
+        // flag would fire save() on EVERY load forever. Net comparison converges: the
+        // repaired file is written once, then never rewritten.
+        let labelsBefore = accounts.map(\.label)
         for idx in accounts.indices {
             let acc = accounts[idx]
-            var label = acc.label.trimmingCharacters(in: .whitespaces)
+            var label = acc.label.trimmingCharacters(in: .whitespacesAndNewlines)
             if label.isEmpty { label = "(unnamed)" }
             if label.count > 30 { label = String(label.prefix(30)) }
             if label != acc.label {
                 accounts[idx] = Account(id: acc.id, label: label,
                                         createdAt: acc.createdAt, isSystemDefault: acc.isSystemDefault)
-                changed = true
             }
         }
-        var seenLabels = Set<String>()
+        // #59 verify (O(N²)): incremental sets instead of a per-collision rescan of the
+        // whole list — a crafted index with thousands of same-labeled accounts must not
+        // hang the @MainActor init. `used` holds every isolated label still assigned
+        // (visited or not) plus generated candidates; `seenFirst` holds labels already
+        // claimed by an earlier occurrence.
+        var used = Set<String>()
+        for idx in accounts.indices where !accounts[idx].isSystemDefault {
+            used.insert(accounts[idx].label)
+        }
+        var seenFirst = Set<String>()
         for idx in accounts.indices where !accounts[idx].isSystemDefault {
             let acc = accounts[idx]
-            if seenLabels.contains(acc.label) {
-                accounts[idx] = Account(id: acc.id,
-                                        label: uniqueIsolatedLabel(acc.label, excludingIndex: idx),
+            if seenFirst.contains(acc.label) {
+                var candidate = "\(acc.label) (recovered)"
+                var n = 2
+                while used.contains(candidate) {
+                    candidate = "\(acc.label) (recovered \(n))"
+                    n += 1
+                }
+                used.insert(candidate)
+                accounts[idx] = Account(id: acc.id, label: candidate,
                                         createdAt: acc.createdAt, isSystemDefault: false)
-                changed = true
+                seenFirst.insert(candidate)
+            } else {
+                seenFirst.insert(acc.label)
             }
-            seenLabels.insert(accounts[idx].label)
+        }
+        if accounts.map(\.label) != labelsBefore {
+            changed = true
         }
 
         guard changed || forceSave else { return true }
@@ -292,6 +321,8 @@ public final class AccountRegistry {
 
     /// #57 F3: a label unique among EXISTING isolated accounts (excluding the account
     /// at `excludingIndex`), suffixing "(recovered)" / "(recovered N)" on collision.
+    /// Used by phase 1's demote branch only (small N per load) — phase 3's uniquify
+    /// sweep uses its own incremental sets instead (#59 verify, O(N²) finding).
     private func uniqueIsolatedLabel(_ label: String, excludingIndex: Int) -> String {
         let taken = Set(accounts.indices
             .filter { $0 != excludingIndex && !accounts[$0].isSystemDefault }
