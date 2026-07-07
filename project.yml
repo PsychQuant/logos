@@ -50,17 +50,56 @@ packages:
     exactVersion: "1.19.2"
 
 targets:
+  # #60: LogosAccounts + LogosUsage are Package.swift library targets (extracted
+  # during the merge-multistats-into-logos work) that LogoSwitch and the Logos app
+  # depend on. SwiftPM resolves them via Package.swift; the generated xcodeproj
+  # needs them as explicit module targets too, or `import LogosAccounts` fails
+  # inside LogoSwitch and Track B won't compile. Same drift as #39's LogoSwitch
+  # wiring — a new module was extracted and project.yml didn't follow, silently
+  # breaking Track B. Mirrors the LogoSwitch framework recipe.
+  #
+  # LogosAccounts — Foundation-only credential-free account/registry layer. No
+  # module deps; must NOT link Security (the #34 red line, RedLineAuditTests).
+  LogosAccounts:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/LogosAccounts
+    settings:
+      base:
+        PRODUCT_NAME: LogosAccounts
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosAccounts
+        GENERATE_INFOPLIST_FILE: "YES"
+
+  # LogosUsage — the ONE target allowed to import Security (read-only keychain +
+  # usage API). Depends on LogosAccounts.
+  LogosUsage:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/LogosUsage
+    dependencies:
+      - target: LogosAccounts
+    settings:
+      base:
+        PRODUCT_NAME: LogosUsage
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosUsage
+        GENERATE_INFOPLIST_FILE: "YES"
+
   # #39: LogoSwitch is a Package.swift library (Sources/LogoSwitch) that 8 files in
   # the Logos target import. SwiftPM resolves it via Package.swift; the generated
   # xcodeproj needs it as an explicit module target so `import LogoSwitch` resolves
   # under xcodebuild too (it didn't — Track B was silently broken since #34).
   # A framework gives a clean Swift module; it links Foundation + os only and
   # deliberately does NOT link Security (the #34 red line, enforced by RedLineAuditTests).
+  # #60: it also imports LogosAccounts, so that module target must be a dependency.
   LogoSwitch:
     type: framework
     platform: macOS
     sources:
       - path: Sources/LogoSwitch
+    dependencies:
+      - target: LogosAccounts
     settings:
       base:
         PRODUCT_NAME: LogoSwitch
@@ -76,6 +115,8 @@ targets:
       - path: Sources/Logos
     dependencies:
       - target: LogoSwitch
+      - target: LogosAccounts
+      - target: LogosUsage
       - package: SwiftTerm
         product: SwiftTerm
       - package: Highlightr
