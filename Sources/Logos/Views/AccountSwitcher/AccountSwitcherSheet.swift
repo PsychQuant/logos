@@ -23,6 +23,11 @@ struct AccountSwitcherSheet: View {
     /// rename's message. The sheet owns this so `AccountRow` stays presentational.
     @State private var editingAccountId: String?
     @State private var renameError: String?
+    /// #60: last failed delete's message. #57 made `remove()` return `Bool` (a failed
+    /// registry persist rolls back, the account stays alive) — this surfaces that
+    /// failure instead of leaving the tap looking like a no-op. Cleared at the entry
+    /// of the next user action so it never lingers across interactions.
+    @State private var deleteError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,14 +80,10 @@ struct AccountSwitcherSheet: View {
             }
 
             if let err = renameError {
-                Text(err)
-                    .foregroundStyle(.red)
-                    .font(.caption)
-                    .lineLimit(2)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("logos.account.rename.error")  // #36 verify DA-7: queryable in a future UI test
+                SheetErrorLine(message: err, identifier: "logos.account.rename.error")  // #36 verify DA-7: queryable in a future UI test
+            }
+            if let err = deleteError {
+                SheetErrorLine(message: err, identifier: "logos.account.delete.error")  // #60: parity with the rename affordance
             }
 
             Divider()
@@ -162,6 +163,7 @@ struct AccountSwitcherSheet: View {
     /// default via `setActive` (Settings context). A window-local switch never writes
     /// the global default — the #42 window-local decision.
     private func selectAccount(_ id: String) {
+        deleteError = nil   // #60: a new action clears any stale delete error
         if let selection {
             selection.wrappedValue = id
         } else {
@@ -173,6 +175,7 @@ struct AccountSwitcherSheet: View {
 
     private func beginRename(_ accountId: String) {
         renameError = nil
+        deleteError = nil   // #60
         editingAccountId = accountId
     }
 
@@ -186,18 +189,25 @@ struct AccountSwitcherSheet: View {
     private func cancelRename(_ accountId: String) {
         guard editingAccountId == accountId else { return }
         renameError = nil
+        deleteError = nil   // #60
         editingAccountId = nil
     }
 
-    /// Delete an account; if it was the one being edited, clear the inline-edit
-    /// state so no stale `editingAccountId` survives the row's teardown (#36
-    /// verify, logic reviewer).
+    /// Delete an account. #60: `remove()` returns `false` when the registry persist
+    /// fails and rolls back (the account stays alive) — surface that instead of a
+    /// silent no-op, and clear the inline-edit state ONLY when the removal actually
+    /// happened (a rolled-back remove must not exit edit mode as if the row were gone;
+    /// #36 verify, logic reviewer, still holds for the success path).
     private func delete(_ accountId: String) {
+        deleteError = nil
+        guard mgr.remove(accountId: accountId) else {
+            deleteError = "無法移除帳號——變更未能儲存，請再試一次。"
+            return
+        }
         if editingAccountId == accountId {
             editingAccountId = nil
             renameError = nil
         }
-        mgr.remove(accountId: accountId)
     }
 
     /// Commit a rename. On a validation error, KEEP the row in edit mode and show
@@ -208,6 +218,7 @@ struct AccountSwitcherSheet: View {
     private func commitRename(_ accountId: String, to newLabel: String) {
         guard editingAccountId == accountId else { return }
         renameError = nil
+        deleteError = nil   // #60
         do {
             try mgr.rename(accountId: accountId, to: newLabel)
             editingAccountId = nil
@@ -220,6 +231,26 @@ struct AccountSwitcherSheet: View {
         } catch {
             renameError = "\(error)"
         }
+    }
+}
+
+/// #60: the sheet's bottom error caption, shared by the rename and delete
+/// affordances (a red `.caption` with a queryable accessibility id). Presentational
+/// (plain values, no environment) so it snapshots directly — `internal`, not
+/// `private`, so `LogosHostedTests` can construct it via `@testable import`.
+struct SheetErrorLine: View {
+    let message: String
+    let identifier: String
+
+    var body: some View {
+        Text(message)
+            .foregroundStyle(.red)
+            .font(.caption)
+            .lineLimit(2)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier(identifier)
     }
 }
 

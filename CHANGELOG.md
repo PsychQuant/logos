@@ -100,6 +100,21 @@ All notable changes to Logos are documented here. Format loosely follows
   first (the round-1 verify caught that a create-time attribute alone was a no-op when
   a sibling module built the chain first).
 
+- **The account switcher surfaces a failed delete instead of a silent no-op**
+  ([#60](https://github.com/PsychQuant/logos/issues/60)). `AccountSwitcherSheet.delete()`
+  was written before #57 made `AccountManager.remove()` return a `Bool` (a failed
+  registry persist rolls back and the account stays alive). The handler still (1)
+  discarded that `Bool` — a failed delete looked like the tap did nothing — and (2)
+  cleared the row's inline-edit state **before and regardless of** the result, so a
+  rolled-back remove silently left edit mode as if the account were gone. It now
+  branches on the `Bool`: on failure it shows a red caption ("無法移除帳號——變更未能
+  儲存，請再試一次。", queryable id `logos.account.delete.error`) and preserves edit
+  state; only a real removal tears the edit state down. The rename- and delete-error
+  captions are unified into one presentational `SheetErrorLine`, mutually exclusive
+  (each user action clears the other's stale error). A hosted snapshot pins the new
+  caption's rendering; the end-to-end failed-remove flow needs a persist-failure UI
+  seam the `--ui-testing` harness lacks and stays a documented Track-B gap.
+
 - **The "Main" (system-default) account is now integrated into the usage-tracking layer**
   ([#55](https://github.com/PsychQuant/logos/issues/55)). The #54 Main account reuses the
   system `~/.claude` and never materializes a per-account config dir, but the usage layer

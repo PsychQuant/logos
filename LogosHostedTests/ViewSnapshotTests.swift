@@ -90,4 +90,19 @@ final class ViewSnapshotTests: XCTestCase {
             width: 380, height: 44
         )
     }
+
+    // #60: the switcher's delete-failure caption (parity with the rename-error
+    // affordance). Proves the `SheetErrorLine` renders; the end-to-end
+    // failed-remove flow is Track-B (needs a persist-failure UI seam the harness
+    // lacks — see #60).
+    @MainActor
+    func test_sheetErrorLine_delete() {
+        snapshot(
+            SheetErrorLine(
+                message: "無法移除帳號——變更未能儲存，請再試一次。",
+                identifier: "logos.account.delete.error"
+            ),
+            width: 380, height: 40
+        )
+    }
 }
