@@ -65,6 +65,17 @@ All notable changes to Logos are documented here. Format loosely follows
   (surface remove failure in the switcher UI), and
   [#61](https://github.com/PsychQuant/logos/issues/61) (crafted-index defense-in-depth).
 
+- **Active selection heals when a corruption repair reassigns its id** ([#58](https://github.com/PsychQuant/logos/issues/58)).
+  `normalize()`'s id-uniqueness repair (#57) can take an id away from one account and
+  leave it resolving to another — a stored active selection pointing at such an id
+  used to rebind **silently** to the wrong logical account (the heal only fired for
+  unresolvable ids), permanently, with `active` seeding new windows'
+  `CLAUDE_CONFIG_DIR`. The registry now records the ownership-ambiguous ids of each
+  load-time repair (`reassignedIDs`, same pattern as `normalizeDidPersist`), and
+  `AccountManager` heals a stored active id that appears in the set exactly like a
+  dangling one (system-default first, persist gated on the repair having landed).
+  Surfaced by the #57 round-2 Devil's Advocate via an empirical probe.
+
 - **Status bar shows real token / context-window usage** ([#47](https://github.com/PsychQuant/logos/issues/47)).
   The `<used> / <max>` token item was a static placeholder (`0/200k`). It now reads the real
   usage from the window's account session transcript JSONL (`message.usage` — input + cache

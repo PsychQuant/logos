@@ -446,6 +446,45 @@ struct AccountRegistryTests {
         #expect(Set(demoted.map(\.label)).count == 2)   // distinct labels
     }
 
+    // #58: normalize must RECORD the old id of every account phase 2 re-ids — that
+    // id's ownership is ambiguous after the repair (it may still resolve, to a
+    // DIFFERENT account), and AccountManager consumes the set to heal a
+    // resolvable-but-wrong stored active id.
+    @Test("normalize records the evicted squatter's old id in reassignedIDs (#58)")
+    @MainActor func reassignedIDsRecordsSquatterEviction() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: Account.systemDefaultID, label: "Main", epoch: 1_000, sd: true),
+            (id: Account.systemDefaultID, label: "Squatter", epoch: 2_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.reassignedIDs == [Account.systemDefaultID])
+    }
+
+    // #58: a clean index must not flag anything — no spurious heals downstream.
+    @Test("a clean index leaves reassignedIDs empty (#58)")
+    @MainActor func reassignedIDsEmptyOnCleanIndex() throws {
+        let url = tempIndexURL()
+        let r1 = AccountRegistry(indexFileURL: url)
+        try r1.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))
+        try r1.create(label: "Work")
+        let r2 = AccountRegistry(indexFileURL: url)   // reload → normalize is a no-op
+        #expect(r2.reassignedIDs.isEmpty)
+    }
+
+    // #58: general duplicates count too — the first occupant keeps the id, so the
+    // id still resolves; any stored selection on it is ambiguous and must be flagged.
+    @Test("normalize records a duplicated id when its later occupant is re-idded (#58)")
+    @MainActor func reassignedIDsRecordsDuplicateEviction() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "dup", label: "A", epoch: 1_000, sd: false),
+            (id: "dup", label: "B", epoch: 2_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        #expect(r.reassignedIDs == ["dup"])
+    }
+
     // #57 (round-2 transactional primitive): rename rolls back on save failure, like add.
     @Test("rename rolls back on save failure (#57 mutate)")
     @MainActor func renameRollsBackOnSaveFailure() throws {
