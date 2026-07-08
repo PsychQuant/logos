@@ -202,14 +202,29 @@ struct AccountSwitcherSheet: View {
         // `commitRename`), which each clear BOTH captions before setting one. In the
         // deliberate-cancel path `deleteError` is already nil (beginRename cleared it), so
         // not clearing it here is a no-op there.
+        // #68: "rename state" includes `editingAccountId` — so when a trash-click on
+        // the row being edited DOES resign focus, this teardown fires and the row
+        // exits edit mode even if the delete then fails (delete()'s failure branch
+        // deliberately leaves the id set, so this guard passes on either side of it).
+        // Accepted: the failed delete's guaranteed signal is the surviving
+        // `deleteError` caption, not edit-mode retention — see delete()'s doc comment.
+        // #67's E2E asserts the caption; edit-mode behavior is recorded there as an
+        // observation.
         editingAccountId = nil
     }
 
     /// Delete an account. #60: `remove()` returns `false` when the registry persist
     /// fails and rolls back (the account stays alive) — surface that instead of a
-    /// silent no-op, and clear the inline-edit state ONLY when the removal actually
-    /// happened (a rolled-back remove must not exit edit mode as if the row were gone;
-    /// #36 verify, logic reviewer, still holds for the success path).
+    /// silent no-op. Hard guarantee (#68): the failure CAPTION is shown, and it
+    /// survives both orderings of the trash-click's synthesized `cancelRename`
+    /// (which never clears `deleteError` — see that method). Edit-mode retention on
+    /// failure is NOT structurally guaranteed: this failure branch leaves
+    /// `editingAccountId` alone, but a trash-click that resigns the row's TextField
+    /// focus synthesizes `cancelRename`, whose account-scoped guard then passes
+    /// (either before delete() runs, or after — the failure branch keeps the id set)
+    /// and tears edit mode down. Whether the click resigns focus is AppKit behavior,
+    /// not this code. Only the success path's teardown below is structural (#36
+    /// verify, logic reviewer, still holds there).
     private func delete(_ accountId: String) {
         // #60 verify (6-AI round 1): clear BOTH captions at entry, not just
         // `deleteError`. Delete is a user action, so it clears the sibling's stale
