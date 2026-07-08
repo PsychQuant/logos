@@ -138,19 +138,44 @@ struct AccountSwitcherSheet: View {
             try mgr.createAccount(label: newLabel)
             dismissAddSheet()
         } catch Account.ValidationError.emptyLabel {
-            addError = "Enter a label for the account."
+            setAddError("Enter a label for the account.")
         } catch Account.ValidationError.labelTooLong {
-            addError = "Label is too long (max 30 characters)."
+            setAddError("Label is too long (max 30 characters).")
         } catch Account.ValidationError.duplicateLabel {
-            addError = "An account with that label already exists."
+            setAddError("An account with that label already exists.")
         } catch {
             // #70: never surface a raw error description — this branch is reachable
             // with FileManager/registry-persist errors whose text can embed
             // filesystem paths. Friendly caption; detail to the unified log at
-            // default privacy (paths stay redacted, #22 D3).
-            Log.account.error("account create failed: \(String(describing: error))")
-            addError = "Couldn't create the account — the change didn't save. Try again."
+            // explicitly-private privacy (paths stay redacted, #22 D3).
+            Log.account.error("account create failed: \(String(describing: error), privacy: .private)")
+            setAddError("Couldn't create the account — the change didn't save. Try again.")
         }
+    }
+
+    // MARK: - Error surfacing (#71 round 2)
+
+    /// #71 round 2: every user-facing error is SET through one of these three
+    /// helpers, which post the VoiceOver announcement imperatively. The view-side
+    /// hooks (`onAppear`/`onChange` on `SheetErrorLine`) were removed because a
+    /// repeat of the SAME message coalesces to a no-op render and both hooks stay
+    /// silent — the identical-retry failure was inaudible (verify round 1). An
+    /// unconditional post at the mutation site covers first occurrence, changed
+    /// message, and literal repeat alike. Keep new error writes going through
+    /// these helpers, not direct `@State` assignment.
+    private func setAddError(_ message: String) {
+        addError = message
+        AccessibilityNotification.Announcement(message).post()
+    }
+
+    private func setRenameError(_ message: String) {
+        renameError = message
+        AccessibilityNotification.Announcement(message).post()
+    }
+
+    private func setDeleteError(_ message: String) {
+        deleteError = message
+        AccessibilityNotification.Announcement(message).post()
     }
 
     private func dismissAddSheet() {
@@ -245,7 +270,7 @@ struct AccountSwitcherSheet: View {
             // #69: English like every sibling message — this was the sheet's only
             // Chinese string. Localization proper (typed pipeline) stays recorded
             // debt on #69 until i18n actually lands.
-            deleteError = "Couldn't remove the account — the change didn't save. Try again."
+            setDeleteError("Couldn't remove the account — the change didn't save. Try again.")
             return
         }
         if editingAccountId == accountId {
@@ -266,28 +291,32 @@ struct AccountSwitcherSheet: View {
             try mgr.rename(accountId: accountId, to: newLabel)
             editingAccountId = nil
         } catch Account.ValidationError.emptyLabel {
-            renameError = "Enter a label for the account."
+            setRenameError("Enter a label for the account.")
         } catch Account.ValidationError.labelTooLong {
-            renameError = "Label is too long (max 30 characters)."
+            setRenameError("Label is too long (max 30 characters).")
         } catch Account.ValidationError.duplicateLabel {
-            renameError = "An account with that label already exists."
+            setRenameError("An account with that label already exists.")
         } catch {
             // #70: same as addAccount() — registry.rename's persist failure lands
             // here; log the detail, show a sentence.
-            Log.account.error("account rename failed: \(String(describing: error))")
-            renameError = "Couldn't rename the account — the change didn't save. Try again."
+            Log.account.error("account rename failed: \(String(describing: error), privacy: .private)")
+            setRenameError("Couldn't rename the account — the change didn't save. Try again.")
         }
     }
 }
 
 /// #60: the error caption shared by the rename, delete (#60) and add (#71)
 /// affordances (a red `.caption` with a queryable accessibility id). Presentational
-/// (plain values, no environment) so it snapshots directly — `internal`, not
-/// `private`, so `LogosHostedTests` can construct it via `@testable import`.
-/// #71: posts a VoiceOver announcement when it appears (the caption is created
-/// fresh on nil→message, so `.onAppear` fires exactly once) and when the message
-/// swaps while visible (`.onChange` — e.g. empty-label → too-long across two
-/// failed commits; it does not fire at view creation, so no double-announce).
+/// (plain values, no environment, no side effects) so it snapshots directly —
+/// `internal`, not `private`, so `LogosHostedTests` can construct it via
+/// `@testable import`.
+/// #71 round 2: the VoiceOver announcement is NOT posted here. Every error setter
+/// runs `error = nil` → `error = <message>` inside one synchronous action closure;
+/// when the message is unchanged SwiftUI coalesces that into a no-op render, so
+/// view-lifecycle hooks (`onAppear`/`onChange`) structurally cannot cover the
+/// identical-retry case (verify round 1, agents:logic + codex, DA-confirmed).
+/// Announcements are posted imperatively by the sheet's error setters instead —
+/// see `AccountSwitcherSheet`'s "Error surfacing" MARK.
 /// `horizontalPadding` defaults to the sheet's edge inset; already-padded
 /// containers (AddAccountForm) pass 0 to stay aligned with their fields.
 struct SheetErrorLine: View {
@@ -304,12 +333,6 @@ struct SheetErrorLine: View {
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier(identifier)
-            .onAppear { announce() }
-            .onChange(of: message) { _, _ in announce() }
-    }
-
-    private func announce() {
-        AccessibilityNotification.Announcement(message).post()
     }
 }
 
