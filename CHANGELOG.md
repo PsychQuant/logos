@@ -7,6 +7,14 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **The delete-failure caption is now English, like every other message in the switcher**
+  ([#69](https://github.com/PsychQuant/logos/issues/69)). The #60 caption shipped in Chinese
+  ("無法移除帳號——變更未能儲存，請再試一次。") while all sibling strings are English — the
+  sheet's only mixed-language surface. It now reads "Couldn't remove the account — the
+  change didn't save. Try again." (snapshot baseline re-recorded to pin the new text).
+  Proper localization (String Catalog + `LocalizedStringResource`-typed error pipeline)
+  stays recorded debt on #69 until i18n actually lands.
+
 - **Default theme is now Dark** ([#46](https://github.com/PsychQuant/logos/issues/46)).
   Logos hosts a fixed-dark terminal, so a light chrome over a dark terminal read as a
   jarring split. The out-of-box default `GeneralSettings.theme` moves `.system` → `.dark`

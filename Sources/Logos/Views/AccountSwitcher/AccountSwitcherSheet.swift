@@ -236,7 +236,10 @@ struct AccountSwitcherSheet: View {
         deleteError = nil
         renameError = nil
         guard mgr.remove(accountId: accountId) else {
-            deleteError = "無法移除帳號——變更未能儲存，請再試一次。"
+            // #69: English like every sibling message — this was the sheet's only
+            // Chinese string. Localization proper (typed pipeline) stays recorded
+            // debt on #69 until i18n actually lands.
+            deleteError = "Couldn't remove the account — the change didn't save. Try again."
             return
         }
         if editingAccountId == accountId {

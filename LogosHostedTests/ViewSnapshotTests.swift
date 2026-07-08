@@ -99,7 +99,8 @@ final class ViewSnapshotTests: XCTestCase {
     func test_sheetErrorLine_delete() {
         snapshot(
             SheetErrorLine(
-                message: "無法移除帳號——變更未能儲存，請再試一次。",
+                // #69: mirrors delete()'s actual production message — keep in sync.
+                message: "Couldn't remove the account — the change didn't save. Try again.",
                 identifier: "logos.account.delete.error"
             ),
             width: 380, height: 40
