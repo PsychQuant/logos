@@ -1,5 +1,6 @@
 import SwiftUI
 import LogoSwitch
+import os
 
 struct AccountSwitcherSheet: View {
     @Environment(AccountManager.self) private var mgr
@@ -143,7 +144,12 @@ struct AccountSwitcherSheet: View {
         } catch Account.ValidationError.duplicateLabel {
             addError = "An account with that label already exists."
         } catch {
-            addError = "\(error)"
+            // #70: never surface a raw error description — this branch is reachable
+            // with FileManager/registry-persist errors whose text can embed
+            // filesystem paths. Friendly caption; detail to the unified log at
+            // default privacy (paths stay redacted, #22 D3).
+            Log.account.error("account create failed: \(String(describing: error))")
+            addError = "Couldn't create the account — the change didn't save. Try again."
         }
     }
 
@@ -266,7 +272,10 @@ struct AccountSwitcherSheet: View {
         } catch Account.ValidationError.duplicateLabel {
             renameError = "An account with that label already exists."
         } catch {
-            renameError = "\(error)"
+            // #70: same as addAccount() — registry.rename's persist failure lands
+            // here; log the detail, show a sentence.
+            Log.account.error("account rename failed: \(String(describing: error))")
+            renameError = "Couldn't rename the account — the change didn't save. Try again."
         }
     }
 }

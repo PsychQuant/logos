@@ -7,6 +7,15 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **The switcher's fallback error captions no longer show raw error dumps**
+  ([#70](https://github.com/PsychQuant/logos/issues/70)). The add-account and rename
+  catch-alls interpolated the raw Swift error into the caption — reachable with
+  FileManager/registry-persist errors whose descriptions can embed filesystem paths.
+  They now show a friendly sentence ("Couldn't create/rename the account — the change
+  didn't save. Try again.") and log the underlying error to the unified log
+  (`Log.account`, default privacy — paths stay redacted). Known validation messages
+  are unchanged.
+
 - **The delete-failure caption is now English, like every other message in the switcher**
   ([#69](https://github.com/PsychQuant/logos/issues/69)). The #60 caption shipped in Chinese
   ("無法移除帳號——變更未能儲存，請再試一次。") while all sibling strings are English — the
