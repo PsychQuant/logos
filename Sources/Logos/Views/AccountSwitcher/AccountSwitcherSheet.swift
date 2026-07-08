@@ -280,27 +280,42 @@ struct AccountSwitcherSheet: View {
     }
 }
 
-/// #60: the sheet's bottom error caption, shared by the rename and delete
+/// #60: the error caption shared by the rename, delete (#60) and add (#71)
 /// affordances (a red `.caption` with a queryable accessibility id). Presentational
 /// (plain values, no environment) so it snapshots directly — `internal`, not
 /// `private`, so `LogosHostedTests` can construct it via `@testable import`.
+/// #71: posts a VoiceOver announcement when it appears (the caption is created
+/// fresh on nil→message, so `.onAppear` fires exactly once) and when the message
+/// swaps while visible (`.onChange` — e.g. empty-label → too-long across two
+/// failed commits; it does not fire at view creation, so no double-announce).
+/// `horizontalPadding` defaults to the sheet's edge inset; already-padded
+/// containers (AddAccountForm) pass 0 to stay aligned with their fields.
 struct SheetErrorLine: View {
     let message: String
     let identifier: String
+    var horizontalPadding: CGFloat = 16
 
     var body: some View {
         Text(message)
             .foregroundStyle(.red)
             .font(.caption)
             .lineLimit(2)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, horizontalPadding)
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier(identifier)
+            .onAppear { announce() }
+            .onChange(of: message) { _, _ in announce() }
+    }
+
+    private func announce() {
+        AccessibilityNotification.Announcement(message).post()
     }
 }
 
-private struct AddAccountForm: View {
+/// #71: `internal` (not `private`) so `LogosHostedTests` can construct it for the
+/// form-with-error snapshot — same pattern as `SheetErrorLine` (#60).
+struct AddAccountForm: View {
     @Binding var label: String
     @Binding var error: String?
     let onSave: () -> Void
@@ -318,10 +333,14 @@ private struct AddAccountForm: View {
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("logos.account.add.label")
             if let err = error {
-                Text(err)
-                    .foregroundStyle(.red)
-                    .font(.caption)
-                    .lineLimit(3)
+                // #71: unified with the rename/delete affordances — queryable id,
+                // announced to VoiceOver, consistent styling. padding 0: the form's
+                // VStack already provides the 16pt inset.
+                SheetErrorLine(
+                    message: err,
+                    identifier: "logos.account.add.error",
+                    horizontalPadding: 0
+                )
             }
             HStack {
                 Spacer()

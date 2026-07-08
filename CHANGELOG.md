@@ -5,6 +5,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- **The switcher's error captions are announced to VoiceOver**
+  ([#71](https://github.com/PsychQuant/logos/issues/71)). The red error line
+  (`SheetErrorLine`) now posts an `AccessibilityNotification.Announcement` when it
+  appears and when its message changes — a failed delete/rename/add is no longer
+  visually-only feedback. The add-account form's error also joins the unified
+  affordance (queryable id `logos.account.add.error`, consistent styling, announced),
+  replacing its bespoke unlabeled text; a new hosted snapshot pins the form-with-error
+  layout. Note: whether VoiceOver audibly speaks the announcement end-to-end still
+  needs a manual spot-check — CI cannot assert audio.
+
 ### Changed
 
 - **The switcher's fallback error captions no longer show raw error dumps**

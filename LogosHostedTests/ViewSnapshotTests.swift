@@ -106,4 +106,21 @@ final class ViewSnapshotTests: XCTestCase {
             width: 380, height: 40
         )
     }
+
+    // #71: the add-account form's error state — pins the unified SheetErrorLine
+    // integration (id logos.account.add.error, horizontalPadding 0 inside the
+    // form's own 16pt inset). The VoiceOver announcement itself is non-visual;
+    // this pins the layout half of #71.
+    @MainActor
+    func test_addAccountForm_error() {
+        snapshot(
+            AddAccountForm(
+                label: .constant("work"),
+                error: .constant("An account with that label already exists."),
+                onSave: {},
+                onCancel: {}
+            ),
+            width: 400, height: 240
+        )
+    }
 }
