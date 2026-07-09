@@ -4,7 +4,7 @@
 
 Account creation and rename SHALL validate labels against a two-dimensional size bound. A label SHALL first be trimmed of leading and trailing whitespace and newlines (the `.whitespacesAndNewlines` set — the same set on every path, so a newline-bearing label decoded from disk trims identically to one typed into the UI). A trimmed label MUST be non-empty, MUST NOT exceed 30 extended grapheme clusters, MUST NOT exceed 256 UTF-8 bytes, and MUST NOT duplicate another account's label. The grapheme cap and the byte cap are independent: a label within 30 grapheme clusters that still carries more than 256 UTF-8 bytes (a combining-mark "zalgo" cluster, or a long ZWJ emoji sequence) MUST be rejected, because grapheme count alone does not bound the persisted byte size and an unbounded label can push the whole index past its file-size cap and be dropped on load.
 
-On the mutation path (create, rename) an over-budget label SHALL be rejected with a label-too-long error. On the load-time repair path (index normalization) an over-budget label SHALL instead be silently clamped rather than rejected: the clamp SHALL truncate on a grapheme-cluster boundary — accumulating whole clusters until the next would exceed 256 UTF-8 bytes — so a repaired label is never left with a split grapheme cluster or mojibake. Renaming an account to its own current label SHALL succeed. A rename SHALL preserve the account id and createdAt, so it never moves the config directory or invalidates a login.
+On the mutation path (create, rename) an over-budget label SHALL be rejected with a label-too-long error. On the load-time repair path (index normalization) an over-budget label SHALL instead be silently clamped rather than rejected: the clamp SHALL truncate on a grapheme-cluster boundary — accumulating whole clusters until the next would exceed 256 UTF-8 bytes — so a repaired label is never left with a split grapheme cluster or mojibake. When the load-time repair uniquifies two isolated accounts whose labels collide at or near the byte cap, it SHALL append the disambiguating suffix so the suffix itself survives the byte cap — clamping the base label to leave room for the suffix rather than letting the byte clamp truncate the suffix away — so the two accounts retain DISTINCT persisted labels rather than silently remaining duplicates. Renaming an account to its own current label SHALL succeed. A rename SHALL preserve the account id and createdAt, so it never moves the config directory or invalidates a login.
 
 #### Scenario: Label validation outcomes
 
@@ -35,3 +35,17 @@ On the mutation path (create, rename) an over-budget label SHALL be rejected wit
 - **WHEN** the registry loads and normalizes
 - **THEN** the label is clamped to the largest whole-grapheme prefix whose utf8.count ≤ 256 — 10 family-emoji clusters (250 bytes); the 11th would reach 275 bytes and is dropped whole
 - **AND** no family-emoji cluster is left partially truncated (no dangling ZWJ or lone scalar)
+
+#### Scenario: Load-time uniquify keeps the disambiguating suffix under the byte cap
+
+- **WHEN** the registry loads and normalizes an index in which two isolated accounts share a label at or near the 256-UTF-8-byte cap (e.g. a single grapheme cluster of exactly 256 bytes)
+- **THEN** normalization keeps the earlier occurrence's label and appends a `" (recovered)"` disambiguator to the later one, clamping the base first so the suffix is never truncated by the byte cap
+- **AND** the two accounts end with DISTINCT persisted labels whose disambiguating suffix is visible (the duplicate is not silently preserved by a stripped suffix)
+- **AND** the repaired index converges — a subsequent load does not rewrite it, because the byte clamp is idempotent and the realized (post-clamp) labels are compared for the net change
+
+##### Example: suffix survives at the byte cap
+
+- **GIVEN** two isolated accounts persisted with the identical label of a single grapheme cluster of exactly 256 UTF-8 bytes
+- **WHEN** the registry loads and normalizes
+- **THEN** the first keeps the 256-byte label and the second is stored as a distinct label carrying a visible `(recovered)` suffix, each within the 256-byte cap
+- **AND** reloading the repaired index is a no-op (no re-save)

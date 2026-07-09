@@ -173,6 +173,25 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         clampedToUTF8Bytes(raw.trimmingCharacters(in: labelTrimSet), maxLabelUTF8Bytes)
     }
 
+    /// #62 round-2: build a `"<base> <suffix>"` label whose SUFFIX is guaranteed to survive
+    /// `init(label:)`'s byte cap. The uniquify sweeps (`AccountRegistry.normalize()` phase 3
+    /// and `uniqueIsolatedLabel`) append a `" (recovered)"` disambiguator to a colliding
+    /// label, then hand the result to `Account.init`. When the base sits at/near
+    /// `maxLabelUTF8Bytes`, `byteBoundedLabel`'s cluster-boundary clamp truncates the suffix
+    /// entirely (the base is one whole cluster over budget) — silently re-creating the exact
+    /// duplicate the sweep just resolved, whose net label diff is then zero (so `changed`
+    /// never fires and the repair never persists). Clamping the BASE first, to leave room for
+    /// the suffix, guarantees the disambiguator is never cut. The trailing `byteBoundedLabel`
+    /// makes the return value EXACTLY what `init(label:)` stores (idempotent), so callers can
+    /// uniqueness-check and bookkeep on the realized label. Deliberately NOT grapheme-capped
+    /// (mirrors `byteBoundedLabel`): the suffix's grapheme-cap tug-of-war with the cleanup
+    /// clamp is what #59's net-change convergence relies on.
+    static func labelWithSuffix(base: String, suffix: String) -> String {
+        let budget = maxLabelUTF8Bytes - suffix.utf8.count
+        let clampedBase = budget > 0 ? clampedToUTF8Bytes(base, budget) : ""
+        return byteBoundedLabel(clampedBase + suffix)
+    }
+
     /// The load-time repair clamp: trim (`labelTrimSet`), then clamp to BOTH
     /// `maxLabelGraphemes` and `maxLabelUTF8Bytes`, each on a grapheme-cluster boundary.
     /// No placeholder and no throw — used by `AccountRegistry.normalize()` phase 3. May

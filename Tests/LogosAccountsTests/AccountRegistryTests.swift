@@ -238,6 +238,107 @@ struct AccountRegistryTests {
         #expect(try Data(contentsOf: url) == afterRepair)     // byte-identical (convergence preserved)
     }
 
+    // MARK: - Uniquify disambiguator survives the byte cap (#62 round-2)
+    //
+    // #62 round-1 byte-clamped `Account.init`, but the phase-3 uniquify sweep (and
+    // `uniqueIsolatedLabel`) built `"<label> (recovered)"`, checked uniqueness on that
+    // PRE-clamp candidate, then handed it to `init` — whose byte clamp truncates the
+    // disambiguating suffix entirely when the base sits at/near the 256-byte cap. Consequences
+    // the round-2 fix must close: (a) two identical 256-byte labels survive uniquification (the
+    // invariant this sweep exists to enforce); (b) bookkeeping tracked pre-clamp candidates, so
+    // realized duplicates went unnoticed; (c) the net label diff was zero, so `changed` never
+    // fired → the duplicate was never persisted-fixed (silent + self-perpetuating). Fix: clamp
+    // the base to leave room for the suffix FIRST (`Account.labelWithSuffix`) and bookkeep on
+    // the realized label.
+
+    /// A single extended grapheme cluster of EXACTLY 256 UTF-8 bytes: a 2-byte base
+    /// (U+00E9 "é") + 127 combining acute accents (2 bytes each) = 256 bytes, ONE grapheme.
+    /// The base is one indivisible cluster over the suffix budget, so the naive candidate's
+    /// suffix is stripped whole — the sharpest form of the defect (the duplicate survives
+    /// byte-for-byte).
+    private static let singleCluster256 = "\u{00E9}" + String(repeating: "\u{0301}", count: 127)
+
+    /// A byte-heavy label of exactly `target` UTF-8 bytes built from fat clusters (base +
+    /// 12 combining marks = 25 bytes each) topped with 1-byte fillers — a handful of graphemes
+    /// (well under the 30-grapheme cap, so cleanup won't grapheme-clamp it) landing at/near the
+    /// 256-byte cap, the realistic #62 shape.
+    private static func byteHeavyLabel(bytes target: Int) -> String {
+        let cluster = "a" + String(repeating: "\u{0301}", count: 12)   // 25 bytes, 1 grapheme
+        var label = ""
+        while label.utf8.count + cluster.utf8.count <= target { label += cluster }
+        while label.utf8.count < target { label += "x" }
+        return label
+    }
+
+    @Test("labelWithSuffix keeps the disambiguator intact under the byte cap (#62 round-2)")
+    func labelWithSuffixKeepsSuffix() {
+        let realized = Account.labelWithSuffix(base: Self.singleCluster256, suffix: " (recovered)")
+        #expect(realized.utf8.count <= Account.maxLabelUTF8Bytes)         // fits the cap
+        #expect(realized.contains("(recovered)"))                        // suffix survived whole
+        #expect(Account(id: "x", label: realized).label == realized)     // idempotent: init stores it verbatim
+    }
+
+    // (a) + (b): two identical 256-byte single-cluster labels must resolve to DISTINCT stored
+    // labels with a visible suffix. On the pre-fix code the suffix is clamped away → the two
+    // labels stay byte-identical and the duplicate survives.
+    @Test("normalize yields DISTINCT stored labels for duplicate 256-byte single-cluster labels (#62 round-2)")
+    @MainActor func normalizeDeduplicatesAtByteCap() throws {
+        #expect(Self.singleCluster256.count == 1)                        // one grapheme (passes the grapheme cap)
+        #expect(Self.singleCluster256.utf8.count == 256)                 // exactly at the byte cap
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "a", label: Self.singleCluster256, epoch: 1_000, sd: false),
+            (id: "b", label: Self.singleCluster256, epoch: 2_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        let a = try #require(r.accounts.first(where: { $0.id == "a" }))
+        let b = try #require(r.accounts.first(where: { $0.id == "b" }))
+        #expect(a.label != b.label)                                      // the invariant: distinct stored labels
+        #expect(b.label.contains("(recovered)"))                        // visible disambiguator survived the clamp
+        #expect(a.label.utf8.count <= Account.maxLabelUTF8Bytes)
+        #expect(b.label.utf8.count <= Account.maxLabelUTF8Bytes)
+    }
+
+    // Near-boundary bases (250/255/256 bytes): the disambiguator must land INTACT ("(recovered)"
+    // with its closing paren), not as a byte-truncated fragment ("(reco"). On the pre-fix code
+    // the naive candidate is cut mid-suffix, so `.contains("(recovered)")` fails.
+    @Test("normalize keeps the suffix intact for near-boundary base labels (#62 round-2)",
+          arguments: [250, 255, 256])
+    @MainActor func normalizeKeepsSuffixNearByteCap(byteTarget: Int) throws {
+        let base = Self.byteHeavyLabel(bytes: byteTarget)
+        #expect(base.utf8.count == byteTarget)
+        #expect(base.count <= Account.maxLabelGraphemes)                 // under the grapheme cap → cleanup won't clamp it
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "a", label: base, epoch: 1_000, sd: false),
+            (id: "b", label: base, epoch: 2_000, sd: false),
+        ], to: url)
+        let r = AccountRegistry(indexFileURL: url)
+        let b = try #require(r.accounts.first(where: { $0.id == "b" }))
+        #expect(b.label.contains("(recovered)"))                        // whole suffix, not a truncated fragment
+        #expect(b.label != base)                                        // distinct from the kept first occurrence
+        #expect(b.label.utf8.count <= Account.maxLabelUTF8Bytes)
+    }
+
+    // (c): the realized dedup is actually PERSISTED (not just fixed in memory), AND the pass
+    // still converges — a second load of the now-distinct index is a no-op (the clamp is
+    // idempotent, so `changed` stays false and the file is byte-identical). Guards against a
+    // regression where fixing (c) re-introduces the re-save-forever loop #59 closed.
+    @Test("normalize persists the at-cap dedup and converges on reload (#62 round-2)")
+    @MainActor func normalizeAtByteCapPersistsAndConverges() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex([
+            (id: "a", label: Self.singleCluster256, epoch: 1_000, sd: false),
+            (id: "b", label: Self.singleCluster256, epoch: 2_000, sd: false),
+        ], to: url)
+        let r1 = AccountRegistry(indexFileURL: url)                     // load 1: repairs + persists
+        #expect(r1.normalizeDidPersist == true)
+        let afterRepair = try Data(contentsOf: url)
+        let r2 = AccountRegistry(indexFileURL: url)                     // load 2: already distinct → no re-save
+        #expect(Set(r2.accounts.map(\.label)).count == 2)              // dedup survived the round-trip to disk
+        #expect(try Data(contentsOf: url) == afterRepair)             // byte-identical → converged
+    }
+
     // #56 verify B1 (ensemble #3/#10): coexistence must be order-INdependent — a
     // pre-existing system-default "Main" must not block adding an isolated "Main".
     @Test("reverse order: system-default first, then isolated same label coexist (#56 verify B1)")

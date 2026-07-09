@@ -11,7 +11,7 @@ The stake is not just a bloated file: `AccountRegistry.load()` enforces a whole-
 - Grapheme-safe truncation: the byte clamp accumulates whole `Character` clusters until the next would exceed the byte budget — never a raw `utf8.prefix` / scalar cut (which yields mojibake / a split cluster).
 - Wire the helper into all four label sites so they share one definition of "a valid, bounded, trimmed label":
   - `Account.validate(label:)` — mutation gate: throws the existing `ValidationError.labelTooLong` when the trimmed label exceeds either cap (30 graphemes OR 256 UTF-8 bytes).
-  - `Account.init(label:)` — construction: silently clamps to both caps (no length check exists today).
+  - `Account.init(label:)` — construction: silently clamps to the 256-byte cap only, on a grapheme boundary (no length check exists today). Deliberately NOT grapheme-capped: the uniquify sweep constructs a `"<label> (recovered)"` label that can exceed 30 graphemes while carrying few bytes, and relies on `init` preserving the suffix — a grapheme clamp here would strip it and reopen the collision the sweep just resolved. The grapheme cap is re-imposed on load by `normalize()`'s cleanup pass and at the mutation gate by `validate`.
   - `AccountRegistry.normalize()` phase 3 — load-time repair: silently clamps to both caps.
   - `Account.init(from:)` decode: the disk-bypass path; its labels are repaired by `normalize()` on load. Decode-path coverage is asserted by tests through the decode/normalize repair path.
 - **BREAKING (user-visible)**: a label previously accepted/persisted (within 30 graphemes but over 256 UTF-8 bytes) is now rejected on create/rename or silently clamped on load. Recorded in CHANGELOG.

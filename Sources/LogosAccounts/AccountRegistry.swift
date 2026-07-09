@@ -315,10 +315,18 @@ public final class AccountRegistry {
         for idx in accounts.indices where !accounts[idx].isSystemDefault {
             let acc = accounts[idx]
             if seenFirst.contains(acc.label) {
-                var candidate = "\(acc.label) (recovered)"
+                // #62 round-2: build the disambiguator so it SURVIVES init's byte clamp —
+                // `labelWithSuffix` clamps the base first, leaving room for the suffix, and
+                // returns EXACTLY the label init will store. Uniqueness + bookkeeping run on
+                // that REALIZED label, not the raw `"<base> (recovered)"`: with a base at the
+                // byte cap the naive candidate truncated the suffix away, two identical at-cap
+                // labels survived uniquification byte-for-byte (the invariant this sweep
+                // enforces), and — the net diff being zero — `changed` never fired, so the
+                // duplicate was never persisted-fixed (silent + self-perpetuating).
+                var candidate = Account.labelWithSuffix(base: acc.label, suffix: " (recovered)")
                 var n = 2
                 while used.contains(candidate) {
-                    candidate = "\(acc.label) (recovered \(n))"
+                    candidate = Account.labelWithSuffix(base: acc.label, suffix: " (recovered \(n))")
                     n += 1
                 }
                 used.insert(candidate)
@@ -352,11 +360,16 @@ public final class AccountRegistry {
         let taken = Set(accounts.indices
             .filter { $0 != excludingIndex && !accounts[$0].isSystemDefault }
             .map { accounts[$0].label })
-        guard taken.contains(label) else { return label }
-        var candidate = "\(label) (recovered)"
+        // #62 round-2: compare on the REALIZED label init will store (byte-clamped on a
+        // grapheme boundary), not the raw input — a base at the byte cap would otherwise pass
+        // this guard yet collide after init's clamp. The suffix path likewise clamps the base
+        // first so the disambiguator survives the byte cap (see Account.labelWithSuffix).
+        let realizedBase = Account.byteBoundedLabel(label)
+        guard taken.contains(realizedBase) else { return realizedBase }
+        var candidate = Account.labelWithSuffix(base: label, suffix: " (recovered)")
         var n = 2
         while taken.contains(candidate) {
-            candidate = "\(label) (recovered \(n))"
+            candidate = Account.labelWithSuffix(base: label, suffix: " (recovered \(n))")
             n += 1
         }
         return candidate
