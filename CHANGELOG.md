@@ -7,6 +7,16 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **The announce-at-setter discipline is now guarded, and the announcer is testable**
+  ([#75](https://github.com/PsychQuant/logos/issues/75)). The #71 round-2 rule — every
+  user-facing error caption is set through a helper that posts a VoiceOver announcement
+  — was previously enforced only by a comment. A source-scan test now fails the plain
+  `swift test` suite if any of the four error slots is assigned a non-nil value outside
+  its setter, or if a setter loses its announcement call; and the announcer is an
+  injectable closure (production default unchanged), letting a hosted test assert the
+  post actually fires — including the identical-retry case that motivated the round-2
+  redesign. Test/seam only; no user-visible behavior change.
+
 - **The switcher's error captions are announced to VoiceOver**
   ([#71](https://github.com/PsychQuant/logos/issues/71)). Every error setter now posts
   an `AccessibilityNotification.Announcement` imperatively at the mutation site — a
