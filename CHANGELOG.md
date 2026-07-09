@@ -7,6 +7,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **The account-row's icon-only controls and active state are now announced to
+  VoiceOver** ([#72](https://github.com/PsychQuant/logos/issues/72)). The trash and
+  open-in-new-window buttons were icon-only with no VoiceOver label (their `.help()`
+  tooltips are hover-only, not spoken) — they now read "Delete account" and "Open in
+  new window". The active-account state, previously conveyed only by a filled circle,
+  is carried as an accessibility value on the row's name ("work, active"); the circle
+  itself is marked decorative so it isn't announced twice. The state is exposed as a
+  *value* rather than a relabeled/combined element specifically so the row's name
+  stays independently queryable — the account-switch and rename UI tests select rows
+  by that name. Purely semantic: no pixels change (the six view-snapshot baselines are
+  byte-identical).
+
 - **The announce-at-setter discipline is now guarded, and the announcer is testable**
   ([#75](https://github.com/PsychQuant/logos/issues/75)). The #71 round-2 rule — every
   user-facing error caption is set through a helper that posts a VoiceOver announcement

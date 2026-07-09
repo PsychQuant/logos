@@ -29,6 +29,10 @@ struct AccountRow: View {
         HStack {
             Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
                 .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                // Purely visual active indicator (#72). The active state is carried
+                // to VoiceOver by the label Text's accessibilityValue below, so the
+                // circle is decorative — hide it to avoid a redundant announcement.
+                .accessibilityHidden(true)
 
             if isEditing {
                 TextField("Account name", text: $draft)
@@ -42,6 +46,13 @@ struct AccountRow: View {
                 Text(account.label)
                     .font(.body)
                     .fontWeight(isActive ? .semibold : .regular)
+                    // #72: carry active state to VoiceOver as a value (e.g. "work,
+                    // active") rather than a combined/relabeled element. This keeps
+                    // the static-text LABEL equal to `account.label`, so the
+                    // `app.staticTexts["personal"]` queries in AccountSwitchUITests
+                    // and AccountRenameUITests still resolve. needsReauth is announced
+                    // by its own labeled warning image below, so it stays out of here.
+                    .accessibilityValue(isActive ? "active" : "")
                 // #54: distinguish the main account that reuses the system
                 // ~/.claude login from isolated per-account configs.
                 if account.isSystemDefault {
@@ -70,6 +81,7 @@ struct AccountRow: View {
                 .buttonStyle(.plain)
                 .opacity(0.6)
                 .help("Open this account in a new window")
+                .accessibilityLabel("Open in new window")  // #72: icon-only; .help() is a tooltip, not a VO label
                 .accessibilityIdentifier("logos.account.openInNewWindow")  // #42 XCUITest query
             }
             Button(role: .destructive, action: onDelete) {
@@ -77,6 +89,7 @@ struct AccountRow: View {
             }
             .buttonStyle(.plain)
             .opacity(0.6)
+            .accessibilityLabel("Delete account")  // #72: icon-only trash button needs a VO label
         }
         .contentShape(Rectangle())
         // Double-click → rename (#36). Declared BEFORE the single-tap select so
