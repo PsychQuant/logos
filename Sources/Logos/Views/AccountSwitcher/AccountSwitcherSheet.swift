@@ -11,10 +11,16 @@ struct AccountSwitcherSheet: View {
     /// `AccountManager.activeAccountId` / `setActive` (the Settings→Accounts context),
     /// so the SAME sheet serves both — without reading a window-scoped environment the
     /// Settings scene doesn't have (#20).
-    var selection: Binding<String?>? = nil
+    var selection: Binding<String?>?
     /// #42: when non-nil, each row gets an "open in new window" affordance routed here
     /// (status-bar context). nil in Settings.
-    var onOpenInNewWindow: ((String) -> Void)? = nil
+    var onOpenInNewWindow: ((String) -> Void)?
+    /// #75: the VoiceOver announcer seam. Injected so tests can count posts and
+    /// assert the literal-repeat case (setting the SAME message announces every
+    /// time — the #71 round-2 motivation). Defaults to the real announcement, so
+    /// production behavior is byte-identical to the inline `.post()` it replaces.
+    /// Every error setter routes through this — see the "Error surfacing" MARK.
+    var announce: @MainActor (String) -> Void
 
     @State private var showAddSheet = false
     @State private var newLabel = ""
@@ -35,6 +41,19 @@ struct AccountSwitcherSheet: View {
     /// no-op. Surfaced here like `deleteError`, cleared at the entry of sibling
     /// actions so it never lingers.
     @State private var systemDefaultError: String?
+
+    /// #75: explicit init — the synthesized memberwise init is `private` (the
+    /// `@State` slots are `private`), so a hosted test can't reach it. This is also
+    /// the seam through which `LogosHostedTests` injects a counting `announce`.
+    init(
+        selection: Binding<String?>? = nil,
+        onOpenInNewWindow: ((String) -> Void)? = nil,
+        announce: @escaping @MainActor (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
+    ) {
+        self.selection = selection
+        self.onOpenInNewWindow = onOpenInNewWindow
+        self.announce = announce
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -172,32 +191,35 @@ struct AccountSwitcherSheet: View {
 
     // MARK: - Error surfacing (#71 round 2)
 
-    /// #71 round 2: every user-facing error is SET through one of these three
-    /// helpers, which post the VoiceOver announcement imperatively. The view-side
-    /// hooks (`onAppear`/`onChange` on `SheetErrorLine`) were removed because a
-    /// repeat of the SAME message coalesces to a no-op render and both hooks stay
-    /// silent — the identical-retry failure was inaudible (verify round 1). An
-    /// unconditional post at the mutation site covers first occurrence, changed
-    /// message, and literal repeat alike. Keep new error writes going through
-    /// these helpers, not direct `@State` assignment.
-    private func setAddError(_ message: String) {
+    /// #71 round 2: every user-facing error is SET through one of these four
+    /// helpers, which announce imperatively via the `announce` seam (#75). The
+    /// view-side hooks (`onAppear`/`onChange` on `SheetErrorLine`) were removed
+    /// because a repeat of the SAME message coalesces to a no-op render and both
+    /// hooks stay silent — the identical-retry failure was inaudible (verify round
+    /// 1). An unconditional announce at the mutation site covers first occurrence,
+    /// changed message, and literal repeat alike. Keep new error writes going
+    /// through these helpers, not direct `@State` assignment — enforced by
+    /// `AnnounceAtSetterGuardTests` (#75 option 2). `internal` (not `private`) so
+    /// `LogosHostedTests` can drive the seam (#75 option 3) — same rationale as
+    /// `SheetErrorLine`/`AddAccountForm`.
+    func setAddError(_ message: String) {
         addError = message
-        AccessibilityNotification.Announcement(message).post()
+        announce(message)
     }
 
-    private func setRenameError(_ message: String) {
+    func setRenameError(_ message: String) {
         renameError = message
-        AccessibilityNotification.Announcement(message).post()
+        announce(message)
     }
 
-    private func setDeleteError(_ message: String) {
+    func setDeleteError(_ message: String) {
         deleteError = message
-        AccessibilityNotification.Announcement(message).post()
+        announce(message)
     }
 
-    private func setSystemDefaultError(_ message: String) {
+    func setSystemDefaultError(_ message: String) {
         systemDefaultError = message
-        AccessibilityNotification.Announcement(message).post()
+        announce(message)
     }
 
     private func dismissAddSheet() {
