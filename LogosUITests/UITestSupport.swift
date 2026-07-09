@@ -22,7 +22,13 @@ enum UITestSupport {
     /// `--seed-accounts` so a fresh launch has an active account (→ the terminal
     /// pane renders) + ≥2 switchable accounts. The seed lives in a volatile
     /// UserDefaults suite (see LogosApp), so it never pollutes the real list.
-    static func makeApp(workspace: String? = nil, seedAccounts: [String] = []) -> XCUIApplication {
+    /// `seedRemoveFails` (#67): when true, append `--seed-remove-fails` so the
+    /// UI-testing registry's persist path is armed to FAIL after seeding — a live
+    /// delete then hits the real #57 rollback and `remove()` returns `false`,
+    /// surfacing the `logos.account.delete.error` caption. The flag is appended
+    /// AFTER the `--seed-accounts <csv>` pair so it is never consumed as the csv
+    /// value (LogosApp parses `--seed-accounts` by `firstIndex + 1`).
+    static func makeApp(workspace: String? = nil, seedAccounts: [String] = [], seedRemoveFails: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         // `--ui-testing` gates the `--claude-path` hook (it's inert in production
         // without this co-flag) AND makes the passed claude path win over any
@@ -36,6 +42,9 @@ enum UITestSupport {
         }
         if !seedAccounts.isEmpty {
             args += ["--seed-accounts", seedAccounts.joined(separator: ",")]
+        }
+        if seedRemoveFails {
+            args += ["--seed-remove-fails"]
         }
         app.launchArguments = args
         return app

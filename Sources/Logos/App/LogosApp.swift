@@ -24,6 +24,20 @@ struct LogosApp: App {
     @State private var generalSettings = LogosApp.makeGeneralSettings()
     @State private var advancedSettings = LogosApp.makeAdvancedSettings()
 
+    /// #67: the per-launch UI-testing accounts-index URL. Hoisted to a shared
+    /// static (mirrors `uiTestingSettingsDirectory`) so both `sharedRegistry` —
+    /// which writes `index.json` beneath it — and `makeAccountManager` — which
+    /// under `--seed-remove-fails` chmods this file's parent dir read-only to arm
+    /// the registry's designed persist-failure path — agree on ONE path. nil in
+    /// production (`--ui-testing` absent). Computed once per launch.
+    @MainActor
+    private static let uiTestingAccountsIndexURL: URL? = {
+        guard CommandLine.arguments.contains("--ui-testing") else { return nil }
+        return URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("logos-uitesting-accounts-\(ProcessInfo.processInfo.processIdentifier)")
+            .appendingPathComponent("index.json")
+    }()
+
     /// Production: the shared-registry manager (accounts in the
     /// ~/.logos/accounts index file with one-time migration from this app's
     /// legacy UserDefaults data; active selection in `.standard` — no
@@ -39,12 +53,9 @@ struct LogosApp: App {
     /// `--ui-testing`: a per-launch temp index, never the real account list.
     @MainActor
     private static let sharedRegistry: AccountRegistry = {
-        guard CommandLine.arguments.contains("--ui-testing") else {
+        guard let indexURL = uiTestingAccountsIndexURL else {
             return AccountRegistry(legacyDefaults: .standard)
         }
-        let indexURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("logos-uitesting-accounts-\(ProcessInfo.processInfo.processIdentifier)")
-            .appendingPathComponent("index.json")
         return AccountRegistry(indexFileURL: indexURL)
     }()
 
@@ -63,6 +74,23 @@ struct LogosApp: App {
         if let i = args.firstIndex(of: "--seed-accounts"), i + 1 < args.count {
             let labels = args[i + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
             if !labels.isEmpty { mgr.seedAccounts(labels) }
+        }
+        // #67: under `--seed-remove-fails`, arm the registry's DESIGNED persist-failure
+        // path so a live delete → `remove()` fails → the `logos.account.delete.error`
+        // caption surfaces (the Track-B E2E the harness previously couldn't force).
+        // Placed AFTER seeding so the seed writes land first; then make the accounts-index
+        // parent dir read-only (0o500). The next `.atomic` `save()` can't create its temp
+        // file there → `save()` throws → `AccountRegistry.mutate` rolls back →
+        // `registry.remove` throws → `AccountManager.remove` returns `false` (the real #57
+        // rollback, not a stub). Bare flag matched by presence and passed AFTER the
+        // `--seed-accounts <csv>` pair so it's never consumed as the csv value. Inert
+        // without `--ui-testing` (the index URL is nil → skipped), same discipline as
+        // `--seed-accounts`. Best-effort (`try?`): if no account was seeded the dir may
+        // not exist, and a failed chmod simply leaves `remove()` succeeding.
+        if args.contains("--seed-remove-fails"), let indexURL = uiTestingAccountsIndexURL {
+            let accountsDir = indexURL.deletingLastPathComponent()
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o500], ofItemAtPath: accountsDir.path)
         }
         return mgr
     }

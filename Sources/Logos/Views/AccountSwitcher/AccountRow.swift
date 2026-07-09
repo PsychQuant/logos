@@ -90,6 +90,7 @@ struct AccountRow: View {
             .buttonStyle(.plain)
             .opacity(0.6)
             .accessibilityLabel("Delete account")  // #72: icon-only trash button needs a VO label
+            .accessibilityIdentifier("logos.account.delete")  // #67 XCUITest query (all rows share; seed one to disambiguate)
         }
         .contentShape(Rectangle())
         // Double-click → rename (#36). Declared BEFORE the single-tap select so
