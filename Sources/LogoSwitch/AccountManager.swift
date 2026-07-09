@@ -72,9 +72,7 @@ public final class AccountManager {
     public init(
         registry: AccountRegistry? = nil,
         store: ActiveAccountStore? = nil,
-        ensureDirectory: @escaping (String) throws -> Void = {
-            try FileManager.default.createDirectory(atPath: $0, withIntermediateDirectories: true)
-        }
+        ensureDirectory: @escaping (String) throws -> Void = AccountManager.defaultEnsureDirectory
     ) {
         self.registry = registry ?? AccountRegistry(legacyDefaults: .standard)
         self.store = store ?? UserDefaultsActiveAccountStore()
@@ -271,5 +269,35 @@ public final class AccountManager {
         }
         try ensureDirectory(account.configDirPath)
         LogoSwitchLog.account.notice("materialized config dir — account=\(account.id, privacy: .private)")
+    }
+
+    /// The production-default `ensureDirectory`: create the per-account config-dir
+    /// chain (`~/.logos/accounts/<id>/.claude`) and leave it at restrictive `0o700`.
+    ///
+    /// #63 (defense-in-depth atop #61's accounts-root `0o700`): the create-time
+    /// `attributes:` hardens the `<id>` + `.claude` dirs THIS call materializes, but
+    /// is a no-op on an already-existing dir — so a best-effort post-create
+    /// `setAttributes` re-chmods a pre-existing `0o755` leaf AND its `<id>`
+    /// intermediate to `0o700`, converging them on the next call (mirrors
+    /// `AccountRegistry.save()`'s create-attributes + post-write `setAttributes`).
+    /// The `createDirectory` throw stays the spawn gate (bug #6); a chmod failure is
+    /// logged, never thrown — degrading defense-in-depth, not create/switch.
+    /// `@usableFromInline` so the public `init`'s default argument can name it
+    /// without exposing it as public API; reachable in tests via `@testable`.
+    @usableFromInline
+    nonisolated static func defaultEnsureDirectory(_ path: String) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(
+            atPath: path, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        // Converge a pre-existing looser dir: the leaf and its `<id>` intermediate
+        // (the parent). #61 hardens the accounts root above them; do not walk higher.
+        for dir in [path, (path as NSString).deletingLastPathComponent] {
+            do {
+                try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir)
+            } catch {
+                LogoSwitchLog.account.notice("config-dir permission set failed: \(error.localizedDescription, privacy: .private)")
+            }
+        }
     }
 }

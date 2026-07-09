@@ -7,6 +7,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Per-account config dirs are created at `0o700`**
+  ([#63](https://github.com/PsychQuant/logos/issues/63)). `AccountManager`'s default
+  directory creator made each account's `~/.logos/accounts/<id>/.claude` chain at the
+  process umask default (typically `0o755`, world-traversable) with no `attributes:`.
+  It now creates them `0o700` and, best-effort, re-`chmod`s the `.claude` leaf and its
+  `<id>` intermediate to `0o700` after — so a dir left at `0o755` by an earlier build
+  converges on the next create/switch (create-time attributes are a no-op on an
+  existing dir). Defense-in-depth atop #61's accounts-root `0o700` (already the
+  load-bearing block on other-user traversal), not a reachable gap; the closure was
+  also extracted to a testable `defaultEnsureDirectory` so the production default is
+  now covered. No user-visible behavior change.
+
 - **The account-row's icon-only controls and active state are now announced to
   VoiceOver** ([#72](https://github.com/PsychQuant/logos/issues/72)). The trash and
   open-in-new-window buttons were icon-only with no VoiceOver label (their `.help()`

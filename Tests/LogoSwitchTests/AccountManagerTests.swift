@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-import LogoSwitch
+@testable import LogoSwitch
 import LogosAccounts
 
 @Suite("AccountManager", .serialized)
@@ -123,6 +123,52 @@ struct AccountManagerTests {
             store: InMemoryActiveAccountStore("a"),
             ensureDirectory: { _ in throw DirError() })
         #expect(throws: DirError.self) { try mgr.materializeHomeTree(for: mgr.accounts[0]) }
+    }
+
+    // MARK: - Config-dir permissions (#63 — defense-in-depth atop #61's root 0o700)
+
+    /// A temp `<base>/<id>/.claude` chain that mirrors the real
+    /// `configDirPath` shape, plus its `<id>` intermediate. Cleaned by the caller.
+    private func tempConfigDir() -> (leaf: URL, intermediate: URL, base: URL) {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("account-config-perms-\(UUID().uuidString)")
+        let intermediate = base.appendingPathComponent("account-id")
+        return (intermediate.appendingPathComponent(".claude"), intermediate, base)
+    }
+
+    private func posixMode(_ path: String) throws -> UInt16 {
+        try #require(try FileManager.default
+            .attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber).uint16Value
+    }
+
+    // #63: the production-default ensureDirectory hardens a freshly-created config
+    // dir (leaf + <id> intermediate) to 0o700, so a per-account CLAUDE_CONFIG_DIR is
+    // never left world-traversable even if some future path exposes it independently
+    // of #61's accounts root.
+    @Test("defaultEnsureDirectory creates the config dir at 0o700 (#63)")
+    func defaultEnsureDirectoryHardensFreshDir() throws {
+        let (leaf, intermediate, base) = tempConfigDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        try AccountManager.defaultEnsureDirectory(leaf.path)
+        #expect(try posixMode(leaf.path) == 0o700)
+        #expect(try posixMode(intermediate.path) == 0o700)
+    }
+
+    // #63: a config dir pre-created at the looser 0o755 umask default (what a build
+    // before this change left) CONVERGES to 0o700 on the next call — create-time
+    // attributes are a no-op on an existing dir, so the post-create setAttributes is
+    // load-bearing here (mirrors AccountRegistryTests.saveHardensPreExistingRoot).
+    @Test("defaultEnsureDirectory converges a pre-existing 0o755 config dir to 0o700 (#63)")
+    func defaultEnsureDirectoryConvergesPreExisting() throws {
+        let (leaf, intermediate, base) = tempConfigDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        try FileManager.default.createDirectory(
+            at: leaf, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755])
+        #expect(try posixMode(leaf.path) == 0o755)          // genuinely looser before the call
+        try AccountManager.defaultEnsureDirectory(leaf.path)
+        #expect(try posixMode(leaf.path) == 0o700)          // converged despite pre-existing 0o755
+        #expect(try posixMode(intermediate.path) == 0o700)
     }
 
     @Test("distinct accounts yield distinct configDirPaths under ~/.logos/accounts")
