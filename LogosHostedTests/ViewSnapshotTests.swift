@@ -47,7 +47,11 @@ final class ViewSnapshotTests: XCTestCase {
         // drift (well under ΔE 2) is absorbed. `precision: 0.98` must ALSO drop below 1
         // (not stay at 1.0): a few anti-aliased edge pixels can spike past ΔE 2, and
         // `precision` caps the fraction (≤2% of pixels) allowed to fully mismatch. Real
-        // layout/color regressions perturb far more area and/or ΔE, so they still RED.
+        // layout/color regressions perturb far more area and/or ΔE, so they still RED —
+        // with one honest floor (#73 verify DA): a *small-area* content change (a short
+        // word or comma-level edit in one text line of a large canvas, e.g. ~2,400px of
+        // a 400×300 overlay) can fit inside the 2% budget and pass. The tolerance trades
+        // that sliver of small-text sensitivity for OS-drift durability; see CLAUDE.md.
         assertSnapshot(
             of: host,
             as: .image(precision: 0.98, perceptualPrecision: 0.98),

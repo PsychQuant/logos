@@ -17,10 +17,12 @@ import Foundation
 /// matcher isn't vacuous with synthetic violating snippets (the RED proof) before
 /// asserting GREEN on the real file.
 ///
-/// Known limitation (shared with `LoggingHygieneTests`): only *full-line* `//`
+/// Known limitations (shared with `LoggingHygieneTests`): only *full-line* `//`
 /// comments are stripped, so a hypothetical inline `code // renameError = "x"` could
 /// false-positive. No such line exists today; prefer rewording over weakening the
-/// guard if one appears.
+/// guard if one appears. And the matcher covers `=` assignment syntax only — an
+/// in-place mutating call (`deleteError?.append(...)`) would bypass it (#75 verify
+/// DA); no such call exists today, and appending to a caption has no legitimate use.
 @Suite("AnnounceAtSetterGuard")
 struct AnnounceAtSetterGuardTests {
 
@@ -45,6 +47,21 @@ struct AnnounceAtSetterGuardTests {
         #expect(
             offenders.isEmpty,
             "set*Error helper(s) no longer call announce(message) — the caption would go silent (#75): \(offenders.joined(separator: ", "))"
+        )
+    }
+
+    @Test("cancelRename never touches the delete / system-default captions")
+    func cancelRenameKeepsFailureCaptions() throws {
+        let touches = Self.cancelRenameCaptionTouches(in: try Self.sheetSource())
+        #expect(
+            touches.isEmpty,
+            """
+            cancelRename must tear down RENAME state only (#60 round-2 / #74 verify DA):
+            a synthesized focus-loss cancel can fire alongside the failing action, and
+            clearing `deleteError` or `systemDefaultError` here could erase a just-set
+            failure caption depending on the (unverifiable) firing order:
+            \(touches.joined(separator: "\n"))
+            """
         )
     }
 
@@ -100,6 +117,20 @@ struct AnnounceAtSetterGuardTests {
         #expect(Self.bypassOffenders(in: synthetic).isEmpty)
     }
 
+    @Test("matcher flags a cancelRename that clears a failure caption")
+    func detectorFlagsCancelRenameClearing() {
+        let synthetic = """
+        struct S {
+            func cancelRename(_ accountId: String) {
+                renameError = nil
+                deleteError = nil
+                editingAccountId = nil
+            }
+        }
+        """
+        #expect(!Self.cancelRenameCaptionTouches(in: synthetic).isEmpty)
+    }
+
     @Test("matcher flags a set*Error helper that skips the announce seam")
     func detectorFlagsMissingAnnouncer() {
         let synthetic = """
@@ -146,6 +177,26 @@ struct AnnounceAtSetterGuardTests {
             }
         }
         return offenders
+    }
+
+    /// #74 verify DA: every `deleteError` / `systemDefaultError` assignment (nil or
+    /// not) inside `cancelRename`'s body. The method's documented exception is total —
+    /// it must not TOUCH the failure captions, or the #60-shaped erasure race returns
+    /// through the synthesized focus-loss path.
+    static func cancelRenameCaptionTouches(in source: String) -> [String] {
+        let lines = commentStrippedLines(source)
+        let sigRe = try! NSRegularExpression(pattern: #"func\s+cancelRename\b"#)
+        guard let body = functionBody(matching: sigRe, in: lines) else {
+            return ["cancelRename(_:) not found in AccountSwitcherSheet.swift — matcher needs updating"]
+        }
+        let touchRe = try! NSRegularExpression(
+            pattern: #"\b(deleteError|systemDefaultError)\s*=(?!=)"#
+        )
+        return body.compactMap { i in
+            let ns = lines[i] as NSString
+            let hit = touchRe.firstMatch(in: lines[i], range: NSRange(location: 0, length: ns.length))
+            return hit != nil ? "\(i + 1): \(lines[i].trimmingCharacters(in: .whitespaces))" : nil
+        }
     }
 
     /// The names of any `set*Error` helper whose body does NOT call `announce(` —
@@ -196,6 +247,31 @@ struct AnnounceAtSetterGuardTests {
             i = j + 1
         }
         return result
+    }
+
+    /// The 0-based line indices of the first function whose signature line matches
+    /// `sigRe`, walking braces from the signature to depth 0 (same assumptions as
+    /// `setterBodies` — no braces inside string literals within these bodies).
+    private static func functionBody(matching sigRe: NSRegularExpression, in lines: [String]) -> [Int]? {
+        for (i, line) in lines.enumerated() {
+            let ns = line as NSString
+            guard sigRe.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) != nil else { continue }
+            var indices: [Int] = []
+            var depth = 0
+            var opened = false
+            var j = i
+            while j < lines.count {
+                indices.append(j)
+                for ch in lines[j] {
+                    if ch == "{" { depth += 1; opened = true }
+                    else if ch == "}" { depth -= 1 }
+                }
+                if opened && depth <= 0 { break }
+                j += 1
+            }
+            return indices
+        }
+        return nil
     }
 
     /// Full-line `//` comments blanked to "" (indices preserved so reported line

@@ -287,6 +287,13 @@ struct AccountSwitcherSheet: View {
         // `deleteError` caption, not edit-mode retention — see delete()'s doc comment.
         // #67's E2E asserts the caption; edit-mode behavior is recorded there as an
         // observation.
+        // #74 (verify DA): the same exception covers `systemDefaultError` — an
+        // "Add system account" click while a row is mid-rename synthesizes THIS
+        // callback via the same focus-loss path, so clearing that caption here could
+        // erase a just-set failure message on the wrong side of the ordering. Do NOT
+        // "complete" the mirror-deleteError clearing pattern in this method: it
+        // tears down rename state ONLY, and touches no failure caption.
+        // `AnnounceAtSetterGuardTests.cancelRenameKeepsFailureCaptions` pins this.
         editingAccountId = nil
     }
 
