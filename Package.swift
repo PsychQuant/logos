@@ -73,6 +73,19 @@ let package = Package(
             name: "LogosTests",
             dependencies: ["Logos", "LogoSwitch"]
         ),
+        // #65 — build-graph drift guard. Asserts every Package.swift library
+        // target is mirrored in project.yml (the XcodeGen source for Track B), so
+        // a future module extraction that forgets project.yml fails LOUD in the
+        // plain `swift test` hard gate instead of silently breaking Track B (the
+        // #39 / #60 recurrence). Yams (already a package dep) parses project.yml's
+        // targets: mapping; it is not a dependency of any other test target, so it
+        // is wired only here.
+        .testTarget(
+            name: "BuildGraphDriftTests",
+            dependencies: [
+                .product(name: "Yams", package: "Yams")
+            ]
+        ),
         // Track A headless smoke / E2E (testing-smoke-e2e-strategy). The pure
         // UnifiedLogReader parse test runs in any `swift test`; the app-launching
         // SmokeTests are gated behind the LOGOS_SMOKE env var (set by `make smoke`)

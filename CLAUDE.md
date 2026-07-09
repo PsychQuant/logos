@@ -95,6 +95,21 @@ Notes:
   XcodeGen once with `brew install xcodegen`. `Logos.xcodeproj` is a generated
   artifact (gitignored) — `project.yml` is the source of truth; SwiftPM
   (`Package.swift`) remains the source of truth for the app build itself.
+- **Track B needs the Metal Toolchain** (macOS 26 / Xcode 26). It ships as a
+  separate downloadable component, not with the base toolchain. The Logos app
+  target has Metal renderer shaders, so an app-hosted `xcodebuild` build
+  (`make hosted-tests` / Track B, both the renderer and snapshot tests) fails with
+  `cannot execute tool 'metal' due to missing Metal Toolchain` until it is
+  installed: `xcodebuild -downloadComponent MetalToolchain` (~688 MB, once per
+  machine). A plain `swift test` never touches Metal, so this is a hosted/Track-B
+  prerequisite only — alongside `brew install xcodegen` and the Apple Development
+  signing identity above.
+- **`project.yml` ↔ `Package.swift` drift guard** (#65): `Tests/BuildGraphDriftTests`
+  runs in the plain `swift test` hard gate and fails if any `Package.swift` library
+  target (`.target(name:)`) is missing from `project.yml`'s `targets:`. It closes
+  the blind spot where extracting a `Sources/` module without mirroring it in
+  `project.yml` silently broke Track B (`import <Module>` unresolvable under
+  `xcodebuild`) yet left `swift test` green — the #39 / #60 recurrence.
 - **Manual log inspection** (what the smoke automates): launch the app, then
   `/usr/bin/log show --predicate 'subsystem == "app.getlogos.logos"'` (use the
   absolute path — `log` is a zsh builtin that shadows the binary and returns
