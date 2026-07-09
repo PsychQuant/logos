@@ -96,20 +96,60 @@ import Yams
         )
     }
 
+    /// #65 round-2: the widened `\.target\s*\(\s*name\s*:\s*"` extractor tolerates the
+    /// whitespace/newline forms the stricter `\.target\(\s*name:` missed — a
+    /// space-before-paren `.target (name: "X")` and a multi-line
+    /// `.target(\n  name : "X"\n)` — and full-line `//` comments are stripped so a
+    /// commented-out target is not a phantom library. Under the pre-fix regex both
+    /// `Spaced` and `MultiLine` went unread, so a real un-mirrored library declared
+    /// in either form would silently pass the drift guard (Track B breaks later).
+    @Test func extractorToleratesWhitespaceFormsAndSkipsCommentedTargets() throws {
+        let syntheticPackage = """
+        let package = Package(
+            targets: [
+                .target(name: "Tight"),
+                .target (name: "Spaced"),
+                .target(
+                    name : "MultiLine"
+                ),
+                // .target(name: "CommentedOut")
+                .executableTarget(name: "AppExe"),
+                .testTarget(name: "TightTests")
+            ]
+        )
+        """
+        let libraries = Self.packageLibraryTargets(in: syntheticPackage)
+        #expect(
+            Set(libraries) == ["Tight", "Spaced", "MultiLine"],
+            "widened extractor must catch spaced + multi-line .target forms and skip comments; got \(libraries.sorted())"
+        )
+        #expect(!libraries.contains("CommentedOut"), "a full-line // commented .target must not be read as a library")
+        #expect(!libraries.contains("AppExe"), ".executableTarget must still be excluded")
+        #expect(!libraries.contains("TightTests"), ".testTarget must still be excluded")
+    }
+
     // MARK: - pure extraction helpers
 
     /// Library targets declared in `Package.swift` — the lowercase `.target(name:)`
-    /// form only. `\.target\(` matches a literal `.target(`; `.executableTarget(`
-    /// and `.testTarget(` use a capital-T `Target(` with no preceding dot, so
-    /// neither is captured (excludes `Logos`, `MultiStats`, and every test
-    /// target). `\s*` tolerates both the same-line and multi-line `name:` forms.
+    /// form only. `\.target\s*\(\s*name\s*:\s*"` matches a literal `.target(` and is
+    /// whitespace/newline-tolerant, so `.target (name: "X")` and a multi-line
+    /// `.target(\n  name : "X"\n)` are both caught (`\s` spans newlines in ICU).
+    /// `.executableTarget(` and `.testTarget(` use a capital-T `Target(` with no
+    /// preceding dot, so neither matches `\.target` (excludes `Logos`, `MultiStats`,
+    /// and every test target). Full-line `//` comments are stripped first (house
+    /// idiom, mirrors RedLineAuditTests.strippingComments) so a commented-out
+    /// `.target(name: "X")` is not read as a live library.
     static func packageLibraryTargets(in packageSwift: String) -> [String] {
-        let pattern = #"\.target\(\s*name:\s*"([^"]+)""#
+        let code = packageSwift
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let pattern = #"\.target\s*\(\s*name\s*:\s*"([^"]+)""#
         guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let range = NSRange(packageSwift.startIndex..., in: packageSwift)
-        return re.matches(in: packageSwift, range: range).compactMap { match in
-            guard let r = Range(match.range(at: 1), in: packageSwift) else { return nil }
-            return String(packageSwift[r])
+        let range = NSRange(code.startIndex..., in: code)
+        return re.matches(in: code, range: range).compactMap { match in
+            guard let r = Range(match.range(at: 1), in: code) else { return nil }
+            return String(code[r])
         }
     }
 
