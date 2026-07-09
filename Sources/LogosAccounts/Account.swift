@@ -32,7 +32,7 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         isSystemDefault: Bool = false
     ) {
         self.id = id
-        self.label = label.trimmingCharacters(in: .whitespaces)
+        self.label = Account.byteBoundedLabel(label)   // #62: trim + byte cap (see byteBoundedLabel)
         self.createdAt = createdAt
         self.isSystemDefault = isSystemDefault
     }
@@ -121,11 +121,82 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
             && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
     }
 
-    /// Validate label only (duplicate-check requires AccountManager).
+    // MARK: - Label normalization (single source of truth) — #62
+
+    /// Max label size in extended grapheme clusters (Swift `Character`s).
+    public static let maxLabelGraphemes = 30
+
+    /// Max label size in UTF-8 bytes. Grapheme count alone does NOT bound the
+    /// persisted byte size — one cluster can carry an unbounded number of combining
+    /// scalars (a "zalgo" base + N combining marks, or a long ZWJ emoji sequence), so a
+    /// within-30-grapheme label can smuggle hundreds of KB into `index.json`. Labels are
+    /// therefore ALSO capped by byte size to keep the index under the whole-file cap
+    /// (`AccountRegistry.maxIndexBytes`, #61) — otherwise one fat label could push the
+    /// index past that cap and drop the ENTIRE registry on the next load.
+    public static let maxLabelUTF8Bytes = 256
+
+    /// The one trim set every label path uses. #62 resolved the earlier drift where the
+    /// mutation gate trimmed `.whitespaces` while the load-repair path trimmed
+    /// `.whitespacesAndNewlines` — a newline only ever reaches a label via the decode path,
+    /// and the two definitions of "trimmed" disagreed. `.whitespacesAndNewlines` is the
+    /// superset, so it is the single definition.
+    static let labelTrimSet: CharacterSet = .whitespacesAndNewlines
+
+    /// Truncate `s` to at most `maxBytes` UTF-8 bytes WITHOUT splitting a grapheme
+    /// cluster: accumulate whole `Character`s until the next would exceed the budget,
+    /// then stop. A raw `utf8.prefix(maxBytes)`/scalar cut could land inside a multi-byte
+    /// scalar or inside a ZWJ sequence, producing a replacement char / a broken cluster.
+    static func clampedToUTF8Bytes(_ s: String, _ maxBytes: Int) -> String {
+        guard s.utf8.count > maxBytes else { return s }
+        var result = ""
+        var used = 0
+        for ch in s {
+            let chBytes = String(ch).utf8.count
+            if used + chBytes > maxBytes { break }
+            result.append(ch)
+            used += chBytes
+        }
+        return result
+    }
+
+    /// `init(label:)`'s clamp: trim (`labelTrimSet`) + the BYTE cap only, on a grapheme
+    /// boundary. Deliberately NOT grapheme-capped: `AccountRegistry.normalize()`'s
+    /// uniquify sweep (#59) constructs an `Account` with a `"<label> (recovered)"` label
+    /// that can exceed `maxLabelGraphemes` while carrying only a handful of bytes, and
+    /// relies on `init` preserving it — a grapheme clamp here would strip the suffix and
+    /// reopen the exact-cap label collision that sweep just resolved (breaking #59's
+    /// convergence). The grapheme cap is not a persisted-size boundary (the byte cap is),
+    /// and the two real over-length gates still apply: the mutation gate (`validate`)
+    /// throws on >`maxLabelGraphemes`, and `normalize`'s cleanup pass (`clampedLabel`)
+    /// grapheme-clamps on load. So `init` only needs to bound bytes.
+    static func byteBoundedLabel(_ raw: String) -> String {
+        clampedToUTF8Bytes(raw.trimmingCharacters(in: labelTrimSet), maxLabelUTF8Bytes)
+    }
+
+    /// The load-time repair clamp: trim (`labelTrimSet`), then clamp to BOTH
+    /// `maxLabelGraphemes` and `maxLabelUTF8Bytes`, each on a grapheme-cluster boundary.
+    /// No placeholder and no throw — used by `AccountRegistry.normalize()` phase 3. May
+    /// return an empty string for an all-whitespace input; the empty→placeholder policy
+    /// is the repair path's concern, applied by the caller, not the clamp's.
+    static func clampedLabel(_ raw: String) -> String {
+        var label = raw.trimmingCharacters(in: labelTrimSet)
+        if label.count > maxLabelGraphemes { label = String(label.prefix(maxLabelGraphemes)) }
+        if label.utf8.count > maxLabelUTF8Bytes { label = clampedToUTF8Bytes(label, maxLabelUTF8Bytes) }
+        return label
+    }
+
+    /// Validate label only (duplicate-check requires AccountManager). The user-facing
+    /// mutation gate: it THROWS on an over-budget label rather than clamping, so the user
+    /// learns their label was rejected. Shares `labelTrimSet` and the cap constants with
+    /// `clampedLabel` so "what a valid, bounded label is" is defined once. An over-byte
+    /// label reuses `labelTooLong` (both caps are "the label is too big") — no separate
+    /// case, to keep the enum non-breaking for exhaustive `switch` sites.
     public static func validate(label: String) throws -> String {
-        let trimmed = label.trimmingCharacters(in: .whitespaces)
+        let trimmed = label.trimmingCharacters(in: labelTrimSet)
         if trimmed.isEmpty { throw ValidationError.emptyLabel }
-        if trimmed.count > 30 { throw ValidationError.labelTooLong }
+        if trimmed.count > maxLabelGraphemes || trimmed.utf8.count > maxLabelUTF8Bytes {
+            throw ValidationError.labelTooLong
+        }
         return trimmed
     }
 }

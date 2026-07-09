@@ -201,6 +201,43 @@ struct AccountRegistryTests {
         #expect(try Data(contentsOf: url) == before)
     }
 
+    // MARK: - Per-label UTF-8 byte cap on load-time repair (#62)
+    //
+    // #59's normalize clamp measures grapheme clusters, so a fat cluster (a "zalgo"
+    // base + N combining marks, or a long ZWJ emoji sequence) survived it byte-for-byte
+    // — the clamp removed 0 bytes. #62 adds a UTF-8 byte clamp on a grapheme boundary so
+    // an attacker-written index can't smuggle unbounded bytes past load-time repair,
+    // which #61's whole-file cap would otherwise drop as data loss (empties the registry).
+
+    /// 30 ZWJ family emoji: 30 grapheme clusters (passes the grapheme cap), 750 UTF-8 bytes.
+    private static let fatEmojiLabel = String(repeating: "👨‍👩‍👧‍👦", count: 30)
+
+    @Test("normalize clamps a persisted over-byte label on a grapheme boundary (#62)")
+    @MainActor func normalizeClampsOverByteLabel() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex(
+            [(id: "iso-fat", label: Self.fatEmojiLabel, epoch: 1_000, sd: false)], to: url)
+        let r = AccountRegistry(indexFileURL: url)            // load → normalize repairs
+        let acc = try #require(r.accounts.first)
+        #expect(acc.label.utf8.count <= Account.maxLabelUTF8Bytes)             // clamped under budget
+        #expect(acc.label == String(repeating: "👨‍👩‍👧‍👦", count: 10))         // 10 whole clusters (250 bytes)
+        #expect(String(Array(acc.label)) == acc.label)                         // no split cluster
+    }
+
+    // Net-change convergence (#59 verify): the byte clamp must fold into the end-of-pass
+    // label comparison, so a repaired index writes ONCE and is never re-saved on the next
+    // load. A per-step `changed = true` (or a non-idempotent clamp) would re-save forever.
+    @Test("normalize converges: a repaired over-byte index is not re-saved on next load (#62)")
+    @MainActor func normalizeConvergesAfterByteClamp() throws {
+        let url = tempIndexURL()
+        try writeCorruptIndex(
+            [(id: "iso-fat", label: Self.fatEmojiLabel, epoch: 1_000, sd: false)], to: url)
+        _ = AccountRegistry(indexFileURL: url)                // first load repairs + saves ONCE
+        let afterRepair = try Data(contentsOf: url)
+        _ = AccountRegistry(indexFileURL: url)                // second load: already clamped → no re-save
+        #expect(try Data(contentsOf: url) == afterRepair)     // byte-identical (convergence preserved)
+    }
+
     // #56 verify B1 (ensemble #3/#10): coexistence must be order-INdependent — a
     // pre-existing system-default "Main" must not block adding an isolated "Main".
     @Test("reverse order: system-default first, then isolated same label coexist (#56 verify B1)")

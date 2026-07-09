@@ -291,9 +291,12 @@ public final class AccountRegistry {
         let labelsBefore = accounts.map(\.label)
         for idx in accounts.indices {
             let acc = accounts[idx]
-            var label = acc.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            // #62: route through the shared clamping core (trim + 30-grapheme cap + 256-byte
+            // cap on a grapheme boundary). The byte clamp folds into the end-of-pass
+            // `labelsBefore` net comparison below — NOT a per-step `changed = true` — so a
+            // repaired index writes once and never re-saves (preserves #59's convergence).
+            var label = Account.clampedLabel(acc.label)
             if label.isEmpty { label = "(unnamed)" }
-            if label.count > 30 { label = String(label.prefix(30)) }
             if label != acc.label {
                 accounts[idx] = Account(id: acc.id, label: label,
                                         createdAt: acc.createdAt, isSystemDefault: acc.isSystemDefault)

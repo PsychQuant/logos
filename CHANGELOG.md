@@ -55,6 +55,22 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **Account labels are now bounded by UTF-8 byte size, not just character count**
+  ([#62](https://github.com/PsychQuant/logos/issues/62)). Every label length gate
+  measured Swift `Character` (grapheme-cluster) count, which does not bound persisted
+  size — one cluster can carry an unbounded number of combining scalars (a "zalgo" base
+  plus thousands of combining marks, or a long ZWJ emoji sequence), so a 30-character
+  label could smuggle hundreds of KB into the accounts index. Because the index has a
+  whole-file size cap that empties the entire registry when exceeded (#61), an unbounded
+  label was a silent data-loss vector on next launch, not just bloat. A single shared
+  normalizer now enforces a **256 UTF-8 byte** cap alongside the existing 30-character
+  cap and unifies the trim set on `.whitespacesAndNewlines`. **User-visible:** a label
+  that was previously accepted or persisted while over 256 bytes (but within 30
+  characters) is now **rejected** on create/rename, and **silently clamped** — always on
+  a whole-character boundary, never mid-character — when repaired on load. 256 bytes
+  comfortably fits any realistic label (30 CJK characters ~= 90 bytes, 30 flag emoji =
+  240 bytes) while blocking the attack.
+
 - **Live-preview error surfaces no longer show raw error dumps, and a failed "Add
   system account" now gives feedback** ([#74](https://github.com/PsychQuant/logos/issues/74)).
   Sibling instances of the #70 pattern outside that cluster: the PDF live-preview

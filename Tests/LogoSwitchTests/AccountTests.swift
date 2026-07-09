@@ -40,6 +40,68 @@ struct AccountTests {
         }
     }
 
+    // MARK: - Per-label UTF-8 byte cap (#62)
+    //
+    // Swift `String.count` measures extended grapheme clusters, not bytes. One
+    // cluster can carry unbounded combining scalars (a "zalgo" base + N combining
+    // marks, or a long ZWJ emoji sequence), so a within-30-grapheme label can smuggle
+    // hundreds of KB into the persisted index — which #61's whole-file cap then drops
+    // as data loss. The mutation gate REJECTS an over-byte label; construction CLAMPS it,
+    // always on a grapheme-cluster boundary so no cluster is split.
+
+    /// One base char + 4000 combining marks: a single grapheme cluster, ~8 KB of UTF-8.
+    private static let zalgoLabel = "a" + String(repeating: "\u{0301}", count: 4000)
+    /// 30 ZWJ family emoji: 30 grapheme clusters, 25 UTF-8 bytes each = 750 bytes.
+    private static let fatEmojiLabel = String(repeating: "👨‍👩‍👧‍👦", count: 30)
+
+    @Test("validate rejects a 1-grapheme label that exceeds the byte cap (#62)") @MainActor
+    func validateRejectsZalgoBytes() {
+        #expect(Self.zalgoLabel.count == 1)          // passes the 30-grapheme gate
+        #expect(Self.zalgoLabel.utf8.count > 256)    // but blows the byte budget
+        #expect(throws: Account.ValidationError.labelTooLong) {
+            _ = try Account.validate(label: Self.zalgoLabel)
+        }
+    }
+
+    @Test("validate rejects 30 ZWJ-emoji clusters that exceed the byte cap (#62)") @MainActor
+    func validateRejectsFatEmojiBytes() {
+        #expect(Self.fatEmojiLabel.count == 30)      // exactly at the grapheme cap
+        #expect(Self.fatEmojiLabel.utf8.count == 750)
+        #expect(throws: Account.ValidationError.labelTooLong) {
+            _ = try Account.validate(label: Self.fatEmojiLabel)
+        }
+    }
+
+    @Test("init clamps an over-byte label to the byte cap on a grapheme boundary (#62)")
+    func initClampsFatEmojiToByteCap() {
+        let acc = Account(id: "x", label: Self.fatEmojiLabel)
+        #expect(acc.label.utf8.count <= Account.maxLabelUTF8Bytes)              // clamped under budget
+        #expect(acc.label == String(repeating: "👨‍👩‍👧‍👦", count: 10))          // 10 whole clusters, 250 bytes
+        #expect(String(Array(acc.label)) == acc.label)                          // round-trips as whole Characters
+    }
+
+    @Test("init byte-clamp lands on a grapheme boundary, never mid-scalar (CJK) (#62)")
+    func initByteClampCJKBoundary() {
+        // 100 CJK chars: 3 UTF-8 bytes each = 300 bytes, over the byte cap. Since 256 is not a
+        // multiple of 3, a raw `utf8.prefix(256)` would split the 86th char mid-scalar. The
+        // cluster-aware clamp instead drops it whole → 85 chars, 255 bytes.
+        let acc = Account(id: "x", label: String(repeating: "字", count: 100))
+        #expect(acc.label.utf8.count <= Account.maxLabelUTF8Bytes)
+        #expect(acc.label.utf8.count == 255)                                    // 85 x 3 — not 256 (no mid-scalar cut)
+        #expect(acc.label.count == 85)
+        #expect(String(Array(acc.label)) == acc.label)                          // whole Characters, no split
+    }
+
+    @Test("validate trims a trailing newline (unified .whitespacesAndNewlines) (#62)") @MainActor
+    func validateTrimsNewline() throws {
+        #expect(try Account.validate(label: "work\n") == "work")
+    }
+
+    @Test("init trims a trailing newline (unified .whitespacesAndNewlines) (#62)")
+    func initTrimsNewline() {
+        #expect(Account(id: "x", label: "work\n").label == "work")
+    }
+
     // MARK: - System-default (main) account (#54)
 
     @Test("isSystemDefault defaults to false")
