@@ -81,7 +81,14 @@ All notable changes to Logos are documented here. Format loosely follows
   characters) is now **rejected** on create/rename, and **silently clamped** — always on
   a whole-character boundary, never mid-character — when repaired on load. 256 bytes
   comfortably fits any realistic label (30 CJK characters ~= 90 bytes, 30 flag emoji =
-  240 bytes) while blocking the attack.
+  240 bytes) while blocking the attack. **Round-2 hardening** (verify ensemble, three
+  reviewers converging): the load-repair uniquify sweep now reserves byte budget for its
+  `" (recovered)"` disambiguation suffix *before* clamping — previously two identical
+  at-cap labels could have the suffix clamped away entirely, letting duplicates survive
+  invisibly (the bookkeeping tracked pre-clamp candidates and the no-op diff never
+  persisted a fix). Uniqueness now operates on the realized stored label, and the
+  boundary cases (250/255/256-byte bases, single 256-byte cluster duplicates,
+  second-load convergence) are pinned by tests.
 
 - **Live-preview error surfaces no longer show raw error dumps, and a failed "Add
   system account" now gives feedback** ([#74](https://github.com/PsychQuant/logos/issues/74)).
