@@ -55,6 +55,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **Snapshot baselines compare with a perceptual tolerance instead of raw bytes**
+  ([#73](https://github.com/PsychQuant/logos/issues/73)). A macOS point update's
+  sub-visual anti-aliasing/font drift byte-broke 4 of the 6 committed baselines with
+  zero visible difference. The single `snapshot()` funnel now asserts at
+  `precision: 0.98, perceptualPrecision: 0.98` (CIELAB ΔE threshold 2 — just above the
+  ~1 just-noticeable-difference), and the 4 drifted baselines were re-recorded. Real
+  layout/color regressions still RED (verified with a deliberate perturbation), with
+  one honestly-documented floor: a comma-level edit in one text line of a large canvas
+  can fit inside the 2% pixel budget (verify-DA finding — recorded in CLAUDE.md and the
+  suite doc rather than papered over). The `cancelRename` caption-exception from the
+  #74 review is likewise now pinned by a source-scan guard test instead of comment-only.
+
 - **Account labels are now bounded by UTF-8 byte size, not just character count**
   ([#62](https://github.com/PsychQuant/logos/issues/62)). Every label length gate
   measured Swift `Character` (grapheme-cluster) count, which does not bound persisted
