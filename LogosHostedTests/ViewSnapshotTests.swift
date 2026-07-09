@@ -15,14 +15,17 @@ import LogoSwitch  // #39: AccountRow snapshots construct Account (a LogoSwitch 
 /// commit + re-run); committed runs compare → RED on a rendering change. Do NOT
 /// hardcode `record: .all` here — that would silently re-record and never assert.
 ///
-/// Cross-environment caveat (#26 Residue): baselines are recorded on a canonical
-/// machine; a different macOS version, Retina scale, or **system accent color**
-/// may not byte-match at `precision: 1`. `.aqua` pins light/dark but NOT the
-/// accent — `AccountRow`'s active circle (`Color.accentColor`) and the overlay's
+/// Cross-environment caveat (#26 Residue, softened #73): baselines are recorded
+/// on a canonical machine. Comparison uses a perceptual tolerance (#73) — see
+/// `snapshot()` — so a macOS point update's sub-visual anti-aliasing / font drift
+/// no longer false-REDs. A different Retina scale or **system accent color** can
+/// still exceed the tolerance: `.aqua` pins light/dark but NOT the accent, and
+/// `AccountRow`'s active circle (`Color.accentColor`) + the overlay's
 /// `.borderedProminent` buttons track `NSColor.controlAccentColor`, so a teammate
-/// on a non-default accent will see a false RED. Pin size + appearance keeps them
-/// stable within a consistent environment; treat them as a single-canonical-env
-/// guard, not a cross-machine gate.
+/// on a non-default accent may see a false RED. Pin size + appearance + tolerance
+/// keep them stable within a consistent environment; treat them as a
+/// canonical-environment guard, widened across OS point updates but not a full
+/// cross-machine gate.
 final class ViewSnapshotTests: XCTestCase {
 
     @MainActor
@@ -36,7 +39,20 @@ final class ViewSnapshotTests: XCTestCase {
         host.frame = NSRect(x: 0, y: 0, width: width, height: height)
         host.appearance = NSAppearance(named: .aqua)  // force light, deterministic
         host.layoutSubtreeIfNeeded()
-        assertSnapshot(of: host, as: .image, testName: testName)
+        // #73: perceptual tolerance, not raw-byte. `perceptualPrecision: 0.98`
+        // routes swift-snapshot-testing off its `precision >= 1 && perceptualPrecision
+        // >= 1` raw-byte short-circuit into `perceptuallyCompare`, where a pixel counts
+        // as "different" only if its CIELAB Delta-E exceeds `(1 - 0.98) * 100 = 2` —
+        // just above the ~1 ΔE just-noticeable-difference, so OS point-update AA/font
+        // drift (well under ΔE 2) is absorbed. `precision: 0.98` must ALSO drop below 1
+        // (not stay at 1.0): a few anti-aliased edge pixels can spike past ΔE 2, and
+        // `precision` caps the fraction (≤2% of pixels) allowed to fully mismatch. Real
+        // layout/color regressions perturb far more area and/or ΔE, so they still RED.
+        assertSnapshot(
+            of: host,
+            as: .image(precision: 0.98, perceptualPrecision: 0.98),
+            testName: testName
+        )
     }
 
     @MainActor

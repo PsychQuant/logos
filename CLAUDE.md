@@ -125,12 +125,34 @@ Notes:
   to `exit 1` in `ci.yml`).
 - **Snapshot baselines** (#26, `ViewSnapshotTests`): committed PNGs under
   `LogosHostedTests/__Snapshots__/` are recorded on a canonical machine with a
-  pinned size + forced `.aqua` appearance. To regenerate after an intentional
-  view change, delete the stale PNG(s) (or set `SNAPSHOT_TESTING_RECORD=all`) and
-  re-run `xcodebuild test`. A different macOS version, Retina scale, or **system
-  accent color** may not byte-match (`.aqua` pins light/dark but not the accent,
-  which the active-account circle + prominent buttons track) — treat snapshots as
-  a single-canonical-environment guard, not a cross-machine gate.
+  pinned size + forced `.aqua` appearance. **Perceptual tolerance** (#73): the
+  single `snapshot()` helper compares at `.image(precision: 0.98,
+  perceptualPrecision: 0.98)`, not raw bytes. `perceptualPrecision: 0.98` routes
+  swift-snapshot-testing off its `precision >= 1 && perceptualPrecision >= 1`
+  raw-byte short-circuit into `perceptuallyCompare`, where a pixel counts as
+  "different" only if its CIELAB Delta-E exceeds `(1 - 0.98) * 100 = 2` — just
+  above the ~1 ΔE just-noticeable-difference. `precision: 0.98` caps the
+  fully-mismatching fraction at 2% of pixels (an anti-aliased edge pixel can spike
+  past ΔE 2, so precision must also drop below 1, not just perceptualPrecision).
+  **Absorbs**: OS point-update anti-aliasing / font-rendering drift (the #73 case
+  — 4 baselines byte-mismatched with no visible difference after a macOS point
+  update, all ΔE well under 2). **Still catches**: real layout/color regressions
+  (wrong accent, moved/missing element, a background or button color change) —
+  they perturb far more than 2% of pixels and/or at ΔE well above 2, so they stay
+  RED (verified #73 by a deliberate black→blue background perturbation). Caveat on
+  the floor: a *very* small-area change (e.g. a single word swapped in one centred
+  title line) can fall under the 2% budget and pass — tolerance trades some
+  small-text sensitivity for OS-drift durability. To regenerate after an
+  intentional view change, delete the stale PNG(s) (or set
+  `SNAPSHOT_TESTING_RECORD=all`), re-run `xcodebuild test` to record, then re-run
+  to assert; re-record stays the fallback for a major visual overhaul that the
+  tolerance would (correctly) RED. Because XcodeGen globs `LogosHostedTests/` as
+  resources, run `xcodegen generate` after deleting PNGs (so the project stops
+  referencing them) and again after recording. A different Retina scale or
+  **system accent color** can still exceed the tolerance (`.aqua` pins light/dark
+  but not the accent, which the active-account circle + prominent buttons track) —
+  the tolerance widens the guard across OS point updates but it remains a
+  canonical-environment guard, not a full cross-machine gate.
 - **XCUITest behavior flows** (#27, `LogosUITests/`): the runner sandbox blocks
   `Process` (no `kill`/`log show`), so flows drive state + assert via pure UI.
   Two `--ui-testing`-gated test seams (inert in production — the arg never appears):
