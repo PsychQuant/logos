@@ -292,6 +292,13 @@ public final class AccountManager {
             attributes: [.posixPermissions: 0o700])
         // Converge a pre-existing looser dir: the leaf and its `<id>` intermediate
         // (the parent). #61 hardens the accounts root above them; do not walk higher.
+        //
+        // Caveat: setAttributes(_:ofItemAtPath:) is chmod(2), which FOLLOWS symlinks —
+        // were `dir` a symlink, this would re-mode its target, not the link itself.
+        // Acceptable here: #61 creates and re-hardens the accounts root
+        // (`~/.logos/accounts`) to 0o700 (owner-only) on every AccountRegistry.save(),
+        // so no other-user can traverse into this chain to plant a symlink at `<id>`
+        // or `<id>/.claude`; the only writer is the same-trust-domain owner.
         for dir in [path, (path as NSString).deletingLastPathComponent] {
             do {
                 try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir)

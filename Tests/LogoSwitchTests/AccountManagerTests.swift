@@ -165,6 +165,11 @@ struct AccountManagerTests {
         try FileManager.default.createDirectory(
             at: leaf, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o755])
+        // #63 round-2: umask-proof the precondition. A strict process umask can mask
+        // createDirectory's create-time `attributes:`, leaving the leaf tighter than
+        // 0o755 — which would false-fail the SETUP (not the code under test). Force
+        // the looser mode explicitly before asserting the precondition.
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: leaf.path)
         #expect(try posixMode(leaf.path) == 0o755)          // genuinely looser before the call
         try AccountManager.defaultEnsureDirectory(leaf.path)
         #expect(try posixMode(leaf.path) == 0o700)          // converged despite pre-existing 0o755
