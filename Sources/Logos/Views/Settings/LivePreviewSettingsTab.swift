@@ -62,7 +62,11 @@ struct LivePreviewSettingsTab: View {
                 configText = try String(contentsOfFile: path, encoding: .utf8)
                 loadError = nil
             } catch {
-                loadError = "Read failed: \(error)"
+                // #74: the raw error can embed the config-file path — show a friendly
+                // caption and log the detail at explicitly-private privacy (#22 D3),
+                // mirroring #70.
+                Log.settings.error("live-preview config read failed: \(String(describing: error), privacy: .private)")
+                loadError = "Couldn't read the config file."
             }
         } else {
             configText = """
@@ -86,7 +90,9 @@ struct LivePreviewSettingsTab: View {
             saveStatus = "Saved at \(Date().formatted(.dateTime.hour().minute().second()))"
             loadError = nil
         } catch {
-            loadError = "Save failed: \(error)"
+            // #74: same as load() — the raw error can embed the config-file path.
+            Log.settings.error("live-preview config save failed: \(String(describing: error), privacy: .private)")
+            loadError = "Couldn't save the config file."
             saveStatus = nil
         }
     }

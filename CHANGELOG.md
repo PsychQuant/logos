@@ -21,6 +21,20 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **Live-preview error surfaces no longer show raw error dumps, and a failed "Add
+  system account" now gives feedback** ([#74](https://github.com/PsychQuant/logos/issues/74)).
+  Sibling instances of the #70 pattern outside that cluster: the PDF live-preview
+  build banner and the Live-Preview settings read/save captions interpolated the raw
+  Swift error (`"\(error)"`) into user-facing text — reachable with process-launch / IO
+  errors whose descriptions can embed filesystem paths. They now show a friendly
+  sentence ("Couldn't run the build command." / "Couldn't read the config file." /
+  "Couldn't save the config file.") and log the underlying error to the unified log at
+  explicitly-`private` privacy (`Log.workspace` / `Log.settings`). Separately, the
+  switcher's "Add system account" button used to silently discard a registry-persist
+  failure — it now surfaces "Couldn't add the system account — the change didn't save.
+  Try again." through the same announced error affordance as delete/rename/add
+  (queryable id `logos.account.addSystemDefault.error`).
+
 - **The switcher's fallback error captions no longer show raw error dumps**
   ([#70](https://github.com/PsychQuant/logos/issues/70)). The add-account and rename
   catch-alls interpolated the raw Swift error into the caption — reachable with

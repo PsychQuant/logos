@@ -29,6 +29,12 @@ struct AccountSwitcherSheet: View {
     /// failure instead of leaving the tap looking like a no-op. Cleared at the entry
     /// of the next user action so it never lingers across interactions.
     @State private var deleteError: String?
+    /// #74: last failed "Add system account" message. `addSystemDefaultAccount()`
+    /// returns `.failed` on a registry persist failure (the account is NOT durably
+    /// registered) — the call site used to discard it, leaving the tap a silent
+    /// no-op. Surfaced here like `deleteError`, cleared at the entry of sibling
+    /// actions so it never lingers.
+    @State private var systemDefaultError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -86,10 +92,13 @@ struct AccountSwitcherSheet: View {
             if let err = deleteError {
                 SheetErrorLine(message: err, identifier: "logos.account.delete.error")  // #60: parity with the rename affordance
             }
+            if let err = systemDefaultError {
+                SheetErrorLine(message: err, identifier: "logos.account.addSystemDefault.error")  // #74: surface the discarded .failed
+            }
 
             Divider()
 
-            Button(action: { deleteError = nil; renameError = nil; showAddSheet = true }) {
+            Button(action: { deleteError = nil; renameError = nil; systemDefaultError = nil; showAddSheet = true }) {
                 Label("Add account", systemImage: "plus.circle.fill")
                     .padding(.vertical, 4)
             }
@@ -105,7 +114,15 @@ struct AccountSwitcherSheet: View {
                 Button {
                     deleteError = nil
                     renameError = nil
-                    mgr.addSystemDefaultAccount()
+                    systemDefaultError = nil
+                    // #74: the .failed result used to be discarded — a persist
+                    // failure left the tap a silent no-op. Route it through the
+                    // setter into the sheet's error affordance. The detail is
+                    // already logged .private at AccountManager.swift:157, so the
+                    // caption stays a friendly sentence (no raw payload).
+                    if case .failed = mgr.addSystemDefaultAccount() {
+                        setSystemDefaultError("Couldn't add the system account — the change didn't save. Try again.")
+                    }
                 } label: {
                     Label("Add system account", systemImage: "person.crop.circle.badge.checkmark")
                         .padding(.vertical, 4)
@@ -178,6 +195,11 @@ struct AccountSwitcherSheet: View {
         AccessibilityNotification.Announcement(message).post()
     }
 
+    private func setSystemDefaultError(_ message: String) {
+        systemDefaultError = message
+        AccessibilityNotification.Announcement(message).post()
+    }
+
     private func dismissAddSheet() {
         newLabel = ""
         addError = nil
@@ -197,6 +219,7 @@ struct AccountSwitcherSheet: View {
     /// the global default — the #42 window-local decision.
     private func selectAccount(_ id: String) {
         deleteError = nil   // #60: a new action clears any stale delete error
+        systemDefaultError = nil   // #74: mirror deleteError's clearing sites
         if let selection {
             selection.wrappedValue = id
         } else {
@@ -209,6 +232,7 @@ struct AccountSwitcherSheet: View {
     private func beginRename(_ accountId: String) {
         renameError = nil
         deleteError = nil   // #60
+        systemDefaultError = nil   // #74
         editingAccountId = accountId
     }
 
@@ -266,6 +290,7 @@ struct AccountSwitcherSheet: View {
         // because the trash button is never gated on edit state.
         deleteError = nil
         renameError = nil
+        systemDefaultError = nil   // #74: a delete is a user action — clear the sibling caption too
         guard mgr.remove(accountId: accountId) else {
             // #69: English like every sibling message — this was the sheet's only
             // Chinese string. Localization proper (typed pipeline) stays recorded
@@ -287,6 +312,7 @@ struct AccountSwitcherSheet: View {
         guard editingAccountId == accountId else { return }
         renameError = nil
         deleteError = nil   // #60
+        systemDefaultError = nil   // #74
         do {
             try mgr.rename(accountId: accountId, to: newLabel)
             editingAccountId = nil

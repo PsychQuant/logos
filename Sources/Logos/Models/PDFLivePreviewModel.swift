@@ -82,8 +82,15 @@ public final class PDFLivePreviewModel {
                 }
             } catch {
                 if !Task.isCancelled {
+                    // #74: a thrown error here is a process-launch / IO failure, not
+                    // build stderr — its text can embed filesystem paths. Show a
+                    // friendly caption and send the detail to the unified log at
+                    // explicitly-private privacy (#22 D3), mirroring #70. The
+                    // non-zero-exit branch above surfaces real build stderr and is
+                    // deliberately shown verbatim.
+                    Log.workspace.error("live-preview build failed: \(String(describing: error), privacy: .private)")
                     await MainActor.run {
-                        self?.state = .failure(stderrTail: "\(error)")
+                        self?.state = .failure(stderrTail: "Couldn't run the build command.")
                     }
                 }
             }
