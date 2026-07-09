@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Yams
 
 /// The structural red-line guard for LogoSwitch (#34).
 ///
@@ -48,10 +49,10 @@ import Testing
     /// Precise **link-form** tokens that would wire a keychain-exposing system
     /// framework into the `LogoSwitch` XcodeGen target. Each appears only in an
     /// actual link declaration — an `sdk:` dependency entry or an `-framework`
-    /// linker flag — never in prose, so unlike a naive `contains("Security")`
-    /// none of these trips on the `#` doc-comments at project.yml:62/74/94.
-    /// `LocalAuthentication` is the sibling keychain/biometric framework, barred
-    /// for the same reason.
+    /// linker flag — never in prose. `LocalAuthentication` is the sibling
+    /// keychain/biometric framework, barred for the same reason. Scanned against a
+    /// *structurally resolved* serialization of the target (`logoSwitchLinkSurface`),
+    /// so aliases and array-form flags are normalized before the `contains` check.
     static let forbiddenProjectYmlLinkForms = [
         "Security.framework",        // - sdk: Security.framework
         "sdk: Security",             // - sdk: Security (extension-less form)
@@ -66,59 +67,133 @@ import Testing
     /// system-framework link added there (`- sdk: Security.framework`,
     /// `OTHER_LDFLAGS: -framework Security`) would make `SecItem*` callable from
     /// LogoSwitch with zero `import Security` in any `.swift` file — invisible to
-    /// `logoSwitchSourcesContainNoCredentialAccess`. This test extracts the
-    /// `LogoSwitch:` target block and asserts it links no keychain-exposing
-    /// framework, keeping project.yml consistent with `Package.swift` (whose
-    /// LogoSwitch target has no Security-linking product dependency).
+    /// `logoSwitchSourcesContainNoCredentialAccess`.
+    ///
+    /// #66 round-2: the earlier line-heuristic scan of the extracted target block
+    /// had two proven bypasses (security lens; PoCs at /tmp/xcodegen_duptest and
+    /// /tmp/xcodegen_anchortest):
+    ///   (a) a DUPLICATE top-level `LogoSwitch:` key — XcodeGen takes last-wins, but
+    ///       the text scan read the first (clean) block; and
+    ///   (b) YAML ANCHOR/ALIAS indirection — a top-level anchor holding
+    ///       `-framework Security` aliased into the target's `OTHER_LDFLAGS`, absent
+    ///       from any literal text inside the target block.
+    /// This test now parses `project.yml` STRUCTURALLY with Yams (which resolves
+    /// aliases + merge keys at load), navigates to `targets.LogoSwitch`, and scans a
+    /// normalized serialization of that resolved subtree — closing (b). Vector (a) is
+    /// closed by an explicit duplicate-key scan (`targetKeyCount`): Yams 5.4.0 throws
+    /// `duplicatedKeysInMapping` on duplicate keys, but the guard must not depend on
+    /// the parser's dup policy, so raw text is scanned for a repeated `LogoSwitch:`
+    /// target key independently.
     @Test func projectYmlDoesNotLinkSecurityIntoLogoSwitch() throws {
         let yaml = try String(contentsOf: Self.projectYmlURL(), encoding: .utf8)
 
-        // GREEN: the real LogoSwitch block is clean today.
-        let block = try #require(
-            Self.targetBlock(named: "LogoSwitch", in: yaml),
-            "expected a 'LogoSwitch:' target block in project.yml"
+        // GREEN, vector (a): the real project.yml declares LogoSwitch exactly once.
+        #expect(
+            Self.targetKeyCount(named: "LogoSwitch", in: yaml) == 1,
+            "project.yml must declare the LogoSwitch target exactly once (a duplicate key is the XcodeGen last-wins injection vector, #66)."
         )
+
+        // GREEN, vector (b) + direct link: the resolved LogoSwitch subtree links no
+        // keychain-exposing framework.
+        let surface = try Self.logoSwitchLinkSurface(in: yaml)
         for token in Self.forbiddenProjectYmlLinkForms {
             #expect(
-                !Self.blockLinksToken(block, token),
+                !surface.contains(token),
                 "RED-LINE VIOLATION: project.yml's LogoSwitch target links '\(token)'. LogoSwitch must never link a keychain-exposing framework (#34/#66)."
             )
         }
 
-        // Detector sanity: a synthetic LogoSwitch block that DOES inject a
-        // Security link (both `sdk:` and `-framework` channels) must be flagged.
-        // Without this a broken scan would pass vacuously — it also proves block
-        // extraction stops at the sibling `Logos:` key rather than leaking into
-        // the next target.
-        let violating = [
+        // Detector sanity — synthetic REDs. Without these a broken scan passes
+        // vacuously. Each is a form the guard MUST flag.
+
+        // (a) DUPLICATE top-level LogoSwitch key (XcodeGen last-wins; the malicious
+        // second block carries the Security link). PoC: /tmp/xcodegen_duptest. Only
+        // the raw-text dup scan sees this — feeding it to Yams would throw.
+        let dupInjected = [
+            "targets:",
             "  LogoSwitch:",
             "    type: framework",
-            "    platform: macOS",
+            "    sources: [Sources]",
+            "  LogoSwitch:",
+            "    type: framework",
+            "    settings:",
+            "      base:",
+            "        OTHER_LDFLAGS: \"-framework Security\"",
+        ].joined(separator: "\n")
+        #expect(
+            Self.targetKeyCount(named: "LogoSwitch", in: dupInjected) == 2,
+            "duplicate-key vector (a) not detected — a last-wins LogoSwitch injection would slip past the guard"
+        )
+
+        // (b) ANCHOR/ALIAS indirection: a top-level anchor holds the Security linker
+        // flag, aliased into OTHER_LDFLAGS — no literal Security token inside the
+        // LogoSwitch block. Yams resolves the alias at load. PoC: /tmp/xcodegen_anchortest.
+        let aliasInjected = [
+            "settings:",
+            "  base:",
+            "    SEC_FLAG: &secFlag \"-framework Security\"",
+            "targets:",
+            "  LogoSwitch:",
+            "    type: framework",
+            "    settings:",
+            "      base:",
+            "        OTHER_LDFLAGS: *secFlag",
+        ].joined(separator: "\n")
+        let aliasSurface = try Self.logoSwitchLinkSurface(in: aliasInjected)
+        #expect(
+            aliasSurface.contains("-framework Security"),
+            "alias vector (b) not resolved — the guard would miss an aliased Security link"
+        )
+
+        // Direct injection through both channels, incl. the ARRAY form of
+        // OTHER_LDFLAGS (["-framework", "Security"]) — the resolved-array normalize
+        // must join it back to a scannable "-framework Security".
+        let directInjected = [
+            "targets:",
+            "  LogoSwitch:",
+            "    type: framework",
             "    dependencies:",
             "      - target: LogosAccounts",
             "      - sdk: Security.framework",
             "    settings:",
             "      base:",
-            "        OTHER_LDFLAGS: \"-framework Security\"",
+            "        OTHER_LDFLAGS: [\"-framework\", \"Security\"]",
             "  Logos:",
             "    type: application",
         ].joined(separator: "\n")
-        let syntheticBlock = try #require(Self.targetBlock(named: "LogoSwitch", in: violating))
+        let directSurface = try Self.logoSwitchLinkSurface(in: directInjected)
         #expect(
-            Self.blockLinksToken(syntheticBlock, "Security.framework"),
-            "detector failed to flag an injected 'sdk: Security.framework' link — the guard would be a no-op"
+            directSurface.contains("Security.framework"),
+            "detector failed to flag an injected 'sdk: Security.framework' dependency"
         )
         #expect(
-            Self.blockLinksToken(syntheticBlock, "-framework Security"),
-            "detector failed to flag an injected '-framework Security' linker flag"
+            directSurface.contains("-framework Security"),
+            "detector failed to flag an array-form '-framework Security' linker flag (array normalize broken)"
         )
+
+        // Isolation: a Security link in a SIBLING target must NOT leak into the
+        // LogoSwitch surface (structural navigation targets LogoSwitch precisely,
+        // replacing the old block-boundary heuristic).
+        let siblingInjected = [
+            "targets:",
+            "  LogoSwitch:",
+            "    type: framework",
+            "    dependencies:",
+            "      - target: LogosAccounts",
+            "  Logos:",
+            "    type: application",
+            "    settings:",
+            "      base:",
+            "        OTHER_LDFLAGS: \"-framework Security\"",
+        ].joined(separator: "\n")
+        let siblingSurface = try Self.logoSwitchLinkSurface(in: siblingInjected)
         #expect(
-            !syntheticBlock.contains("type: application"),
-            "block extraction leaked past the LogoSwitch target into the sibling 'Logos:' key"
+            !siblingSurface.contains("-framework Security"),
+            "structural navigation leaked a sibling target's Security link into the LogoSwitch surface"
         )
     }
 
-    // MARK: - helpers
+    // MARK: - project.yml structural helpers (#66)
 
     /// `<repo>/project.yml`, derived from this test file's location (up 3 to the
     /// repo root, same shape as `moduleSourcesDirectory()`).
@@ -130,59 +205,55 @@ import Testing
             .appendingPathComponent("project.yml", isDirectory: false)
     }
 
-    /// Extracts the 2-space-indented `<name>:` target block from a project.yml
-    /// string: from the `^  <name>:` line up to (not including) the next block
-    /// boundary — a sibling target key (`^  \S`) or a top-level key (`^\S`),
-    /// ignoring `#` comment lines. Returns `nil` if the target is absent.
-    static func targetBlock(named name: String, in yaml: String) -> String? {
-        let lines = yaml.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let start = lines.firstIndex(where: { $0.hasPrefix("  \(name):") }) else {
-            return nil
-        }
-        var block = [lines[start]]
-        for line in lines[(start + 1)...] {
-            if Self.isBlockBoundary(line) { break }
-            block.append(line)
-        }
-        return block.joined(separator: "\n")
-    }
-
-    /// A line ends the current target block: either a top-level key (0 indent,
-    /// non-comment) or a sibling target key (exactly 2-space indent, non-comment).
-    /// Deeper-indented lines, blank lines, and `#` comments are never boundaries.
-    static func isBlockBoundary(_ line: Substring) -> Bool {
-        if let first = line.first, first != " ", first != "#" { return true }
-        guard line.hasPrefix("  ") else { return false }
-        let idx = line.index(line.startIndex, offsetBy: 2)
-        guard idx < line.endIndex else { return false }
-        let c = line[idx]
-        return c != " " && c != "#"
-    }
-
-    /// True when `token` appears in the block with YAML `#` comments stripped —
-    /// so an in-block doc comment that merely *mentions* a link form can never
-    /// false-positive.
-    static func blockLinksToken(_ block: String, _ token: String) -> Bool {
-        Self.strippingYamlComments(block).contains(token)
-    }
-
-    /// Drops YAML `#` comments: a `#` starts a comment when it is the first
-    /// non-blank character of the line or is preceded by whitespace. A `#`
-    /// embedded in a bareword value (no preceding space) is preserved.
-    static func strippingYamlComments(_ source: String) -> String {
-        source
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
-                var result = ""
-                var prevWasSpace = true   // start-of-line counts as "after whitespace"
-                for ch in line {
-                    if ch == "#" && prevWasSpace { break }
-                    result.append(ch)
-                    prevWasSpace = (ch == " " || ch == "\t")
-                }
-                return result
+    /// Number of times `name` appears as a top-level XcodeGen target key (a `<name>:`
+    /// line indented exactly two spaces — a direct child of `targets:`), ignoring
+    /// `#` comment lines. `> 1` is the duplicate-key injection vector (#66 (a)):
+    /// XcodeGen resolves duplicates last-wins, so a second `LogoSwitch:` block could
+    /// carry a Security link. Yams 5.4.0 throws on duplicate keys, but the guard
+    /// scans raw text so it never depends on that parser behavior.
+    static func targetKeyCount(named name: String, in yaml: String) -> Int {
+        yaml.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                if line.trimmingCharacters(in: .whitespaces).hasPrefix("#") { return false }
+                // exactly 2-space indent: the char after "  " is the key's first
+                // letter, so a deeper-indented `    LogoSwitch:` never matches.
+                return line.hasPrefix("  \(name):")
             }
-            .joined(separator: "\n")
+            .count
+    }
+
+    /// A normalized, structurally-resolved serialization of the `targets.LogoSwitch`
+    /// subtree, ready for a `contains(token)` link scan. Yams resolves anchors,
+    /// aliases, and merge keys at load (#66 (b)); `flatten` then renders the subtree
+    /// as `key: value` text and joins string arrays with spaces so an array-form
+    /// linker flag (`["-framework", "Security"]`) becomes the scannable
+    /// `-framework Security`. Returns `""` when the target is absent.
+    static func logoSwitchLinkSurface(in yaml: String) throws -> String {
+        guard let root = try Yams.load(yaml: yaml) as? [String: Any],
+              let targets = root["targets"] as? [String: Any],
+              let logoSwitch = targets["LogoSwitch"] else {
+            return ""
+        }
+        return Self.flatten(logoSwitch)
+    }
+
+    /// Recursively renders a resolved YAML value as flat text. Mappings render as
+    /// `key: value` pairs, sequences of scalars join with spaces (so an array-form
+    /// linker flag is scannable as one token), nested sequences/mappings recurse.
+    /// The output is for substring token matching only — key order is irrelevant.
+    static func flatten(_ node: Any) -> String {
+        switch node {
+        case let s as String:
+            return s
+        case let arr as [Any]:
+            return arr.map { Self.flatten($0) }.joined(separator: " ")
+        case let dict as [String: Any]:
+            return dict.map { "\($0.key): \(Self.flatten($0.value))" }.joined(separator: " ")
+        case let dict as [AnyHashable: Any]:
+            return dict.map { "\(String(describing: $0.key)): \(Self.flatten($0.value))" }.joined(separator: " ")
+        default:
+            return String(describing: node)
+        }
     }
 
     // MARK: - source-scan helpers

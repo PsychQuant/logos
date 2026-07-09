@@ -59,7 +59,15 @@ let package = Package(
         ),
         .testTarget(
             name: "LogoSwitchTests",
-            dependencies: ["LogoSwitch", "LogosAccounts"]
+            dependencies: [
+                "LogoSwitch",
+                "LogosAccounts",
+                // #66: RedLineAuditTests parses project.yml STRUCTURALLY (Yams
+                // resolves anchors/aliases/merge keys at load) to close the
+                // duplicate-key and alias bypasses of the old line-heuristic
+                // red-line scan of the LogoSwitch XcodeGen target.
+                .product(name: "Yams", package: "Yams")
+            ]
         ),
         .testTarget(
             name: "LogosAccountsTests",
@@ -78,8 +86,8 @@ let package = Package(
         // a future module extraction that forgets project.yml fails LOUD in the
         // plain `swift test` hard gate instead of silently breaking Track B (the
         // #39 / #60 recurrence). Yams (already a package dep) parses project.yml's
-        // targets: mapping; it is not a dependency of any other test target, so it
-        // is wired only here.
+        // targets: mapping structurally (also used by LogoSwitchTests' #66 red-line
+        // guard).
         .testTarget(
             name: "BuildGraphDriftTests",
             dependencies: [
