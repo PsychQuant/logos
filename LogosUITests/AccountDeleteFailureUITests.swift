@@ -10,10 +10,18 @@ import XCTest
 /// seeding, it chmods the volatile accounts-index dir read-only so the registry's
 /// DESIGNED `.atomic`-write failure fires and `remove()` returns `false` for real.
 ///
-/// One seeded account keeps the per-row trash button (all rows share
-/// `logos.account.delete`) unambiguous. Mirrors `AccountRenameUITests` /
-/// `AccountSwitchUITests`: keychain-free seed, target rows by label TEXT, positives +
+/// One seeded account keeps the per-row trash button unambiguous. The trash button
+/// is queried by its VoiceOver LABEL ("Delete account", #72) — its
+/// `logos.account.delete` identifier (#67) is shadowed at runtime by the row
+/// HStack's `logos.account.row` id (#24), which SwiftUI propagates onto every child
+/// control (a pre-existing latent defect, unrelated to #72). Mirrors
+/// `AccountRenameUITests` / `AccountSwitchUITests`: keychain-free seed, positives +
 /// app-alive only, `XCTSkip` (never fail) if the launch state lacks the switcher.
+///
+/// Edit mode is entered via the `--ui-testing` `logos.account.beginRename` affordance
+/// (targeted by its per-account label) — XCUITest cannot synthesize the count:2
+/// double-click that drives rename for real users (see `AccountRenameUITests`' GESTURE
+/// NOTE).
 ///
 /// #68 scoping (binding): the delete-failure caption + row survival + no stacked
 /// captions are HARD assertions; whether a delete-while-editing row STAYS in edit mode
@@ -57,7 +65,9 @@ final class AccountDeleteFailureUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "the '\(seededLabel)' account row did not appear in the switcher")
 
-        let trash = app.descendants(matching: .any)["logos.account.delete"]
+        // Query by the VO label — the `logos.account.delete` id is shadowed by the
+        // row id (see class doc). One seeded account → one "Delete account" button.
+        let trash = app.buttons["Delete account"]
         XCTAssertTrue(trash.waitForExistence(timeout: 5), "the trash button did not appear")
         trash.click()
 
@@ -85,13 +95,21 @@ final class AccountDeleteFailureUITests: XCTestCase {
         let row = app.staticTexts[seededLabel]
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "the '\(seededLabel)' account row did not appear in the switcher")
-        row.doubleClick()  // enter inline-rename mode (AccountRow onTapGesture count:2)
 
-        let renameField = app.textFields["logos.account.rename.field"]
+        // Enter inline-rename mode via the `--ui-testing` affordance (XCUITest cannot
+        // synthesize AccountRow's count:2 double-click — see the class doc). This
+        // drives the exact `onBeginRename` the real double-click drives.
+        let beginRename = app.buttons["Begin rename \(seededLabel)"]
+        XCTAssertTrue(beginRename.waitForExistence(timeout: 5),
+                      "the begin-rename affordance for '\(seededLabel)' did not appear")
+        beginRename.click()
+
+        let renameField = app.textFields["Account name"]
         XCTAssertTrue(renameField.waitForExistence(timeout: 5),
-                      "double-click did not enter rename mode (no rename TextField appeared)")
+                      "beginning rename did not enter rename mode (no rename TextField appeared)")
 
-        let trash = app.descendants(matching: .any)["logos.account.delete"]
+        // Query by the VO label — `logos.account.delete` is shadowed (see class doc).
+        let trash = app.buttons["Delete account"]
         XCTAssertTrue(trash.waitForExistence(timeout: 5), "the trash button did not appear while editing")
         trash.click()
 
@@ -118,7 +136,7 @@ final class AccountDeleteFailureUITests: XCTestCase {
         // AppKit-governed and deliberately unasserted. Record what THIS machine does so
         // the audit trail pins the real ordering; promote to a contract only once #68
         // decides the platform behavior is one.
-        let stillEditing = app.textFields["logos.account.rename.field"].exists
+        let stillEditing = app.textFields["Account name"].exists
         let labelBack = app.staticTexts[seededLabel].exists
         let observation = "delete-while-editing edit-mode retention — rename field present: \(stillEditing); label text present: \(labelBack)"
         NSLog("[#67 observation] %@", observation)

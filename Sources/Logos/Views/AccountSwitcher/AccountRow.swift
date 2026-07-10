@@ -84,13 +84,42 @@ struct AccountRow: View {
                 .accessibilityLabel("Open in new window")  // #72: icon-only; .help() is a tooltip, not a VO label
                 .accessibilityIdentifier("logos.account.openInNewWindow")  // #42 XCUITest query
             }
+            // #37/#27: enter rename via an affordance, gated on `--ui-testing`.
+            // XCUITest cannot synthesize the SwiftUI `.onTapGesture(count: 2)` below
+            // (element-, coordinate-, active-row-, and two-`click()` synthesis all
+            // leave the count:2 recognizer unfired). A genuine hardware double-click
+            // DOES enter rename and does NOT switch the active account — verified
+            // out-of-band (real double-click, screenshot-confirmed), so the gesture
+            // is sound; only the synthesized path is un-drivable. This affordance
+            // lets the UI test reach rename state, mirroring the
+            // `logos.terminal.uitestTerminate` seam (#27). Inert in production (the
+            // arg never appears → not built, so snapshots stay byte-identical). Its
+            // per-account VoiceOver label makes it row-targetable even though the
+            // row's `.accessibilityIdentifier("logos.account.row")` propagates onto
+            // every child control's identifier (the #24 row id shadows child ids).
+            if !isEditing, CommandLine.arguments.contains("--ui-testing") {
+                Button(action: onBeginRename) {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.plain)
+                .opacity(0.6)
+                .accessibilityLabel("Begin rename \(account.label)")
+                .accessibilityIdentifier("logos.account.beginRename")  // shadowed by the row id; query by the per-account label
+            }
             Button(role: .destructive, action: onDelete) {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
             .opacity(0.6)
             .accessibilityLabel("Delete account")  // #72: icon-only trash button needs a VO label
-            .accessibilityIdentifier("logos.account.delete")  // #67 XCUITest query (all rows share; seed one to disambiguate)
+            // NOTE: this id is SHADOWED at runtime by the row HStack's
+            // `.accessibilityIdentifier("logos.account.row")` (#24) — SwiftUI
+            // propagates a container identifier onto its child a11y elements, so
+            // every control in the row reports `logos.account.row`. XCUITest must
+            // query this button by its VoiceOver LABEL ("Delete account"), not this
+            // id. Kept for intent/VO tooling; the shadowing is a pre-existing latent
+            // defect (predates #72; also affects `logos.account.openInNewWindow`).
+            .accessibilityIdentifier("logos.account.delete")  // #67 (shadowed — see NOTE; query by label)
         }
         .contentShape(Rectangle())
         // Double-click → rename (#36). Declared BEFORE the single-tap select so

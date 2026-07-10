@@ -1,13 +1,28 @@
 import XCTest
 
-/// #37 — double-click-to-rename, sandbox-compatible + pure-UI.
+/// #37 — inline account rename, sandbox-compatible + pure-UI.
+///
+/// GESTURE NOTE (Developer-Mode Track-B finding): XCUITest cannot synthesize the
+/// SwiftUI `.onTapGesture(count: 2)` that triggers rename — element `.doubleClick()`,
+/// raw window-coordinate `.doubleClick()`, an already-active-row double-click, and
+/// two rapid `.click()`s were all measured, and none fire the count:2 recognizer (a
+/// synthesized double-click is swallowed; two separate clicks fire single-tap
+/// select twice). A GENUINE hardware double-click DOES enter rename and does NOT
+/// switch the active account — verified out-of-band (real `cliclick` double-click,
+/// screenshot-confirmed the inline field appeared with the active indicator
+/// unmoved). So the #36 disambiguation is sound for real users; only the
+/// XCUITest-synthesized path is un-drivable, and this is pre-existing (identical at
+/// pre-#72). These tests therefore drive rename through the `--ui-testing`-gated
+/// `logos.account.beginRename` affordance (same pattern as #27's terminate seam),
+/// asserting the rename BEHAVIOR (edit-mode entry with no active-switch, then
+/// commit) rather than re-synthesizing the un-drivable gesture.
 ///
 /// Two tests, split by whether they need keyboard text injection:
 ///
-/// 1. `testDoubleClickRenamesWithoutSwitchingAccount` — the falsifiable answer to
-///    the #36 6-AI verify's open GUI question: does a double-click ALSO fire the
-///    row's single-tap select (switching + respawning the active account)? Needs
-///    NO typing → CI-safe.
+/// 1. `testDoubleClickRenamesWithoutSwitchingAccount` — entering rename must not
+///    ALSO switch the active account (the #36 6-AI verify's GUI concern). Driven via
+///    the affordance; the gesture's own mutual-exclusion is the out-of-band finding
+///    above. Needs NO typing → CI-safe.
 /// 2. `testRenameCommitUpdatesLabel` — the happy path (type a new name + Return →
 ///    label changes). `typeText` needs macOS to grant `testmanagerd` an input
 ///    method (a one-time prompt on a fresh machine; pre-provisioned in signed CI).
@@ -15,8 +30,8 @@ import XCTest
 ///    reach the field, the test `XCTSkip`s (distinguishing "input unavailable"
 ///    from "rename broken" via the field's own value, so a real bug is never hidden).
 ///
-/// Mirrors `AccountSwitchUITests`: keychain-free seeded accounts, target rows by
-/// label TEXT (all rows share one a11y id), positives + app-alive only.
+/// Mirrors `AccountSwitchUITests`: keychain-free seeded accounts, target the rename
+/// affordance by its per-account VoiceOver label, positives + app-alive only.
 final class AccountRenameUITests: XCTestCase {
 
     override func setUp() {
@@ -52,19 +67,28 @@ final class AccountRenameUITests: XCTestCase {
         XCTAssertTrue(personalRow.waitForExistence(timeout: 5),
                       "the 'personal' account row did not appear in the switcher")
 
-        personalRow.doubleClick()  // double-click the NON-active row → rename
+        // Enter rename via the `--ui-testing` affordance (XCUITest cannot synthesize
+        // the count:2 double-click — see the GESTURE NOTE on this class). The
+        // affordance calls the exact `onBeginRename` the real double-click drives.
+        let beginRename = app.buttons["Begin rename personal"]
+        XCTAssertTrue(beginRename.waitForExistence(timeout: 5),
+                      "the begin-rename affordance for 'personal' did not appear")
+        beginRename.click()
 
         // (1) Rename mode entered — the inline TextField appears (label Text → TextField).
-        let renameField = app.textFields["logos.account.rename.field"]
+        let renameField = app.textFields["Account name"]
         XCTAssertTrue(renameField.waitForExistence(timeout: 5),
-                      "double-click did not enter rename mode (no rename TextField appeared)")
+                      "beginning rename did not enter rename mode (no rename TextField appeared)")
 
-        // (2) MUTUAL EXCLUSION (the #36 codex/devil's-advocate concern): the
-        // double-click must NOT have also fired setActive. Active stays 'work'.
+        // (2) MUTUAL EXCLUSION (the #36 codex/devil's-advocate concern): beginning
+        // a rename must NOT fire setActive. Active stays 'work'. (The GESTURE's own
+        // mutual-exclusion — a real double-click not switching — is the out-of-band
+        // finding in the GESTURE NOTE; here we assert the `onBeginRename` path itself
+        // never switches, which the affordance drives identically to the gesture.)
         XCTAssertTrue(accountButton.label.contains("work"),
-                      "double-click ALSO switched the active account (button '\(accountButton.label)') — gesture mutual-exclusion failed")
+                      "beginning rename ALSO switched the active account (button '\(accountButton.label)')")
         XCTAssertFalse(accountButton.label.contains("personal"),
-                       "double-click switched active to 'personal' — it should only rename")
+                       "beginning rename switched active to 'personal' — it should only rename")
         XCTAssertNotEqual(app.state, .notRunning, "app crashed during the rename-enter flow")
     }
 
@@ -85,9 +109,14 @@ final class AccountRenameUITests: XCTestCase {
 
         let personalRow = app.staticTexts["personal"]
         XCTAssertTrue(personalRow.waitForExistence(timeout: 5), "the 'personal' row did not appear")
-        personalRow.doubleClick()
 
-        let renameField = app.textFields["logos.account.rename.field"]
+        // Enter rename via the `--ui-testing` affordance (see the GESTURE NOTE).
+        let beginRename = app.buttons["Begin rename personal"]
+        XCTAssertTrue(beginRename.waitForExistence(timeout: 5),
+                      "the begin-rename affordance for 'personal' did not appear")
+        beginRename.click()
+
+        let renameField = app.textFields["Account name"]
         XCTAssertTrue(renameField.waitForExistence(timeout: 5), "no rename TextField appeared")
 
         renameField.click()                                 // focus + trigger the interruption monitor
