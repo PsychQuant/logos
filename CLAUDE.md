@@ -179,12 +179,22 @@ Notes:
   (3) `--seed-remove-fails` (#67) chmods the volatile accounts-index dir read-only
   (`0o500`) after seeding, so a delete's registry persist genuinely fails and rolls
   back (`remove()` → false) — driving `AccountDeleteFailureUITests`' flows, which
-  hard-assert the `logos.account.delete.error` caption by identifier and record
-  edit-mode retention as an observation only (the #68 assertion-scoping decision).
+  hard-assert the `logos.account.delete.error` caption and record edit-mode
+  retention as an observation only (the #68 assertion-scoping decision; observed
+  RETAINED on the canonical machine, round 3); (4) a per-row
+  `logos.account.beginRename` pencil affordance, because **XCUITest cannot
+  synthesize SwiftUI's `.onTapGesture(count: 2)`** — element/coordinate doubleClick
+  and two rapid clicks all leave the recognizer unfired, while a real hardware
+  double-click works (verified out-of-band, commit `a2f2fc1`) — so rename flows
+  drive the exact `onBeginRename` callback through it. **Query row controls by
+  VoiceOver LABEL, not identifier**: the row's `logos.account.row` id shadows every
+  child control's id at runtime (#79).
   **Local Track B prerequisite**: macOS Developer Mode must be enabled
   (`DevToolsSecurity -status`; enable via `sudo DevToolsSecurity -enable`) — with it
   disabled, every XCUITest run times out at "enabling automation mode" before any
-  test code executes.
+  test code executes. Known flake: `RendererAdoptionTests` can crash its first
+  hosted phase and pass on xcodebuild's retry, leaving a confusing aggregate
+  `** TEST FAILED **` with all suites green (#78).
   Decision (#27): the exit is driven by the affordance, **not** type-to-stdin
   `/quit` — a keychain-free seeded account yields an unauthenticated claude (a
   login prompt, not a `/quit`-able REPL). The "no keychain dialog appeared"
