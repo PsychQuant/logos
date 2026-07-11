@@ -164,6 +164,34 @@ extension AccountsModelTests {
         await model.refreshAll()
         #expect(keychain.maxInFlight >= 2, "later passes must regain concurrency")
     }
+
+    // #51: the first-pass serialization only holds WITHIN one pass. Two
+    // `refreshAll()` calls that overlap on the first pass each start their own
+    // serialized loop, so the two loops interleave and the per-account
+    // authorization dialogs stack again. Overlapping passes must coalesce onto a
+    // single in-flight pass so at most one Keychain read is ever in flight.
+    @Test("overlapping first-pass refreshes coalesce and never stack keychain reads (#51)")
+    func concurrentFirstPassesCoalesce() async throws {
+        let home = try makeFixtureHome()   // three accounts
+        let keychain = InFlightTrackingKeychain()
+        let model = AccountsModel(home: home) { account, _ in
+            AccountUsageModel(
+                account: account,
+                credentialsReader: KeychainCredentialsReader(keychain: keychain),
+                usageClient: UsageClient(fetcher: FixedFetcher(body: Data(), status: 200)))
+        }
+        model.load()
+        #expect(model.accounts.count == 3)
+
+        // Launch two first-pass refreshes concurrently. A second serialized loop
+        // running alongside the first would push maxInFlight past 1.
+        async let first: Void = model.refreshAll()
+        async let second: Void = model.refreshAll()
+        _ = await (first, second)
+
+        #expect(keychain.maxInFlight == 1,
+                "overlapping first passes must coalesce, not re-stack authorization dialogs")
+    }
 }
 
 // MARK: - Instrumented fakes

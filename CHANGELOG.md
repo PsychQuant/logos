@@ -55,6 +55,19 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **Concurrent usage refreshes no longer restack the first-run Keychain
+  authorization dialogs** ([#51](https://github.com/PsychQuant/logos/issues/51)). The
+  first refresh pass already serialized its per-account Keychain reads so the macOS
+  authorization dialogs would not stack — but that guarantee held only *within* one
+  pass. Two `refreshAll()` calls overlapping on the first pass (e.g. window-open racing
+  an initial auto-refresh) each read `hasCompletedFirstPass == false` and started their
+  own serialized loop, so the two loops interleaved and the dialogs stacked again.
+  `refreshAll()` on both `AccountsModel` and `RegistryUsageModel` now coalesces onto a
+  single in-flight pass: a concurrent caller awaits the running pass instead of
+  launching a second. The guard is a synchronous check-and-set with no suspension in
+  between, so on the serial main actor it is atomic without a lock; later passes still
+  regain concurrency once the first has completed. Session-volatile, unchanged.
+
 - **The usage refresh path is hardened against stale-response ordering and a
   redirect token leak** ([#53](https://github.com/PsychQuant/logos/issues/53)). Two
   defense-in-depth gaps on the read-only usage fetch. (1) `AccountUsageModel.refresh()`

@@ -29,6 +29,10 @@ public final class RegistryUsageModel {
     /// (the row's own id is a config-dir path, not the registry id).
     @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount, String, String) -> AccountUsageModel
     @ObservationIgnored private var hasCompletedFirstPass = false
+    /// The single in-flight refresh pass, if one is running. Overlapping callers
+    /// await it rather than starting a second serialized first pass, which would
+    /// re-stack the per-account authorization dialogs (#51).
+    @ObservationIgnored private var inFlightRefresh: Task<Void, Never>?
 
     public init(
         registry: AccountRegistry,
@@ -58,9 +62,23 @@ public final class RegistryUsageModel {
     }
 
     /// First pass serialized (authorization dialogs must not stack), later
-    /// passes concurrent — same discipline as `AccountsModel`.
+    /// passes concurrent — same discipline as `AccountsModel`. Concurrent
+    /// invocations coalesce onto the one in-flight pass so two serialized first
+    /// passes can never interleave (#51). The check-and-set carries no
+    /// suspension, so it is atomic on the serial main actor.
     public func refreshAll() async {
-        await UsageRefresh.run(accounts, serialized: !hasCompletedFirstPass)
+        if let inFlightRefresh {
+            await inFlightRefresh.value
+            return
+        }
+        let accounts = self.accounts
+        let serialized = !hasCompletedFirstPass
+        let task = Task { @MainActor in
+            await UsageRefresh.run(accounts, serialized: serialized)
+        }
+        inFlightRefresh = task
+        await task.value
+        inFlightRefresh = nil
         hasCompletedFirstPass = true
     }
 }

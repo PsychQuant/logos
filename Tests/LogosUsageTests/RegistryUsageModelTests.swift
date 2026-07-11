@@ -142,6 +142,35 @@ struct RegistryUsageModelTests {
             #expect(suffix.allSatisfy { "0123456789abcdef".contains($0) })
         }
     }
+
+    // #51: same coalescing guard as `AccountsModel` — two `refreshAll()` calls
+    // overlapping on the first pass must share one serialized pass, or their two
+    // serialized loops interleave and the per-account authorization dialogs stack.
+    @Test("overlapping first-pass refreshes coalesce and never stack keychain reads (#51)")
+    func concurrentFirstPassesCoalesce() async throws {
+        let registry = makeRegistry()
+        try registry.create(label: "work")
+        try registry.create(label: "personal")
+        try registry.create(label: "spare")
+
+        let keychain = InFlightTrackingKeychain()
+        let model = RegistryUsageModel(registry: registry) { account, label, _ in
+            AccountUsageModel(
+                account: account,
+                labelOverride: label,
+                credentialsReader: KeychainCredentialsReader(keychain: keychain),
+                usageClient: UsageClient(fetcher: NoopFetcher()))
+        }
+        model.load()
+        #expect(model.accounts.count == 3)
+
+        async let first: Void = model.refreshAll()
+        async let second: Void = model.refreshAll()
+        _ = await (first, second)
+
+        #expect(keychain.maxInFlight == 1,
+                "overlapping first passes must coalesce, not re-stack authorization dialogs")
+    }
 }
 
 private struct NoopFetcher: UsageFetching {
@@ -156,6 +185,26 @@ private final class ServiceRecordingKeychain: KeychainReading, @unchecked Sendab
 
     func readGenericPassword(service: String) -> Data? {
         lock.withLock { services.append(service) }
+        return nil
+    }
+}
+
+/// Holds each synchronous read open briefly and records the maximum overlap —
+/// the observable proxy for "how many authorization dialogs could stack" (#51).
+private final class InFlightTrackingKeychain: KeychainReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var inFlight = 0
+    private(set) var maxObserved = 0
+
+    var maxInFlight: Int { lock.withLock { maxObserved } }
+
+    func readGenericPassword(service: String) -> Data? {
+        lock.withLock {
+            inFlight += 1
+            maxObserved = max(maxObserved, inFlight)
+        }
+        Thread.sleep(forTimeInterval: 0.08)   // hold the read open to catch overlap
+        lock.withLock { inFlight -= 1 }
         return nil
     }
 }
