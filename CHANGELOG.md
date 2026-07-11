@@ -77,6 +77,16 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **Ratified the label-query convention for `AccountRow` controls**
+  ([#79](https://github.com/PsychQuant/logos/issues/79)). The row HStack's
+  `.accessibilityIdentifier("logos.account.row")` propagates onto every child a11y
+  element, shadowing each control's own identifier at runtime — so `app.buttons["logos.account.delete"]`
+  never resolves under XCUITest. Rather than relocate the row id onto a non-propagating
+  leaf (an accessibility-tree restructure for marginal benefit), the shadowed child ids
+  are kept purely as intent markers and every row control is queried by its VoiceOver
+  LABEL. Formalized in the in-code NOTE on `AccountRow.swift` and the CLAUDE.md testing
+  convention; no runtime or user-facing change (VoiceOver output was already correct).
+
 - **The status-bar usage parse now runs off the main actor with a newest-wins stale
   guard** ([#49](https://github.com/PsychQuant/logos/issues/49)). `WindowUsageModel.refresh()`
   previously enumerated the account's `projects/` tree, read the full transcript, and

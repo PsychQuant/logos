@@ -117,8 +117,13 @@ struct AccountRow: View {
             // propagates a container identifier onto its child a11y elements, so
             // every control in the row reports `logos.account.row`. XCUITest must
             // query this button by its VoiceOver LABEL ("Delete account"), not this
-            // id. Kept for intent/VO tooling; the shadowing is a pre-existing latent
-            // defect (predates #72; also affects `logos.account.openInNewWindow`).
+            // id. This is the RATIFIED, permanent convention (#79, option a): rather
+            // than relocate the row id onto a non-propagating leaf (option b, an
+            // accessibility-tree restructure for marginal benefit), the shadowed child
+            // ids are kept purely as intent/VO-tooling markers and every row control
+            // is queried by its label. The shadowing is a pre-existing latent defect
+            // (predates #72; also affects `logos.account.openInNewWindow` /
+            // `logos.account.beginRename`), harmless because no query relies on it.
             .accessibilityIdentifier("logos.account.delete")  // #67 (shadowed — see NOTE; query by label)
         }
         .contentShape(Rectangle())

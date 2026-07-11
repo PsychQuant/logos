@@ -187,8 +187,12 @@ Notes:
   and two rapid clicks all leave the recognizer unfired, while a real hardware
   double-click works (verified out-of-band, commit `a2f2fc1`) — so rename flows
   drive the exact `onBeginRename` callback through it. **Query row controls by
-  VoiceOver LABEL, not identifier**: the row's `logos.account.row` id shadows every
-  child control's id at runtime (#79).
+  VoiceOver LABEL, not identifier** — the ratified permanent convention (#79, option
+  a): the row's `logos.account.row` id shadows every child control's id at runtime, so
+  the trash / open-in-new-window / pencil buttons are each queried by their VoiceOver
+  label, never by their (shadowed) identifier; the child ids are kept only as intent
+  markers (relocating the row id off the HStack — option b — was rejected as a
+  restructure for marginal benefit).
   **Local Track B prerequisite**: macOS Developer Mode must be enabled
   (`DevToolsSecurity -status`; enable via `sudo DevToolsSecurity -enable`) — with it
   disabled, every XCUITest run times out at "enabling automation mode" before any
