@@ -55,6 +55,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **The usage refresh path is hardened against stale-response ordering and a
+  redirect token leak** ([#53](https://github.com/PsychQuant/logos/issues/53)). Two
+  defense-in-depth gaps on the read-only usage fetch. (1) `AccountUsageModel.refresh()`
+  crossed two `await` points before assigning any terminal state, so two overlapping
+  refreshes on one row could resolve out of order and let a slow, older response
+  overwrite a newer one; a per-instance generation token now gates every terminal
+  assignment so the newest refresh always wins. (2) The token-bearing request followed
+  redirects with URLSession's defaults; a per-task delegate now strips the
+  `Authorization` header on any cross-host redirect (same-host hops are unaffected), so
+  the OAuth bearer can never cross to another origin. Foundation-only — no new Security
+  surface.
+
 - **A type-drifted field in one usage window no longer blanks the whole panel**
   ([#52](https://github.com/PsychQuant/logos/issues/52)). `UsageClient.parse` decoded the
   response atomically, so a single unexpected field type inside one window (`five_hour`

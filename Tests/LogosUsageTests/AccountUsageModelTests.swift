@@ -39,6 +39,46 @@ private final class CountingFetcher: UsageFetching, @unchecked Sendable {
     }
 }
 
+/// Serves two overlapping fetches so an OLDER in-flight refresh resolves AFTER
+/// a newer one: the first fetch to arrive is held until the second has been
+/// served (and returns `firstBody`), the second returns `secondBody` at once and
+/// releases the first. Deterministic, no sleeps — pins the generation-token
+/// ordering: whichever refresh started first (lower generation) completes last.
+private actor ReorderingFetcher: UsageFetching {
+    private let firstBody: Data
+    private let secondBody: Data
+    private var callCount = 0
+    private var firstCallArrived = false
+    private var firstCallWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseFirst: CheckedContinuation<Void, Never>?
+
+    init(firstBody: Data, secondBody: Data) {
+        self.firstBody = firstBody
+        self.secondBody = secondBody
+    }
+
+    /// Resolves once the first fetch is parked inside `fetch` — the point at
+    /// which it is safe to launch the second (newer) refresh.
+    func waitForFirstCall() async {
+        if firstCallArrived { return }
+        await withCheckedContinuation { firstCallWaiters.append($0) }
+    }
+
+    func fetch(accessToken: String) async throws -> (Data, Int) {
+        callCount += 1
+        if callCount == 1 {
+            firstCallArrived = true
+            firstCallWaiters.forEach { $0.resume() }
+            firstCallWaiters.removeAll()
+            await withCheckedContinuation { releaseFirst = $0 }
+            return (firstBody, 200)
+        }
+        releaseFirst?.resume()
+        releaseFirst = nil
+        return (secondBody, 200)
+    }
+}
+
 @MainActor
 @Suite("AccountUsageModel.refresh")
 struct AccountUsageModelTests {
@@ -84,6 +124,33 @@ struct AccountUsageModelTests {
             return
         }
         #expect(usage.windows.map(\.id) == ["five_hour", "seven_day"])
+    }
+
+    @Test("an older in-flight refresh does not clobber a newer one")
+    func staleRefreshDoesNotClobber() async throws {
+        // Distinct bodies: the older refresh carries 11.0, the newer carries 99.0.
+        let firstBody = Data(#"{"five_hour": {"utilization": 11.0}}"#.utf8)
+        let secondBody = Data(#"{"five_hour": {"utilization": 99.0}}"#.utf8)
+        let fetcher = ReorderingFetcher(firstBody: firstBody, secondBody: secondBody)
+        let model = makeModel(
+            credsJSON: Self.credsJSON(expiresAt: 4_000_000_000_000),
+            fetcher: fetcher)
+
+        // R1 (generation 1) reaches the fetcher and parks there.
+        let r1 = Task { await model.refresh() }
+        await fetcher.waitForFirstCall()
+        // R2 (generation 2) resolves at once and releases R1's now-stale response.
+        let r2 = Task { await model.refresh() }
+        await r2.value
+        await r1.value
+
+        guard case let .loaded(usage, _) = model.state else {
+            Issue.record("expected .loaded, got \(model.state)")
+            return
+        }
+        // Newest-wins: the later refresh's body survives; the older, slower
+        // response that resolved last must not overwrite it.
+        #expect(usage.windows.first { $0.id == "five_hour" }?.utilization == 99.0)
     }
 
     @Test("no Keychain item → noCredentials")

@@ -32,9 +32,40 @@ public struct LiveUsageFetcher: UsageFetching {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await session.data(for: request)
+        // A per-task delegate strips the bearer token on a cross-host redirect.
+        // `URLSession.shared` ignores a session-level delegate but honors the
+        // per-task one (macOS 12+), so the default session is kept.
+        let (data, response) = try await session.data(for: request, delegate: RedirectSanitizer())
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
         return (data, code)
+    }
+
+    /// Redirect policy for the token-bearing usage request. A same-host redirect
+    /// follows unchanged; a cross-host redirect follows with the `Authorization`
+    /// header stripped, so the OAuth bearer never crosses to another origin.
+    /// Pure and Foundation-only — unit-tested without a live redirect server.
+    static func sanitizedRedirect(_ proposed: URLRequest) -> URLRequest {
+        guard proposed.url?.host == endpoint.host else {
+            var stripped = proposed
+            stripped.setValue(nil, forHTTPHeaderField: "Authorization")
+            return stripped
+        }
+        return proposed
+    }
+}
+
+/// Per-task URLSession delegate that routes every redirect through
+/// `LiveUsageFetcher.sanitizedRedirect`, dropping the Authorization header on any
+/// cross-host hop. Stateless, hence safely `Sendable`.
+private final class RedirectSanitizer: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(LiveUsageFetcher.sanitizedRedirect(request))
     }
 }
 

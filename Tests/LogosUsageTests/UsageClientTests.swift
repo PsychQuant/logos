@@ -134,6 +134,29 @@ struct UsageParseTests {
     }
 }
 
+@Suite("LiveUsageFetcher redirect policy")
+struct RedirectPolicyTests {
+    private func authorizedRequest(url: String) -> URLRequest {
+        var request = URLRequest(url: URL(string: url)!)
+        request.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    @Test("a same-host redirect keeps the Authorization header")
+    func sameHostKeepsToken() {
+        let proposed = authorizedRequest(url: "https://api.anthropic.com/api/oauth/usage?page=2")
+        let result = LiveUsageFetcher.sanitizedRedirect(proposed)
+        #expect(result.value(forHTTPHeaderField: "Authorization") == "Bearer secret")
+    }
+
+    @Test("a cross-host redirect strips the Authorization header so the token cannot leak")
+    func crossHostStripsToken() {
+        let proposed = authorizedRequest(url: "https://evil.example.com/collect")
+        let result = LiveUsageFetcher.sanitizedRedirect(proposed)
+        #expect(result.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+}
+
 /// Canned async fetcher: returns a fixed body + status, or throws a transport error.
 private struct StubFetcher: UsageFetching {
     var body: Data = Data()

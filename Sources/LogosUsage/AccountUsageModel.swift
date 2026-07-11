@@ -48,6 +48,13 @@ public final class AccountUsageModel: Identifiable {
 
     public private(set) var state: LoadState = .idle
 
+    /// Monotonic refresh counter (newest-wins ordering). Two `refresh()` calls
+    /// on the SAME instance can interleave across their `await` suspension points;
+    /// each captures its generation on entry and applies its terminal state only
+    /// while still the newest, so a slow in-flight refresh can never overwrite a
+    /// newer one. `@ObservationIgnored` — internal bookkeeping, not UI state.
+    @ObservationIgnored private var refreshGeneration = 0
+
     private let account: DiscoveredAccount
     private let credentialsReader: KeychainCredentialsReader
     private let usageClient: UsageClient
@@ -78,6 +85,11 @@ public final class AccountUsageModel: Identifiable {
     /// Reads credentials and fetches usage, driving `state` through the
     /// lifecycle. Safe to call repeatedly (manual refresh).
     public func refresh() async {
+        // Claim the newest generation before the first suspension. Every terminal
+        // assignment below is gated on still owning it, so an older overlapping
+        // refresh that resolves later is discarded rather than clobbering.
+        refreshGeneration += 1
+        let generation = refreshGeneration
         state = .loading
 
         // The Keychain lookup is synchronous and can block (first access shows a
@@ -88,7 +100,7 @@ public final class AccountUsageModel: Identifiable {
         guard let credentials = await Task.detached(priority: .userInitiated, operation: {
             reader.credentials(for: account)
         }).value else {
-            state = .noCredentials
+            if generation == refreshGeneration { state = .noCredentials }
             return
         }
 
@@ -96,17 +108,17 @@ public final class AccountUsageModel: Identifiable {
         // re-login prompt without a doomed round-trip. Unknown expiry falls
         // through and lets the endpoint's 401 decide.
         if credentials.isExpired(asOf: Date()) {
-            state = .needsLogin
+            if generation == refreshGeneration { state = .needsLogin }
             return
         }
 
         do {
             let usage = try await usageClient.fetchUsage(accessToken: credentials.accessToken)
-            state = .loaded(usage, fetchedAt: Date())
+            if generation == refreshGeneration { state = .loaded(usage, fetchedAt: Date()) }
         } catch UsageError.unauthorized {
-            state = .needsLogin
+            if generation == refreshGeneration { state = .needsLogin }
         } catch {
-            state = .failed(Self.describe(error))
+            if generation == refreshGeneration { state = .failed(Self.describe(error)) }
         }
     }
 
