@@ -99,11 +99,15 @@ struct AccountSwitcherSheet: View {
                 // per-row @State / focus survive a reorder (foreach.md).
                 List {
                     if let main = mgr.mainAccount {
-                        switcherRow(main)
+                        // #88: Main is pinned + `.moveDisabled` — it shows no grip, but
+                        // reserves the SAME leading width (showsGrip: false) so every
+                        // account label stays vertically aligned with the grip'd rows.
+                        switcherRow(main, showsGrip: false)
                             .moveDisabled(true)
                     }
                     ForEach(mgr.reorderableAccounts) { acc in
-                        switcherRow(acc)
+                        // #88: reorderable rows get the visible 6-dot drag-handle hint.
+                        switcherRow(acc, showsGrip: true)
                     }
                     .onMove { source, destination in
                         // `.onMove` offsets are relative to the reorderable ForEach, so
@@ -191,21 +195,40 @@ struct AccountSwitcherSheet: View {
     /// separate `View` type) because it just forwards the sheet's eight per-row closures
     /// into `AccountRow` — which is itself the row's real, narrow-input invalidation
     /// boundary.
+    ///
+    /// #88: `showsGrip` prepends a leading 6-dot drag-handle grip as a
+    /// draggability HINT on the reorderable rows (`true`). Main passes `false`: it
+    /// still lays out the SAME grip view (kept invisible via `.opacity`) so it
+    /// reserves an identical leading width and every account label stays aligned —
+    /// Main just doesn't draw a handle it can't use (`.moveDisabled`). The grip is
+    /// purely decorative: the row stays whole-row press-draggable through the List's
+    /// `.onMove` (#87); the grip carries no gesture and is `.allowsHitTesting(false)`
+    /// so a press-drag that starts on it falls through to the List row and still
+    /// reorders. `AccountRow` itself is untouched — the grip is a switcher-context
+    /// wrapper affordance, not part of the presentational row.
     @ViewBuilder
-    private func switcherRow(_ acc: Account) -> some View {
+    private func switcherRow(_ acc: Account, showsGrip: Bool) -> some View {
         VStack(spacing: 0) {
-            AccountRow(
-                account: acc,
-                isActive: acc.id == activeSelectionId,
-                needsReauth: mgr.needsReauth(acc),
-                isEditing: acc.id == editingAccountId,
-                onSelect: { selectAccount(acc.id) },
-                onBeginRename: { beginRename(acc.id) },
-                onCommitRename: { commitRename(acc.id, to: $0) },
-                onCancelRename: { cancelRename(acc.id) },
-                onDelete: { delete(acc.id) },
-                onOpenInNewWindow: onOpenInNewWindow.map { cb in { cb(acc.id) } }
-            )
+            HStack(spacing: 0) {
+                DragHandleGrip()
+                    .padding(.leading, 10)
+                    .padding(.trailing, 2)
+                    .opacity(showsGrip ? 1 : 0)   // Main reserves the width, draws nothing
+                    .allowsHitTesting(false)       // pass press-drag through to the List row
+                    .accessibilityHidden(true)     // decorative — keep it out of VoiceOver
+                AccountRow(
+                    account: acc,
+                    isActive: acc.id == activeSelectionId,
+                    needsReauth: mgr.needsReauth(acc),
+                    isEditing: acc.id == editingAccountId,
+                    onSelect: { selectAccount(acc.id) },
+                    onBeginRename: { beginRename(acc.id) },
+                    onCommitRename: { commitRename(acc.id, to: $0) },
+                    onCancelRename: { cancelRename(acc.id) },
+                    onDelete: { delete(acc.id) },
+                    onOpenInNewWindow: onOpenInNewWindow.map { cb in { cb(acc.id) } }
+                )
+            }
             Divider()
         }
         .listRowInsets(EdgeInsets())
@@ -404,6 +427,30 @@ struct AccountSwitcherSheet: View {
             Log.account.error("account rename failed: \(String(describing: error), privacy: .private)")
             setRenameError("Couldn't rename the account — the change didn't save. Try again.")
         }
+    }
+}
+
+/// #88: the leading drag-handle grip — a compact 2×3 matrix of six small filled
+/// circles, the macOS convention for "this row is draggable." There is no clean SF
+/// Symbol for a 2×3 dot grip, so it's drawn with a `Grid` of `Circle`s in the
+/// subtle `.tertiary` style. Purely decorative and hint-only: the row's actual
+/// draggability is the List's `.onMove` (#87), not this view — it carries no
+/// gesture and its use site adds `.allowsHitTesting(false)` so a press-drag that
+/// starts on the handle passes through to the List row and still reorders. `private`
+/// (file-scope) because nothing outside this file — including tests — constructs it;
+/// the grip is visual-only (Track-B), so it has no `swift test` assertion.
+private struct DragHandleGrip: View {
+    var body: some View {
+        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+            GridRow { dot; dot }
+            GridRow { dot; dot }
+            GridRow { dot; dot }
+        }
+        .foregroundStyle(.tertiary)
+    }
+
+    private var dot: some View {
+        Circle().frame(width: 2.5, height: 2.5)
     }
 }
 

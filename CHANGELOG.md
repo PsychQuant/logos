@@ -7,6 +7,19 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **The reorderable account rows now show a drag-handle grip**
+  ([#88](https://github.com/PsychQuant/logos/issues/88)). Each drag-reorderable account
+  row ([#87](https://github.com/PsychQuant/logos/issues/87)) gains a leading 6-dot grip
+  (a compact 2×3 matrix of small `.tertiary` circles) as a visual hint that the row can
+  be dragged. The grip is hint-only: the whole row stays press-draggable through the
+  List's `.onMove` and the grip itself carries no gesture (`.allowsHitTesting(false)`),
+  so a press-drag that starts on the handle still initiates the reorder — single-tap
+  select, double-click rename, and the per-row buttons are unchanged. The pinned Main
+  row draws no grip (it can't be moved) but reserves the identical leading width so
+  every account label stays vertically aligned. `AccountRow` is untouched — the grip is
+  a switcher-context wrapper affordance, and it's `.accessibilityHidden` so it stays out
+  of VoiceOver.
+
 - **The account switcher pins Main on top and lets you drag to reorder the rest**
   ([#87](https://github.com/PsychQuant/logos/issues/87)). The system-default ("Main")
   account — the one that reuses your Terminal `~/.claude` login — now always renders
