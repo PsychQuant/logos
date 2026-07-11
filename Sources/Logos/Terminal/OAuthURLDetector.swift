@@ -10,17 +10,38 @@ import Foundation
 /// URL by hand. Logos detects that URL in its existing PTY stream-tee and opens
 /// it via `NSWorkspace`.
 ///
-/// SECURITY: this is locked to the claude authorize URL (`claude.com` +
-/// `/cai/oauth/authorize`). It must NEVER become a general "open any URL printed
-/// to the terminal" — that would let any subprocess output open arbitrary URLs.
+/// SECURITY: this is locked to the enumerated claude authorize forms — Claude.ai
+/// (`claude.com` + `/cai/oauth/authorize`) and Anthropic Console
+/// (`platform.claude.com` + `/oauth/authorize`) — each reassembled URL validated
+/// against ITS OWN host + path, matched exactly (never a wildcard or host-suffix).
+/// It must NEVER become a general "open any URL printed to the terminal" — that
+/// would let any subprocess output open arbitrary URLs (#17, #35).
 @MainActor
 public struct OAuthURLDetector {
 
-    /// Contiguous start token (host + path are not wrapped by the terminal, only
-    /// the long query string is). Used to locate a candidate.
-    private static let startToken = "https://claude.com/cai/oauth/authorize?"
-    private static let requiredHost = "claude.com"
-    private static let requiredPath = "/cai/oauth/authorize"
+    /// One enumerated claude authorize form. `startToken` is the contiguous prefix
+    /// used to locate a candidate (host + path are not wrapped by the terminal,
+    /// only the long query string is); `host` + `path` are the exact values the
+    /// reassembled URL must match. Each candidate is validated against its OWN
+    /// form's pair — never a shared or looser check — so the allowlist cannot be
+    /// broadened into the arbitrary-URL hole #17 guards.
+    private struct Form {
+        let startToken: String
+        let host: String
+        let path: String
+    }
+
+    /// The complete authorize allowlist (#35). Installed claude ships BOTH forms
+    /// in one OAuth-config struct: Claude.ai (subscription) and Anthropic Console
+    /// (API). Exactly these two fully-qualified (host, path) pairs are matched —
+    /// no wildcard, no host-suffix. Adding a form here is the only way to broaden
+    /// it; drift across claude versions is why this detector stays "interim".
+    private static let forms: [Form] = [
+        Form(startToken: "https://claude.com/cai/oauth/authorize?",
+             host: "claude.com", path: "/cai/oauth/authorize"),
+        Form(startToken: "https://platform.claude.com/oauth/authorize?",
+             host: "platform.claude.com", path: "/oauth/authorize"),
+    ]
 
     /// RFC 3986 URL characters (unreserved + reserved + percent). Whitespace is
     /// deliberately excluded — it is skipped while accumulating so a URL the
@@ -39,30 +60,48 @@ public struct OAuthURLDetector {
     /// first time it appears (reassembling across terminal wrapping); `nil`
     /// otherwise. Idempotent per distinct URL.
     public mutating func detect(in buffer: String) -> URL? {
-        // Scan EVERY authorize-URL token in the buffer, not just the first
-        // (#30 verify, codex P2). With the reset-immune `RollingTerminalBuffer`
-        // (#30) an already-`seen` URL lingers in the scan window, so returning
-        // `nil` on the first (stale) token would SHADOW a genuinely new URL that
-        // appears later in the same buffer — e.g. a failed login that re-prompts.
-        // Return the first token that reassembles to a valid, not-yet-seen URL;
-        // advance past stale/invalid tokens and keep looking.
+        // Scan EVERY authorize-URL token across BOTH forms, not just the first
+        // (#30 verify, codex P2), in buffer order. With the reset-immune
+        // `RollingTerminalBuffer` (#30) an already-`seen` URL lingers in the scan
+        // window, so returning `nil` on the first (stale) token would SHADOW a
+        // genuinely new URL later in the same buffer — e.g. a failed login that
+        // re-prompts, possibly with the OTHER form. Return the first token that
+        // reassembles to a valid, not-yet-seen URL; advance past stale/invalid
+        // tokens and keep looking.
         var searchStart = buffer.startIndex
-        while let startRange = buffer.range(of: Self.startToken,
-                                            range: searchStart..<buffer.endIndex) {
-            let reassembled = Self.reassembleURL(in: buffer, from: startRange.lowerBound)
-            // `&&` short-circuits, so `seen.insert` only runs for a structurally
-            // valid authorize URL — invalid candidates never pollute `seen`. An
-            // already-seen URL yields `inserted == false` → fall through to the
-            // next token (preserving "open each distinct URL once").
+        while let match = Self.nextFormToken(in: buffer, from: searchStart) {
+            let reassembled = Self.reassembleURL(in: buffer, from: match.range.lowerBound)
+            // `&&` short-circuits, so `seen.insert` only runs for a URL that
+            // matches its OWN form's host + path — invalid candidates never
+            // pollute `seen`. An already-seen URL yields `inserted == false` →
+            // fall through to the next token (preserving "open each distinct URL
+            // once").
             if let url = URL(string: reassembled),
-               url.host == Self.requiredHost,
-               url.path == Self.requiredPath,
+               url.host == match.form.host,
+               url.path == match.form.path,
                seen.insert(reassembled).inserted {
                 return url
             }
-            searchStart = startRange.upperBound
+            searchStart = match.range.upperBound
         }
         return nil
+    }
+
+    /// The earliest authorize-token occurrence at/after `from` across ALL forms,
+    /// with the form it belongs to — or `nil` when none remains. Choosing by
+    /// earliest buffer position (not by form order) preserves the single-form
+    /// "first-unseen-URL-in-buffer-order wins" property (#30) now that two forms'
+    /// tokens can interleave in one buffer.
+    private static func nextFormToken(in buffer: String,
+                                      from: String.Index) -> (form: Form, range: Range<String.Index>)? {
+        var earliest: (form: Form, range: Range<String.Index>)?
+        for form in forms {
+            guard let range = buffer.range(of: form.startToken,
+                                           range: from..<buffer.endIndex) else { continue }
+            if let current = earliest, current.range.lowerBound <= range.lowerBound { continue }
+            earliest = (form, range)
+        }
+        return earliest
     }
 
     /// Reassemble a candidate URL string starting at `start`, skipping terminal

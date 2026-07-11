@@ -5,6 +5,24 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The native login-URL open now fires for the Anthropic Console form too**
+  ([#35](https://github.com/PsychQuant/logos/issues/35)). Installed claude ships TWO
+  authorize forms in one OAuth-config struct — `https://claude.com/cai/oauth/authorize`
+  (Claude.ai / subscription) and `https://platform.claude.com/oauth/authorize`
+  (Anthropic Console / API) — but `OAuthURLDetector` was hardcoded to the first, so a
+  Console login never triggered the native open. The user was left to hand-copy the
+  ~400-char CRLF-wrapped URL and truncated the tail carrying `redirect_uri`, which claude
+  rejects ("Missing redirect_uri parameter"). The detector now models an allowlist of
+  per-form `(startToken, host, path)` triples and validates each reassembled candidate
+  against ITS OWN host + path — exactly two enumerated, fully-qualified pairs, no wildcard
+  or host-suffix match, so the #17 "never open an arbitrary URL" invariant is unchanged.
+  Re-adds `OAuthURLDetectorTests` (dropped in #34) with realistic `redirect_uri`-carrying
+  fixtures for both forms, including the CRLF-wrap reassembly regression. Interim fix
+  (authorize forms drift across claude versions); the proper retirement folds this into a
+  first-class `claude auth login` button (tracked separately).
+
 ### Added
 
 - **VoiceOver can now select and rename an account from the switcher**
