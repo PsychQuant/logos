@@ -193,6 +193,87 @@ import Yams
         )
     }
 
+    // MARK: - project.yml XcodeGen template-inheritance trip-wire (#76)
+
+    /// A fail-loud CI trip-wire for a build-graph blind spot ONE abstraction layer
+    /// above where `projectYmlDoesNotLinkSecurityIntoLogoSwitch` reads. That guard
+    /// scans a plain YAML view of `targets.LogoSwitch` (raw-text dup scan +
+    /// Yams-resolved link surface). XcodeGen's `targetTemplates:` / per-target
+    /// `templates:` inheritance is XcodeGen-INTERNAL merge logic, not YAML-level
+    /// semantics: a `Security.framework` link declared in
+    /// `targetTemplates.SomeTemplate.settings.base.OTHER_LDFLAGS` plus
+    /// `targets.LogoSwitch.templates: [SomeTemplate]` resolves into the generated
+    /// pbxproj, yet the literal `targets.LogoSwitch` subtree holds only
+    /// `templates: [SomeTemplate]` — no `Security` token either guard layer can see.
+    /// Both pass; the link would ship. Same threat class the #34/#66 guard exists to
+    /// close, one layer up.
+    ///
+    /// This assertion is the ACCEPTED fail-loud limitation of a structural YAML guard:
+    /// rather than silently trust the two link-scan layers, it asserts `project.yml`
+    /// uses NO template inheritance at all. The current file uses none
+    /// (`grep -inE "templates?:" project.yml` → no hits), so it is GREEN today with
+    /// zero false positive. It OVER-TRIGGERS by design — it also fires if a
+    /// `templates:` is later added to the `Logos` app target, not just LogoSwitch —
+    /// which is the point: it forces a conscious guard extension the day templates are
+    /// introduced ANYWHERE, and it fails CLOSED (blocks CI), the safe direction. It is
+    /// deliberately NOT scoped to the LogoSwitch subtree.
+    ///
+    /// Option (b) — the real structural fix, deferred until templates are actually
+    /// adopted: extend `logoSwitchLinkSurface` to merge `targets.LogoSwitch.templates`
+    /// names against the `targetTemplates` dict (replicating XcodeGen's own merge)
+    /// BEFORE the link scan, so an inherited Security link resolves into the scanned
+    /// surface instead of tripping this coarse gate.
+    @Test func projectYmlDeclaresNoXcodeGenTemplates() throws {
+        let yaml = try String(contentsOf: Self.projectYmlURL(), encoding: .utf8)
+
+        // GREEN: the real project.yml uses no XcodeGen template inheritance, so the
+        // link-surface guard's plain-YAML view of LogoSwitch is complete.
+        #expect(
+            Self.xcodeGenTemplateKeyCount(in: yaml) == 0,
+            "project.yml declares an XcodeGen 'targetTemplates:'/'templates:' key. Template inheritance resolves links XcodeGen-internally, INVISIBLE to projectYmlDoesNotLinkSecurityIntoLogoSwitch's plain-YAML scan — extend logoSwitchLinkSurface to merge templates (option (b)) before adopting them (#76)."
+        )
+
+        // Detector sanity — synthetic REDs. Without these a broken/typo'd scan passes
+        // vacuously. Each is a form the trip-wire MUST (or must NOT) flag.
+
+        // (a) A `targetTemplates:` block carrying the Security link + a per-target
+        // `templates:` reference into it — both key forms MUST be counted (2). This is
+        // the exact bypass the trip-wire exists to make loud.
+        let templateInjected = [
+            "targetTemplates:",
+            "  Insecure:",
+            "    settings:",
+            "      base:",
+            "        OTHER_LDFLAGS: \"-framework Security\"",
+            "targets:",
+            "  LogoSwitch:",
+            "    type: framework",
+            "    templates: [Insecure]",
+        ].joined(separator: "\n")
+        #expect(
+            Self.xcodeGenTemplateKeyCount(in: templateInjected) == 2,
+            "template trip-wire missed injected keys — a targetTemplates: block + a LogoSwitch templates: reference would slip past the guard (#76)"
+        )
+
+        // (b) Key-form precision: a commented-out `# templates:` and prose/identifiers
+        // containing the substring "template" must NOT trip it (0). Matching a bare
+        // substring instead of the key form would false-fire on either.
+        let benignTemplateProse = [
+            "# templates: [Insecure]   <- commented out, must not trip",
+            "name: MyTemplateProject",
+            "targets:",
+            "  Logos:",
+            "    type: application",
+            "    info:",
+            "      properties:",
+            "        NSHumanReadableCopyright: generated from template",
+        ].joined(separator: "\n")
+        #expect(
+            Self.xcodeGenTemplateKeyCount(in: benignTemplateProse) == 0,
+            "template trip-wire false-triggered on a commented-out key / prose containing 'template' — it must match the key form, not a bare substring (#76)"
+        )
+    }
+
     // MARK: - project.yml structural helpers (#66)
 
     /// `<repo>/project.yml`, derived from this test file's location (up 3 to the
@@ -218,6 +299,24 @@ import Yams
                 // exactly 2-space indent: the char after "  " is the key's first
                 // letter, so a deeper-indented `    LogoSwitch:` never matches.
                 return line.hasPrefix("  \(name):")
+            }
+            .count
+    }
+
+    /// Number of XcodeGen template-inheritance keys — a top-level `targetTemplates:`
+    /// or a per-target `templates:` — in `yaml`, ignoring `#` comment lines. A key
+    /// line is one whose TRIMMED content starts with `targetTemplates:` or
+    /// `templates:` (the key form), never a bare `template` substring, so prose or an
+    /// identifier containing "template" (or a commented-out `# templates:`) never
+    /// false-triggers. Mirrors `targetKeyCount`'s comment-skipping. `> 0` trips the
+    /// #76 trip-wire because template inheritance is XcodeGen-internal merge logic the
+    /// plain-YAML link-surface scan cannot see.
+    static func xcodeGenTemplateKeyCount(in yaml: String) -> Int {
+        yaml.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("#") { return false }
+                return trimmed.hasPrefix("targetTemplates:") || trimmed.hasPrefix("templates:")
             }
             .count
     }
