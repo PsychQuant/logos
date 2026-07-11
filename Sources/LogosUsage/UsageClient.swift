@@ -68,14 +68,42 @@ public struct UsageClient: Sendable {
     /// windows yields `PlanUsage(windows: [])`.
     static func parse(_ data: Data) -> PlanUsage? {
         struct Response: Decodable {
+            /// One usage window. `utilization` is the only load-bearing field; a
+            /// type-drift there invalidates the window (it becomes nil at the
+            /// `Response` level). `resets_at` is decoded leniently so a drifted
+            /// date never sinks a valid utilization.
             struct Window: Decodable {
                 let utilization: Double?
                 let resets_at: String?
-                let limit_dollars: Double?
-                let remaining_dollars: Double?
+
+                private enum CodingKeys: String, CodingKey {
+                    case utilization
+                    case resets_at
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    utilization = try container.decodeIfPresent(Double.self, forKey: .utilization)
+                    resets_at = try? container.decodeIfPresent(String.self, forKey: .resets_at)
+                }
             }
             let five_hour: Window?
             let seven_day: Window?
+
+            private enum CodingKeys: String, CodingKey {
+                case five_hour
+                case seven_day
+            }
+
+            /// Per-window lenient decode: a type-drift inside one window nils that
+            /// window instead of throwing and sinking the sibling's valid data. The
+            /// top-level container is still required — a non-object body throws
+            /// here, propagates through the caller's `try?`, and stays `.malformed`.
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                five_hour = try? container.decodeIfPresent(Window.self, forKey: .five_hour)
+                seven_day = try? container.decodeIfPresent(Window.self, forKey: .seven_day)
+            }
         }
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return nil }
 
@@ -86,9 +114,7 @@ public struct UsageClient: Sendable {
                 id: id,
                 label: label,
                 utilization: utilization,
-                resetsAt: window.resets_at.flatMap(parseDate),
-                limitDollars: window.limit_dollars,
-                remainingDollars: window.remaining_dollars))
+                resetsAt: window.resets_at.flatMap(parseDate)))
         }
         append(response.five_hour, id: "five_hour", label: "工作階段（5 小時）")
         append(response.seven_day, id: "seven_day", label: "每週（7 天）")

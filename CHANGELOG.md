@@ -55,6 +55,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **A type-drifted field in one usage window no longer blanks the whole panel**
+  ([#52](https://github.com/PsychQuant/logos/issues/52)). `UsageClient.parse` decoded the
+  response atomically, so a single unexpected field type inside one window (`five_hour`
+  or `seven_day`) threw the entire decode, collapsed to `.malformed`, and rendered the
+  account as failed — taking the sibling window's still-valid utilization down with it.
+  Each window now decodes leniently: a drifted window drops out on its own while its
+  sibling stays, and within a window `utilization` is the only load-bearing field (a
+  drifted `resets_at` yields a nil reset date, not a lost window). A well-formed body
+  whose windows are all drifted is a valid-but-empty parse; only a non-object body stays
+  `.malformed`. The unused `limitDollars`/`remainingDollars` fields — decoded and stored
+  but never read by any view — were dropped in the same pass.
+
 - **Snapshot baselines compare with a perceptual tolerance instead of raw bytes**
   ([#73](https://github.com/PsychQuant/logos/issues/73)). A macOS point update's
   sub-visual anti-aliasing/font drift byte-broke 4 of the 6 committed baselines with

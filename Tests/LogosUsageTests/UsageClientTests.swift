@@ -37,8 +37,6 @@ struct UsageParseTests {
         let session = try #require(usage.windows.first { $0.id == "five_hour" })
         #expect(session.utilization == 24.0)
         #expect(session.percentRemaining == 76.0)
-        #expect(session.limitDollars == 50.0)
-        #expect(session.remainingDollars == 38.0)
         #expect(session.resetsAt != nil)
 
         let weekly = try #require(usage.windows.first { $0.id == "seven_day" })
@@ -64,6 +62,47 @@ struct UsageParseTests {
         let usage = try #require(UsageClient.parse(json))
         #expect(usage.windows.map(\.id) == ["seven_day"])
         #expect(usage.windows.first?.percentRemaining == 90.0)
+    }
+
+    @Test("a type-drifted window does not sink its valid sibling")
+    func driftedWindowDoesNotSinkSibling() throws {
+        // five_hour.utilization drifted to a String; seven_day is valid. The
+        // drifted window must drop out on its own, leaving the sibling intact —
+        // not fail the entire response.
+        let json = Data(#"""
+        {
+          "five_hour": {"utilization": "twenty-four"},
+          "seven_day": {"utilization": 44.0}
+        }
+        """#.utf8)
+        let usage = try #require(UsageClient.parse(json))
+        #expect(usage.windows.map(\.id) == ["seven_day"])
+        #expect(usage.windows.first?.utilization == 44.0)
+    }
+
+    @Test("both windows drifted → valid-but-empty parse, not nil")
+    func bothWindowsDriftedYieldsEmpty() throws {
+        // A well-formed JSON object whose windows are both type-drifted is a
+        // valid (empty) parse — distinct from a non-object body, which stays nil.
+        let json = Data(#"""
+        {
+          "five_hour": {"utilization": "nope"},
+          "seven_day": {"utilization": "nope"}
+        }
+        """#.utf8)
+        let usage = try #require(UsageClient.parse(json))
+        #expect(usage.windows.isEmpty)
+    }
+
+    @Test("a drifted resets_at does not sink the window's valid utilization")
+    func driftedResetsAtKeepsUtilization() throws {
+        // resets_at drifted to a number; utilization is the only load-bearing
+        // field, so the window survives with a nil reset date.
+        let json = Data(#"{"five_hour": {"utilization": 24.0, "resets_at": 12345}}"#.utf8)
+        let usage = try #require(UsageClient.parse(json))
+        let window = try #require(usage.windows.first { $0.id == "five_hour" })
+        #expect(window.utilization == 24.0)
+        #expect(window.resetsAt == nil)
     }
 
     @Test("non-JSON body yields nil")

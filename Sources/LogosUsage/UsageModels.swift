@@ -12,23 +12,17 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     /// Percent of the window consumed, 0–100.
     public let utilization: Double
     public let resetsAt: Date?
-    public let limitDollars: Double?
-    public let remainingDollars: Double?
 
     public init(
         id: String,
         label: String,
         utilization: Double,
-        resetsAt: Date? = nil,
-        limitDollars: Double? = nil,
-        remainingDollars: Double? = nil
+        resetsAt: Date? = nil
     ) {
         self.id = id
         self.label = label
         self.utilization = utilization
         self.resetsAt = resetsAt
-        self.limitDollars = limitDollars
-        self.remainingDollars = remainingDollars
     }
 
     /// Percent of the window still available, clamped to 0–100.
