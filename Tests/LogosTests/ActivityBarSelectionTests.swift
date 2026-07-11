@@ -35,8 +35,10 @@ struct ActivityBarSelectionTests {
         #expect(s.isVisible == true)
     }
 
-    @Test("five tabs defined")
+    @Test("three browsable tabs defined")
     func tabCount() {
-        #expect(ActivityBarSelection.Tab.allCases.count == 5)
+        // Settings became an action button and account moved to the status bar,
+        // so only the browsable panels remain (#85).
+        #expect(ActivityBarSelection.Tab.allCases.count == 3)
     }
 }

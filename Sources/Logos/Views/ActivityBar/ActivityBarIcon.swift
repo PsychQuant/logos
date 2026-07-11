@@ -1,14 +1,18 @@
 import SwiftUI
 
+/// A single activity-bar affordance. Presentation-only: it carries a symbol and
+/// a label, not whether it selects a sidebar tab or fires a one-shot action — so
+/// it serves both the browsable tabs and the standalone Settings gear.
 struct ActivityBarIcon: View {
 
-    let tab: ActivityBarSelection.Tab
+    let systemImage: String
+    let label: String
     let isActive: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: tab.systemImage)
+            Image(systemName: systemImage)
                 .font(.system(size: 18))
                 .foregroundStyle(isActive ? Color.primary : Color.secondary)
                 .frame(width: 36, height: 36)
@@ -25,7 +29,7 @@ struct ActivityBarIcon: View {
                 }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tab.label)
-        .accessibilityIdentifier("logos.activitybar.icon")  // #38: shared id; tab.label distinguishes
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("logos.activitybar.icon")  // #38: shared id; label distinguishes
     }
 }

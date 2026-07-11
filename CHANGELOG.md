@@ -29,6 +29,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The activity bar's gear opens Settings and the dead account icon is gone**
+  ([#85](https://github.com/PsychQuant/logos/issues/85)). The bottom two icons
+  were dead placeholders: clicking the gear or the person just `select()`ed a tab
+  whose sidebar panel only renders real content for `.files`. The gear is now a
+  standalone action button that opens the Settings window via
+  `@Environment(\.openSettings)` (same target as Cmd+, / the `Settings` scene) and
+  never marks itself active. The account icon is removed entirely — the status-bar
+  account item remains the single account entry. `ActivityBarSelection.Tab` now
+  models only browsable sidebar panels (`files`, `search`, `sessions`); `.settings`
+  and `.account` are dropped, and `ActivityBarIcon` is presentation-only so the
+  gear reuses it as a non-selecting action.
+
 - **The status-bar usage reader now logs a real transcript I/O error instead of
   swallowing it silently** ([#83](https://github.com/PsychQuant/logos/issues/83)).
   `WindowUsageModel.defaultRead` read the session transcript with

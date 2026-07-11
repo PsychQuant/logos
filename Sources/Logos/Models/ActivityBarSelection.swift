@@ -10,12 +10,13 @@ import Observation
 @MainActor
 public final class ActivityBarSelection {
 
+    /// Only browsable sidebar panels are tabs. Settings is an action (opens the
+    /// Settings window) and account switching lives in the status bar, so
+    /// neither is a `Tab` — see `ActivityBarView`.
     public enum Tab: String, CaseIterable, Identifiable, Sendable {
         case files
         case search
         case sessions
-        case settings
-        case account
 
         public var id: String { rawValue }
 
@@ -24,8 +25,6 @@ public final class ActivityBarSelection {
             case .files: "folder"
             case .search: "magnifyingglass"
             case .sessions: "rectangle.stack"
-            case .settings: "gearshape"
-            case .account: "person.crop.circle"
             }
         }
 
@@ -34,8 +33,6 @@ public final class ActivityBarSelection {
             case .files: "Files"
             case .search: "Search"
             case .sessions: "Sessions"
-            case .settings: "Settings"
-            case .account: "Account"
             }
         }
     }
