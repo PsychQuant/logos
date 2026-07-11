@@ -29,6 +29,23 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The login-URL reassembler now ends the URL at a bare newline instead of
+  splicing the next line onto the query** ([#82](https://github.com/PsychQuant/logos/issues/82)).
+  `OAuthURLDetector.reassembleURL` stopped only at a structural blank line (two
+  line feeds), treating any single `\n` as wrap-continuation. So URL-valid content
+  on the line immediately after the authorize URL — separated by a single `\n`, not
+  a blank line — was spliced onto the query string with the newline dropped and no
+  delimiter (e.g. `…authorize?code=true&state=x` + `\n` + `token=SECRET123` → `…state=xtoken=SECRET123`).
+  Harmless with today's claude output (URL → blank line → prompt) but fragile if a
+  future claude reformats its output or another source interleaves into the PTY
+  before the blank line. The fix leans on the terminal's own wrap shape: its
+  `\r\r\n` hard-wrap iterates (Swift clusters CR+LF into one `Character`) as a lone
+  `\r` then the `\r\n` grapheme, so a genuine wrap's line feed is ALWAYS immediately
+  preceded by a lone `\r`, whereas a bare `\n` break is not. The reassembler now
+  treats a line feed as continuation only when it is that CR-padded wrap and ends
+  the URL at a bare `\n` (keeping the blank-line boundary as a fallback). The
+  host/path lock is untouched — only where the URL ENDS changed, not what host or
+  path is accepted.
 - **Closing the Account Usage window now cancels its in-flight usage fetches**
   ([#81](https://github.com/PsychQuant/logos/issues/81)). `AccountsModel.refreshAll`
   and `RegistryUsageModel.refreshAll` coalesce concurrent passes onto one shared

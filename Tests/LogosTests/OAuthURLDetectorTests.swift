@@ -104,6 +104,37 @@ struct OAuthURLDetectorTests {
         #expect(url?.query?.contains("redirect_uri") == true)
     }
 
+    // MARK: - Reassembly ends at a bare newline, not only a blank line (#82)
+
+    @Test("ends the reassembled URL at a bare newline, not splicing the next line (#82)")
+    func detectEndsAtBareNewlineNotSplice() {
+        var detector = OAuthURLDetector()
+        // A single `\n` (NOT the terminal's `\r\r\n` hard-wrap) separates the
+        // authorize URL from URL-valid content on the very next line. Today's
+        // reassembler treats any lone `\n` as wrap-continuation, so it swallows
+        // the newline and splices the trailing token onto the query string. The
+        // URL must instead END at the bare newline — `token=SECRET123` is trailing
+        // content, not part of the URL.
+        let authorizeURL = "https://claude.com/cai/oauth/authorize?code=true&state=x"
+        let buffer = "\(authorizeURL)\ntoken=SECRET123\n\nPaste code here if prompted >"
+        let url = detector.detect(in: buffer)
+        #expect(url?.absoluteString == authorizeURL)
+        #expect(url?.query?.contains("token=SECRET123") == false)
+    }
+
+    @Test("a genuine \\r\\r\\n wrap still stitches while a bare \\n ends the URL (#82)")
+    func detectStitchesWrapButEndsAtBareNewline() {
+        var detector = OAuthURLDetector()
+        // The terminal's hard-wrap is `\r\r\n` (CR CR LF): its LF grapheme is
+        // preceded by a lone `\r`, so it is stitched (continuation). A bare `\n`
+        // has no preceding `\r`, so it ends the URL. One buffer exercises both.
+        let head = "https://claude.com/cai/oauth/authorize?code=true&state="
+        let wrapped = head + "\r\r\n" + "abcXYZ"   // one genuine mid-query wrap
+        let url = detector.detect(in: wrapped + "\ntrailing=nope\n\n")
+        #expect(url?.absoluteString == head + "abcXYZ")
+        #expect(url?.query?.contains("trailing") == false)
+    }
+
     // MARK: - Security: host + path stay locked (#17)
 
     @Test("ignores claude.com authorize WITHOUT the /cai/ path (path lock, security)")
