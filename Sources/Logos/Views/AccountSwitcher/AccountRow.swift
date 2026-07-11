@@ -47,12 +47,24 @@ struct AccountRow: View {
                     .font(.body)
                     .fontWeight(isActive ? .semibold : .regular)
                     // #72: carry active state to VoiceOver as a value (e.g. "work,
-                    // active") rather than a combined/relabeled element. This keeps
-                    // the static-text LABEL equal to `account.label`, so the
-                    // `app.staticTexts["personal"]` queries in AccountSwitchUITests
-                    // and AccountRenameUITests still resolve. needsReauth is announced
-                    // by its own labeled warning image below, so it stays out of here.
+                    // active") rather than a combined/relabeled element. The element's
+                    // accessibility LABEL stays equal to `account.label`. needsReauth is
+                    // announced by its own labeled warning image below, so it stays out
+                    // of here.
                     .accessibilityValue(isActive ? "active" : "")
+                    // #77: expose select/rename to VoiceOver on the account-label
+                    // element — NOT the row HStack, whose `.contentShape` +
+                    // `.onTapGesture`s stay pointer-only. Adding a button trait to the
+                    // container would first require combining it into ONE a11y element,
+                    // flattening the trash / open-in-window / pencil buttons (losing
+                    // independent VoiceOver access AND breaking the label-based Track-B
+                    // queries, #79). Activate = select; "Rename" joins the VoiceOver
+                    // actions rotor. `.isButton` promotes this element's XCUIElementType
+                    // from .staticText to .button, so Track B queries the account label
+                    // via `buttons[label]` (was `staticTexts[label]` pre-#77).
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { onSelect() }
+                    .accessibilityAction(named: "Rename") { onBeginRename() }
                 // #54: distinguish the main account that reuses the system
                 // ~/.claude login from isolated per-account configs.
                 if account.isSystemDefault {

@@ -63,7 +63,8 @@ final class AccountRenameUITests: XCTestCase {
     func testDoubleClickRenamesWithoutSwitchingAccount() throws {
         let (app, accountButton) = try launchSwitcher("rename-mx")
 
-        let personalRow = app.staticTexts["personal"]
+        // The account-label element carries `.isButton` (#77) → query it as a button.
+        let personalRow = app.buttons["personal"]
         XCTAssertTrue(personalRow.waitForExistence(timeout: 5),
                       "the 'personal' account row did not appear in the switcher")
 
@@ -107,7 +108,8 @@ final class AccountRenameUITests: XCTestCase {
 
         let (app, _) = try launchSwitcher("rename-commit")
 
-        let personalRow = app.staticTexts["personal"]
+        // The account-label element carries `.isButton` (#77) → query it as a button.
+        let personalRow = app.buttons["personal"]
         XCTAssertTrue(personalRow.waitForExistence(timeout: 5), "the 'personal' row did not appear")
 
         // Enter rename via the `--ui-testing` affordance (see the GESTURE NOTE).
@@ -133,7 +135,8 @@ final class AccountRenameUITests: XCTestCase {
 
         // Keystrokes landed → assert the rename actually commits (hard).
         renameField.typeKey(.enter, modifierFlags: [])
-        let renamed = app.staticTexts["home"]
+        // Post-commit the label Text re-renders (with `.isButton`, #77) → query as a button.
+        let renamed = app.buttons["home"]
         XCTAssertTrue(renamed.waitForExistence(timeout: 5),
                       "renamed row label 'home' did not appear after Return — rename did not commit")
         XCTAssertNotEqual(app.state, .notRunning, "app crashed during the rename-commit flow")

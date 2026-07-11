@@ -192,7 +192,10 @@ Notes:
   the trash / open-in-new-window / pencil buttons are each queried by their VoiceOver
   label, never by their (shadowed) identifier; the child ids are kept only as intent
   markers (relocating the row id off the HStack — option b — was rejected as a
-  restructure for marginal benefit).
+  restructure for marginal benefit). The account-label `Text` itself carries
+  `.isButton` (#77 — VoiceOver activate = select, with a "Rename" custom action in the
+  actions rotor), which promotes its XCUIElementType from `.staticText` to `.button`,
+  so the account label is queried via `buttons[label]`, NOT `staticTexts[label]`.
   **Local Track B prerequisite**: macOS Developer Mode must be enabled
   (`DevToolsSecurity -status`; enable via `sudo DevToolsSecurity -enable`) — with it
   disabled, every XCUITest run times out at "enabling automation mode" before any

@@ -7,6 +7,21 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **VoiceOver can now select and rename an account from the switcher**
+  ([#77](https://github.com/PsychQuant/logos/issues/77)). The row's select/rename were
+  pointer-only `.onTapGesture`s, which — unlike a `Button` — expose no accessibility
+  activation, so VoiceOver could read a row but not switch to or rename it. The
+  account-label `Text` now carries `.accessibilityAddTraits(.isButton)` plus an
+  activate action (`.accessibilityAction { onSelect() }` = switch account) and a
+  "Rename" custom action (`.accessibilityAction(named:)`, in the actions rotor),
+  composing with the existing active-state `.accessibilityValue` (#72). The trait is
+  attached to the label LEAF, never the row HStack — combining the container would
+  flatten the trash / open-in-new-window / pencil buttons, regressing independent
+  VoiceOver access and breaking the label-based UI tests (#79). Pointer select
+  (single-tap) and rename (hardware double-click) are unchanged. `.isButton` promotes
+  the label's XCUIElementType from `.staticText` to `.button`, so the Track-B UI tests
+  now query the account label via `buttons[label]`.
+
 - **The status bar shows a real session cost instead of a `$0.00` placeholder**
   ([#48](https://github.com/PsychQuant/logos/issues/48)). The cost item read a hardcoded
   placeholder on `StatusBarViewModel`; it now derives a real figure from the same session

@@ -35,9 +35,11 @@ final class AccountSwitchUITests: XCTestCase {
 
         // AccountRow is `.onTapGesture` and all rows share one a11y id, so a
         // `boundBy:` index can hit a duplicate/ancestor match. Target the
-        // non-active row by its label TEXT instead — the click lands inside the
+        // non-active row by its label instead — the click lands inside the
         // row's `.contentShape(Rectangle())` → `onTapGesture` → setActive("personal").
-        let personalRow = app.staticTexts["personal"]
+        // The label element carries `.isButton` (#77) → query it as a button, not
+        // static text.
+        let personalRow = app.buttons["personal"]
         XCTAssertTrue(personalRow.waitForExistence(timeout: 5), "the 'personal' account row did not appear in the switcher")
         personalRow.click()
 

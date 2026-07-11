@@ -61,7 +61,8 @@ final class AccountDeleteFailureUITests: XCTestCase {
     func testDeleteFailureSurfacesCaptionAndRowSurvives() throws {
         let app = try launchSwitcher("delete-fail")
 
-        let row = app.staticTexts[seededLabel]
+        // The account-label element carries `.isButton` (#77) → query it as a button.
+        let row = app.buttons[seededLabel]
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "the '\(seededLabel)' account row did not appear in the switcher")
 
@@ -78,7 +79,8 @@ final class AccountDeleteFailureUITests: XCTestCase {
         XCTAssertTrue(caption.waitForExistence(timeout: 5),
                       "a FAILED remove did not surface logos.account.delete.error — the tap looks like a silent no-op")
         // HARD: the row survives (remove() rolled back → the account is still alive).
-        XCTAssertTrue(app.staticTexts[seededLabel].exists,
+        // The label element is a button post-#77 → query as a button.
+        XCTAssertTrue(app.buttons[seededLabel].exists,
                       "the '\(seededLabel)' row vanished after a FAILED delete — the rollback did not keep it alive")
         XCTAssertNotEqual(app.state, .notRunning, "app crashed during the delete-failure flow")
     }
@@ -92,7 +94,8 @@ final class AccountDeleteFailureUITests: XCTestCase {
     func testDeleteWhileEditingSurfacesCaptionWithoutStackedRenameError() throws {
         let app = try launchSwitcher("delete-editing")
 
-        let row = app.staticTexts[seededLabel]
+        // The account-label element carries `.isButton` (#77) → query it as a button.
+        let row = app.buttons[seededLabel]
         XCTAssertTrue(row.waitForExistence(timeout: 5),
                       "the '\(seededLabel)' account row did not appear in the switcher")
 
@@ -137,8 +140,9 @@ final class AccountDeleteFailureUITests: XCTestCase {
         // the audit trail pins the real ordering; promote to a contract only once #68
         // decides the platform behavior is one.
         let stillEditing = app.textFields["Account name"].exists
-        let labelBack = app.staticTexts[seededLabel].exists
-        let observation = "delete-while-editing edit-mode retention — rename field present: \(stillEditing); label text present: \(labelBack)"
+        // The account label re-renders as a button post-#77 (the `.isButton` label element).
+        let labelBack = app.buttons[seededLabel].exists
+        let observation = "delete-while-editing edit-mode retention — rename field present: \(stillEditing); label present: \(labelBack)"
         NSLog("[#67 observation] %@", observation)
         XCTContext.runActivity(named: "OBSERVATION (#68, not asserted): \(observation)") { _ in }
     }
