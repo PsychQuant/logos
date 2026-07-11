@@ -17,6 +17,52 @@ final class WindowUsageModel {
     @ObservationIgnored private var configDir: String?
     @ObservationIgnored private var watcher: FileWatcher?
 
+    /// #49 Part 1: monotonic refresh counter for newest-wins ordering. A refresh reads +
+    /// parses OFF the main actor, so two `refresh()` calls (e.g. a slow read for account A
+    /// racing a switch to B) can resolve out of order. Each captures its generation on
+    /// entry and applies its result only while still the newest AND while `configDir` is
+    /// still the one it read — so a stale read can never clobber a just-switched account.
+    @ObservationIgnored private var refreshGeneration = 0
+
+    /// #49 Part 1: the most recent in-flight refresh. `private(set)` so tests can await it
+    /// deterministically (there is no production reader of this).
+    @ObservationIgnored private(set) var inFlightRefresh: Task<Void, Never>?
+
+    /// The parsed usage a refresh applies on the main actor. Value type so it crosses the
+    /// off-main → main hop safely.
+    struct Snapshot: Equatable, Sendable {
+        var contextTokens: Int
+        var contextMax: Int
+    }
+
+    /// Off-main read + parse seam. Given the account's config dir, returns the parsed
+    /// snapshot (or `nil` when there is no transcript / no usage yet). The production
+    /// default hops the blocking filesystem read off the main actor; tests inject a
+    /// controllable reader to make the newest-wins ordering deterministic.
+    typealias Reader = @Sendable (String) async -> Snapshot?
+
+    @ObservationIgnored private let read: Reader
+
+    init(read: @escaping Reader = WindowUsageModel.defaultRead) {
+        self.read = read
+    }
+
+    /// Production reader: resolve the newest transcript and parse it entirely off the main
+    /// actor (FS enumerate + full-file read + per-line JSON parse). Read-only over claude's
+    /// own transcript tree — never credentials / keychain (#34).
+    nonisolated static let defaultRead: Reader = { configDir in
+        await Task.detached(priority: .userInitiated) {
+            guard let url = ClaudeUsageReader.activeTranscriptURL(inConfigDir: configDir),
+                  let contents = try? String(contentsOf: url, encoding: .utf8),
+                  let usage = ClaudeUsageReader.parse(transcriptContents: contents)
+            else { return nil as Snapshot? }
+            return Snapshot(
+                contextTokens: usage.contextTokens,
+                contextMax: ClaudeUsageReader.contextMax(forModel: usage.model, observedTokens: usage.contextTokens)
+            )
+        }.value
+    }
+
     /// Display string `<used> / <max>` with k-compaction (mirrors the old StatusBarViewModel format).
     var formatted: String { "\(formatK(contextTokens)) / \(formatK(contextMax))" }
 
@@ -46,13 +92,24 @@ final class WindowUsageModel {
     }
 
     private func refresh() {
-        guard let configDir,
-              let url = ClaudeUsageReader.activeTranscriptURL(inConfigDir: configDir),
-              let contents = try? String(contentsOf: url, encoding: .utf8),
-              let usage = ClaudeUsageReader.parse(transcriptContents: contents)
-        else { return }
-        contextTokens = usage.contextTokens
-        contextMax = ClaudeUsageReader.contextMax(forModel: usage.model, observedTokens: usage.contextTokens)
+        guard let configDir else { return }
+        // Claim the newest generation before the off-main hop. Every terminal assignment
+        // below is gated on still owning it, so an older overlapping refresh discarded.
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        let read = self.read
+        inFlightRefresh = Task { [weak self] in
+            let snapshot = await read(configDir)
+            guard let self else { return }
+            // Stale guard: apply only while still the newest refresh AND while the LIVE
+            // configDir is still the one this read targeted — comparing the live value at
+            // assign time (not just the dispatch-time capture) so a just-switched account
+            // is never clobbered by a slow read for the previous one.
+            guard generation == self.refreshGeneration, self.configDir == configDir else { return }
+            guard let snapshot else { return }
+            self.contextTokens = snapshot.contextTokens
+            self.contextMax = snapshot.contextMax
+        }
     }
 
     private func formatK(_ n: Int) -> String {

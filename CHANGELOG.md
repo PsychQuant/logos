@@ -55,6 +55,20 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Changed
 
+- **The status-bar usage parse now runs off the main actor with a newest-wins stale
+  guard** ([#49](https://github.com/PsychQuant/logos/issues/49)). `WindowUsageModel.refresh()`
+  previously enumerated the account's `projects/` tree, read the full transcript, and
+  parsed it per-line synchronously on the main actor on every FileWatcher fire — a
+  growing session transcript can make that a visible hitch. The read + parse now hop off
+  the main actor (mirroring `AccountUsageModel`), and only the small parsed snapshot
+  crosses back to be applied. Because two reads can now resolve out of order (a slow read
+  for account A racing a switch to B), each refresh claims a monotonic generation and
+  applies its result only while it is still the newest AND the live `configDir` still
+  matches the one it read — so a stale read can never clobber a just-switched account
+  (preserves the #47 reset-on-switch contract). Read-only over claude's transcript;
+  never touches credentials (#34). No user-visible behavior change beyond a smoother
+  status bar.
+
 - **Concurrent usage refreshes no longer restack the first-run Keychain
   authorization dialogs** ([#51](https://github.com/PsychQuant/logos/issues/51)). The
   first refresh pass already serialized its per-account Keychain reads so the macOS
