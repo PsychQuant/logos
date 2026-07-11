@@ -17,6 +17,12 @@ final class WindowUsageModel {
     @ObservationIgnored private var configDir: String?
     @ObservationIgnored private var watcher: FileWatcher?
 
+    /// #49 Part 2: the id of the claude session this window spawned (via `--session-id`),
+    /// or nil before the terminal reports one / for a session started without an id. The
+    /// reader binds to `<sessionId>.jsonl` directly when set, and falls back to newest-mtime
+    /// when nil — so several sessions sharing one config dir never cross-read each other.
+    @ObservationIgnored private var sessionId: String?
+
     /// #49 Part 1: monotonic refresh counter for newest-wins ordering. A refresh reads +
     /// parses OFF the main actor, so two `refresh()` calls (e.g. a slow read for account A
     /// racing a switch to B) can resolve out of order. Each captures its generation on
@@ -35,11 +41,12 @@ final class WindowUsageModel {
         var contextMax: Int
     }
 
-    /// Off-main read + parse seam. Given the account's config dir, returns the parsed
-    /// snapshot (or `nil` when there is no transcript / no usage yet). The production
-    /// default hops the blocking filesystem read off the main actor; tests inject a
-    /// controllable reader to make the newest-wins ordering deterministic.
-    typealias Reader = @Sendable (String) async -> Snapshot?
+    /// Off-main read + parse seam. Given the account's config dir and the bound session id
+    /// (nil → newest-mtime fallback), returns the parsed snapshot (or `nil` when there is no
+    /// transcript / no usage yet). The production default hops the blocking filesystem read
+    /// off the main actor; tests inject a controllable reader to make the newest-wins
+    /// ordering deterministic.
+    typealias Reader = @Sendable (String, String?) async -> Snapshot?
 
     @ObservationIgnored private let read: Reader
 
@@ -47,12 +54,13 @@ final class WindowUsageModel {
         self.read = read
     }
 
-    /// Production reader: resolve the newest transcript and parse it entirely off the main
-    /// actor (FS enumerate + full-file read + per-line JSON parse). Read-only over claude's
-    /// own transcript tree — never credentials / keychain (#34).
-    nonisolated static let defaultRead: Reader = { configDir in
+    /// Production reader: resolve the session's transcript (id-addressed when a session id is
+    /// bound, else newest-mtime) and parse it entirely off the main actor (FS enumerate +
+    /// full-file read + per-line JSON parse). Read-only over claude's own transcript tree —
+    /// never credentials / keychain (#34).
+    nonisolated static let defaultRead: Reader = { configDir, sessionId in
         await Task.detached(priority: .userInitiated) {
-            guard let url = ClaudeUsageReader.activeTranscriptURL(inConfigDir: configDir),
+            guard let url = ClaudeUsageReader.transcriptURL(inConfigDir: configDir, sessionId: sessionId),
                   let contents = try? String(contentsOf: url, encoding: .utf8),
                   let usage = ClaudeUsageReader.parse(transcriptContents: contents)
             else { return nil as Snapshot? }
@@ -73,6 +81,10 @@ final class WindowUsageModel {
         watcher?.stop()
         watcher = nil
         self.configDir = configDir
+        // #49 Part 2: a switch will spawn a NEW claude session; clear the previous account's
+        // bound session id so the fallback read never targets its transcript. The terminal
+        // re-binds via setSessionId once the new session spawns.
+        self.sessionId = nil
         // #47 verify (Codex F1): reset to defaults on EVERY switch so a target account with
         // no transcript / no usage yet never lingers on the PREVIOUS account's tokens.
         contextTokens = 0
@@ -91,21 +103,35 @@ final class WindowUsageModel {
         watcher = w
     }
 
+    /// #49 Part 2: bind this window's usage to the exact claude session the terminal just
+    /// spawned (reported via `--session-id`). The reader then reads `<sessionId>.jsonl`
+    /// directly instead of guessing newest-mtime. Re-resolvable — safe to call again if the
+    /// window re-spawns claude with a new id.
+    func setSessionId(_ sessionId: String) {
+        self.sessionId = sessionId
+        guard configDir != nil else { return }
+        refresh()
+    }
+
     private func refresh() {
         guard let configDir else { return }
         // Claim the newest generation before the off-main hop. Every terminal assignment
         // below is gated on still owning it, so an older overlapping refresh discarded.
         refreshGeneration += 1
         let generation = refreshGeneration
+        let sessionId = self.sessionId
         let read = self.read
         inFlightRefresh = Task { [weak self] in
-            let snapshot = await read(configDir)
+            let snapshot = await read(configDir, sessionId)
             guard let self else { return }
             // Stale guard: apply only while still the newest refresh AND while the LIVE
-            // configDir is still the one this read targeted — comparing the live value at
-            // assign time (not just the dispatch-time capture) so a just-switched account
-            // is never clobbered by a slow read for the previous one.
-            guard generation == self.refreshGeneration, self.configDir == configDir else { return }
+            // configDir + sessionId are still the ones this read targeted — comparing the
+            // live values at assign time (not just the dispatch-time capture) so a
+            // just-switched account or re-bound session is never clobbered by a slow read
+            // for the previous one.
+            guard generation == self.refreshGeneration,
+                  self.configDir == configDir,
+                  self.sessionId == sessionId else { return }
             guard let snapshot else { return }
             self.contextTokens = snapshot.contextTokens
             self.contextMax = snapshot.contextMax

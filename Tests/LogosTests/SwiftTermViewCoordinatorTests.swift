@@ -30,7 +30,8 @@ struct SwiftTermViewCoordinatorTests {
             processConfig: config,
             engine: engine,
             accountManager: mgr,
-            sessionState: TerminalSessionState()
+            sessionState: TerminalSessionState(),
+            onSessionSpawned: { _ in }
         )
     }
 
@@ -83,7 +84,8 @@ struct SwiftTermViewCoordinatorTests {
             processConfig: config,
             engine: AutoHandleEngine(rules: [], persistence: nil),
             accountManager: mgr,
-            sessionState: TerminalSessionState()
+            sessionState: TerminalSessionState(),
+            onSessionSpawned: { _ in }
         )
         return (coord, mgr, acc)
     }
@@ -95,5 +97,30 @@ struct SwiftTermViewCoordinatorTests {
         coord.handleChunk(Array("Please run /login · API Error: 401 Invalid authentication credentials\n".utf8))
         #expect(coord.sessionState.needsAuth == true)
         #expect(mgr.needsReauth(acc) == true)    // forced → switcher agrees with the banner
+    }
+
+    // MARK: - #49 Part 2: --session-id injection at the spawn seam
+
+    @Test("session spawn args append a fresh --session-id and report it")
+    func sessionSpawnArgsAppendsAndReports() {
+        let (args, id) = SwiftTermView.Coordinator.sessionSpawnArgs(base: [], sessionId: "uuid-1")
+        #expect(args == ["--session-id", "uuid-1"])
+        #expect(id == "uuid-1")   // reported → usage binds to this exact session
+    }
+
+    @Test("session spawn args preserve caller extra args and still bind the id")
+    func sessionSpawnArgsPreservesExtras() {
+        let (args, id) = SwiftTermView.Coordinator.sessionSpawnArgs(
+            base: ["--dangerously-skip-permissions"], sessionId: "uuid-2")
+        #expect(args == ["--dangerously-skip-permissions", "--session-id", "uuid-2"])
+        #expect(id == "uuid-2")
+    }
+
+    @Test("a caller-supplied --session-id is respected and not double-bound")
+    func sessionSpawnArgsRespectsCallerBound() {
+        let (args, id) = SwiftTermView.Coordinator.sessionSpawnArgs(
+            base: ["--session-id", "caller-owned"], sessionId: "uuid-3")
+        #expect(args == ["--session-id", "caller-owned"])   // unchanged — no double --session-id
+        #expect(id == nil)                                  // nothing to auto-bind → newest-mtime fallback
     }
 }

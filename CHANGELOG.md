@@ -69,6 +69,22 @@ All notable changes to Logos are documented here. Format loosely follows
   never touches credentials (#34). No user-visible behavior change beyond a smoother
   status bar.
 
+- **The status bar now binds to the exact claude session it spawned instead of guessing
+  newest-mtime** ([#49](https://github.com/PsychQuant/logos/issues/49)). Previously the
+  usage reader picked the most-recently-modified `.jsonl` under the account's `projects/`
+  tree — a heuristic that reads the wrong session's usage when two windows share one
+  config dir, or briefly during a switch. The terminal now spawns claude with a fresh
+  `--session-id <uuid>` (a lowercased `UUID` minted once per real spawn at the
+  `hasStarted`-gated Coordinator seam — claude hard-errors on a reused id, so it must be
+  per-spawn, not on the render-recreated `ClaudeProcessConfig`), reports that id back to
+  `WindowUsageModel` via an `onSessionSpawned` callback, and the reader resolves
+  `<configDir>/projects/**/<uuid>.jsonl` directly. Newest-mtime stays as the fallback for
+  the window before claude's first write and for any session started without an id (a
+  caller-supplied `--session-id` is respected and not double-bound). The bound id is
+  cleared on every account switch so a stale id never targets the previous account's
+  transcript. Still read-only over claude's transcript; never touches credentials (#34),
+  and preserves the #47 reset-on-switch contract.
+
 - **Concurrent usage refreshes no longer restack the first-run Keychain
   authorization dialogs** ([#51](https://github.com/PsychQuant/logos/issues/51)). The
   first refresh pass already serialized its per-account Keychain reads so the macOS

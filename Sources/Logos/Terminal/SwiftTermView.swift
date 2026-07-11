@@ -18,6 +18,11 @@ struct SwiftTermView: NSViewRepresentable {
     let engine: AutoHandleEngine
     let accountManager: AccountManager
     let sessionState: TerminalSessionState
+    /// #49 Part 2: reports the `--session-id` UUID this pane spawned claude with, so the
+    /// status-bar usage model can read exactly `<uuid>.jsonl` instead of guessing
+    /// newest-mtime. Fires once per real spawn (from the `hasStarted`-gated seam), on the
+    /// main actor. Default no-op keeps non-usage callers (and previews) simple.
+    var onSessionSpawned: (String) -> Void = { _ in }
 
     func makeNSView(context: Context) -> TeedLocalProcessTerminalView {
         let view = TeedLocalProcessTerminalView(frame: .zero)
@@ -42,7 +47,8 @@ struct SwiftTermView: NSViewRepresentable {
             processConfig: processConfig,
             engine: engine,
             accountManager: accountManager,
-            sessionState: sessionState
+            sessionState: sessionState,
+            onSessionSpawned: onSessionSpawned
         )
     }
 
@@ -54,6 +60,8 @@ struct SwiftTermView: NSViewRepresentable {
         let engine: AutoHandleEngine
         let accountManager: AccountManager
         let sessionState: TerminalSessionState
+        /// #49 Part 2: reports the spawned session's `--session-id` UUID (see `SwiftTermView`).
+        let onSessionSpawned: (String) -> Void
         let parser: PatternParser
         weak var view: TeedLocalProcessTerminalView?
         private var hasStarted = false
@@ -74,12 +82,14 @@ struct SwiftTermView: NSViewRepresentable {
             processConfig: ClaudeProcessConfig,
             engine: AutoHandleEngine,
             accountManager: AccountManager,
-            sessionState: TerminalSessionState
+            sessionState: TerminalSessionState,
+            onSessionSpawned: @escaping (String) -> Void
         ) {
             self.processConfig = processConfig
             self.engine = engine
             self.accountManager = accountManager
             self.sessionState = sessionState
+            self.onSessionSpawned = onSessionSpawned
             self.parser = PatternParser()
         }
 
@@ -171,17 +181,49 @@ struct SwiftTermView: NSViewRepresentable {
                 }
             }
 
+            // #49 Part 2: bind this spawn to a fresh session id so the status bar reads
+            // exactly this session's transcript (`<uuid>.jsonl`) rather than newest-mtime.
+            // Generated HERE — the single per-spawn seam (`hasStarted`-gated) — not in
+            // `ClaudeProcessConfig` (recreated on every SwiftUI render): claude hard-errors
+            // "Session ID is already in use" on a reused id, so exactly one fresh UUID per
+            // real spawn is required. Lowercased so the flag value, claude's on-disk
+            // `<uuid>.jsonl`, and the reader's case-sensitive filename match by construction.
+            let (spawnArgs, reportedSessionId) = Self.sessionSpawnArgs(
+                base: processConfig.arguments,
+                sessionId: UUID().uuidString.lowercased()
+            )
+
             view.startProcess(
                 executable: processConfig.executablePath,
-                args: processConfig.arguments,
+                args: spawnArgs,
                 environment: processConfig.environment.map { "\($0.key)=\($0.value)" },
                 execName: nil,
                 currentDirectory: processConfig.workingDirectory
             )
             // Spawn lifecycle point (#22). Scalars only: arg count, dangerous-mode
             // flag, account-present — all non-sensitive → public. The executable
-            // path and env stay off the log entirely (carry username / paths).
-            Log.terminal.notice("spawned claude — args=\(self.processConfig.arguments.count, privacy: .public) dangerous=\(self.processConfig.arguments.contains("--dangerously-skip-permissions"), privacy: .public) account=\(self.processConfig.account != nil, privacy: .public)")
+            // path and env stay off the log entirely (carry username / paths). The
+            // session UUID is not secret but stays off the log to keep it scalars-only.
+            Log.terminal.notice("spawned claude — args=\(spawnArgs.count, privacy: .public) dangerous=\(spawnArgs.contains("--dangerously-skip-permissions"), privacy: .public) account=\(self.processConfig.account != nil, privacy: .public)")
+
+            // Report the bound session id AFTER a successful spawn so the usage model only
+            // binds to a session that actually started (the failure path above returns early).
+            // `nil` when the caller supplied its own `--session-id` → usage stays on the
+            // newest-mtime fallback rather than binding to an id we can't be sure of.
+            if let reportedSessionId {
+                onSessionSpawned(reportedSessionId)
+            }
+        }
+
+        /// Build the spawn argv, appending a fresh `--session-id <sessionId>` UNLESS the caller
+        /// already bound one (opt-in via `extraArgs`). Pure + `internal` so a unit test can
+        /// assert the injection without launching a PTY. Returns the argv plus the id to report
+        /// to the usage model — `nil` when the caller supplied its own, so nothing auto-binds.
+        static func sessionSpawnArgs(base: [String], sessionId: String) -> (args: [String], reportedId: String?) {
+            if base.contains("--session-id") {
+                return (base, nil)
+            }
+            return (base + ["--session-id", sessionId], sessionId)
         }
     }
 }

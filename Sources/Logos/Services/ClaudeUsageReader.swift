@@ -50,6 +50,36 @@ enum ClaudeUsageReader {
         return 200_000
     }
 
+    /// The transcript to read for a window's session (#49 Part 2). When we spawned claude
+    /// with an explicit `--session-id <sessionId>`, prefer the exact `<sessionId>.jsonl`
+    /// file — a reliable binding even when several sessions share one config dir. Falls
+    /// back to the newest-mtime heuristic when there is no id (session spawned without one)
+    /// or the id-addressed file has not been created yet (the window before claude's first
+    /// write). Read-only; never touches credentials (#34).
+    static func transcriptURL(inConfigDir configDir: String, sessionId: String?) -> URL? {
+        if let sessionId,
+           let match = sessionTranscriptURL(inConfigDir: configDir, sessionId: sessionId) {
+            return match
+        }
+        return activeTranscriptURL(inConfigDir: configDir)
+    }
+
+    /// Recursively locate `<sessionId>.jsonl` under `<configDir>/projects/` — the exact file
+    /// claude writes for a session started with `--session-id`. It lives one level down under
+    /// a URL-encoded-cwd folder whose name we cannot predict, so this searches the tree by
+    /// file name rather than joining a fixed path. `nil` until claude first materializes it.
+    static func sessionTranscriptURL(inConfigDir configDir: String, sessionId: String) -> URL? {
+        let projects = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
+        let fm = FileManager.default
+        let target = sessionId + ".jsonl"
+        guard let enumerator = fm.enumerator(at: projects, includingPropertiesForKeys: nil)
+        else { return nil }
+        for case let url as URL in enumerator where url.lastPathComponent == target {
+            return url
+        }
+        return nil
+    }
+
     /// Most-recently-modified `.jsonl` transcript under `<configDir>/projects/` — the MVP
     /// heuristic for "the active session" (no session-UUID handshake with claude). `nil` if
     /// none exists yet. FS access — kept out of the pure core.

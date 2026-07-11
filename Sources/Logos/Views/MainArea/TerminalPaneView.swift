@@ -11,6 +11,9 @@ struct TerminalPaneView: View {
     /// for this account (not the global active one), so two windows run two accounts
     /// in parallel. The account list + isolation stay global on `accountMgr`.
     @Environment(WindowAccountSelection.self) private var windowSelection
+    /// #49 Part 2: this window's live usage model. The terminal reports its spawned
+    /// `--session-id` here so the status bar reads exactly this session's transcript.
+    @Environment(WindowUsageModel.self) private var usage
     /// Lifecycle of the hosted claude session (#18). Drives the exit-state
     /// overlay and the generation-based restart. Owned here so it survives the
     /// view recreation that a restart triggers.
@@ -44,7 +47,9 @@ struct TerminalPaneView: View {
                     processConfig: processConfig,
                     engine: engine,
                     accountManager: accountMgr,
-                    sessionState: sessionState
+                    sessionState: sessionState,
+                    // #49 Part 2: bind the status bar to the exact session this pane spawns.
+                    onSessionSpawned: { usage.setSessionId($0) }
                 )
                 .background(Color.black)
                 // Recreate on path / account / restart. The generation suffix
