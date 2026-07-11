@@ -26,6 +26,11 @@ struct SwiftTermView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> TeedLocalProcessTerminalView {
         let view = TeedLocalProcessTerminalView(frame: .zero)
+        // #78: this is the production creation site — inside an app-hosted
+        // `xcodebuild test` the host app's real UI reaches here, so mark the view
+        // to skip the real GPU Metal engagement. A directly-constructed test view
+        // (RendererAdoptionTests) never passes through here, so it stays ungated.
+        view.isHostedUnitTesting = HostedTestEnvironment.isHostedUnitTesting()
         TerminalThemeApplier.apply(config: config, to: view)
         view.onChunk = { [weak coord = context.coordinator] chunk in
             coord?.handleChunk(chunk)
@@ -65,6 +70,13 @@ struct SwiftTermView: NSViewRepresentable {
         let parser: PatternParser
         weak var view: TeedLocalProcessTerminalView?
         private var hasStarted = false
+        /// #78: when true, `startIfNeeded` skips spawning the real claude child.
+        /// Defaults to the env probe (see `HostedTestEnvironment`) so ANY in-process
+        /// unit-test host never spawns a live `--dangerously-skip-permissions`
+        /// process — the ~2s-in bystander crasher behind RendererAdoptionTests.
+        /// Injectable (settable) so a future `swift test` that legitimately needs a
+        /// real spawn can force it off; no current test reaches `startIfNeeded`.
+        var isHostedUnitTesting = HostedTestEnvironment.isHostedUnitTesting()
         /// Opens the claude login OAuth URL natively (#17) — claude's own
         /// browser-open fails inside Logos's spawned-PTY launchd context.
         private var oauthDetector = OAuthURLDetector()
@@ -160,6 +172,14 @@ struct SwiftTermView: NSViewRepresentable {
 
         func startIfNeeded(_ view: TeedLocalProcessTerminalView) {
             guard !hasStarted else { return }
+            // #78: in a host process running in-process unit tests, the production
+            // UI that reaches this seam must NOT spawn the real
+            // `--dangerously-skip-permissions` claude child — it's a live privileged
+            // process inside `xcodebuild test` and the ~2s-in bystander crasher
+            // behind RendererAdoptionTests. Return before any spawn-side effect
+            // (config-dir materialization, session-id binding, `startProcess`),
+            // leaving `hasStarted` false so nothing half-initializes.
+            if isHostedUnitTesting { return }
             hasStarted = true
             self.view = view
 

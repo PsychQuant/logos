@@ -2,6 +2,29 @@ import Foundation
 import SwiftTerm
 import os
 
+/// #78 detection seam: is this host process running in-process XCTest unit
+/// tests (the `LogosHostedTests` bundle)? An app-hosted `bundle.unit-test`
+/// injects its bundle into a fully-launching `Logos.app`, whose production UI
+/// asynchronously spawns the real `--dangerously-skip-permissions` claude child
+/// AND engages the GPU Metal renderer (`setUseMetal(true)`) ~2s in — landing on
+/// whichever bystander test is executing then (RendererAdoptionTests) as an
+/// "unexpected exit," and leaving a live privileged process inside
+/// `xcodebuild test`. XCTest sets `XCTestConfigurationFilePath` in the host
+/// process env for that bundle type ONLY; the XCUITest runner (LogosUITests)
+/// launches `Logos.app` as a SEPARATE, clean process that self-identifies via
+/// the `--ui-testing` argument and carries no such env var — so this probe
+/// leaves the XCUITest terminal, which legitimately renders + spawns, untouched
+/// (the two signals are orthogonal: one env var, one launch argument). Pure and
+/// env-injectable so a unit test can assert both branches without mutating the
+/// ambient process environment.
+enum HostedTestEnvironment {
+    static func isHostedUnitTesting(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["XCTestConfigurationFilePath"] != nil
+    }
+}
+
 /// Subclass that taps bytes flowing from subprocess → terminal renderer.
 /// Each chunk is forwarded to the parser/engine for auto-handle scanning,
 /// then passed through to the normal renderer path.
@@ -31,6 +54,18 @@ public final class TeedLocalProcessTerminalView: LocalProcessTerminalView {
     /// without needing Metal-less hardware. Internal so `@testable` tests reach
     /// it; never set in production.
     var metalEnabler: (TeedLocalProcessTerminalView) throws -> Void = { try $0.setUseMetal(true) }
+
+    /// #78: set true by the production `SwiftTermView.makeNSView` creation site
+    /// when the host process is running in-process unit tests (see
+    /// `HostedTestEnvironment`), so a production terminal view brought up by the
+    /// app UI inside an app-hosted `xcodebuild test` skips the real GPU Metal
+    /// engagement below. Defaults false so a directly-constructed test view
+    /// (RendererAdoptionTests) — which supplies its own `metalEnabler` and MUST
+    /// still exercise the adoption path in that same hosted process — is never
+    /// gated. Mirrors the `metalEnabler` seam: a safe default, set at the
+    /// production creation site, so the injection distinguishes production views
+    /// from directly-constructed test views (both live in one process, one env).
+    var isHostedUnitTesting = false
 
     /// Carries the enable/skip/once/fallback decision (renderer-c2-metal-adoption).
     /// The branching lives in `MetalAdoptionPolicy` (pure, unit-tested); this view
@@ -70,7 +105,14 @@ public final class TeedLocalProcessTerminalView: LocalProcessTerminalView {
         // misbehave on some hardware/sessions. `LOGOS_DISABLE_METAL` (any value)
         // forces the proven CoreGraphics path so a user is never locked out of a
         // working terminal. Consumes the one-shot attempt so we don't re-check.
-        if ProcessInfo.processInfo.environment["LOGOS_DISABLE_METAL"] != nil {
+        //
+        // #78: also short-circuit when a production view is brought up inside a
+        // host process running in-process unit tests — the real `setUseMetal(true)`
+        // engagement is a bystander crasher there. `isHostedUnitTesting` is set by
+        // the production `makeNSView` seam only, so a directly-constructed test
+        // view (RendererAdoptionTests) stays false and still drives this path.
+        if ProcessInfo.processInfo.environment["LOGOS_DISABLE_METAL"] != nil
+            || isHostedUnitTesting {
             return
         }
         let engaged = metalPolicy.attemptOnce(hasWindow: window != nil) { [self] in
