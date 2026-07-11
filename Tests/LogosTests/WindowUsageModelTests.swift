@@ -152,4 +152,61 @@ struct WindowUsageModelTests {
 
         #expect(gate.calls.last == Call(configDir: "B", sessionId: nil))
     }
+
+    // MARK: - #48: session cost
+
+    @Test("a refresh applies the snapshot's session cost and formats it")
+    func sessionCostApplied() async {
+        let gate = GatedReader()
+        let model = WindowUsageModel(read: { configDir, sessionId in await gate.read(configDir, sessionId) })
+
+        model.track(configDir: "A")
+        await gate.entered("A")
+        gate.release("A", WindowUsageModel.Snapshot(
+            contextTokens: 500, contextMax: 200_000,
+            sessionCostUSD: Decimal(string: "12.34")!, hasUnpricedModel: false))
+        await model.inFlightRefresh?.value
+
+        #expect(model.sessionCostUSD == Decimal(string: "12.34"))
+        #expect(model.sessionCostFormatted == "$12.34")
+    }
+
+    @Test("an unpriced-model snapshot marks the formatted cost a lower bound")
+    func sessionCostUnpricedMarker() async {
+        let gate = GatedReader()
+        let model = WindowUsageModel(read: { configDir, sessionId in await gate.read(configDir, sessionId) })
+
+        model.track(configDir: "A")
+        await gate.entered("A")
+        gate.release("A", WindowUsageModel.Snapshot(
+            contextTokens: 500, contextMax: 200_000,
+            sessionCostUSD: Decimal(string: "5.00")!, hasUnpricedModel: true))
+        await model.inFlightRefresh?.value
+
+        #expect(model.sessionCostFormatted == "$5.00+?")   // "+?" = a model had no price → lower bound
+    }
+
+    @Test("track(configDir:) resets session cost to zero on switch")
+    func trackResetsSessionCost() async {
+        let gate = GatedReader()
+        let model = WindowUsageModel(read: { configDir, sessionId in await gate.read(configDir, sessionId) })
+
+        model.track(configDir: "A")
+        await gate.entered("A")
+        gate.release("A", WindowUsageModel.Snapshot(
+            contextTokens: 500, contextMax: 200_000,
+            sessionCostUSD: Decimal(string: "9.99")!, hasUnpricedModel: false))
+        await model.inFlightRefresh?.value
+        #expect(model.sessionCostUSD == Decimal(string: "9.99"))
+
+        // Switching to an account with no transcript yet must clear the previous cost so it
+        // never lingers (mirrors the #47 token reset-on-switch contract, extended to cost).
+        model.track(configDir: "B")
+        await gate.entered("B")
+        gate.release("B", nil)
+        await model.inFlightRefresh?.value
+
+        #expect(model.sessionCostUSD == Decimal(string: "0"))
+        #expect(model.sessionCostFormatted == "$0.00")
+    }
 }

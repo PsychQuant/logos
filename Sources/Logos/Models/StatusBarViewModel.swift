@@ -35,6 +35,9 @@ public final class StatusBarViewModel {
     }
 
     public var accountName: String = "personal"
+    // #48: `sessionCostUSD` / `sessionCostFormatted` are now DEAD for the status bar — session
+    // cost moved to the per-window `WindowUsageModel` (real data: transcript tokens x per-model
+    // pricing). Kept only so existing callers / tests still compile; no view reads them.
     public var sessionCostUSD: Decimal = 0
     public var autoHandleStatus: AutoHandleStatus = .armed
     // #47: `tokensUsed` / `tokensMax` are now DEAD for the status bar — token/context usage

@@ -7,6 +7,28 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **The status bar shows a real session cost instead of a `$0.00` placeholder**
+  ([#48](https://github.com/PsychQuant/logos/issues/48)). The cost item read a hardcoded
+  placeholder on `StatusBarViewModel`; it now derives a real figure from the same session
+  transcript the token/context item uses (#47/#49). `ClaudeUsageReader` accumulates
+  input / output / cache-creation / cache-read tokens per model across EVERY assistant turn
+  (cost sums the whole session, unlike the context read which is only the latest turn), then
+  applies a per-model-family price table where cache-write and cache-read carry DISTINCT
+  multipliers (never the input rate, never summed). `WindowUsageModel` computes it on each
+  refresh — off the main actor, one FS read shared with the context parse — and
+  `CostStatusItem` now reads `WindowUsageModel` (the old `StatusBarViewModel.sessionCost*`
+  is left dead-but-compiling, mirroring the #47 token migration). A model with no price
+  entry (a novel/preview id, or a record with no model id) is never silently priced at $0
+  or the input rate — its tokens raise a sentinel that appends a visible "+?" to the figure,
+  marking it a lower bound. Read-only over claude's transcript; never touches credentials
+  (#34), and the cost resets on every account switch (the #47 reset-on-switch contract,
+  extended to cost).
+  - **Cost semantic — pending user confirmation at verify.** The figure is a *notional
+    API-equivalent* (ccusage parity): what this session's tokens would cost on the metered
+    pay-per-use API, which is NOT necessarily the user's actual subscription bill. This is
+    shipped as the default with an explanatory tooltip; the price-table rates are the
+    published Anthropic list prices by model family and are flagged for confirmation.
+
 - **Per-account config dirs are created at `0o700`**
   ([#63](https://github.com/PsychQuant/logos/issues/63)). `AccountManager`'s default
   directory creator made each account's `~/.logos/accounts/<id>/.claude` chain at the

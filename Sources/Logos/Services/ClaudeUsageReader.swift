@@ -50,6 +50,108 @@ enum ClaudeUsageReader {
         return 200_000
     }
 
+    // MARK: - #48: session cost (notional API-equivalent, ccusage parity)
+
+    /// Cumulative token counts for one model across an ENTIRE session. Cost sums every
+    /// assistant turn (unlike `parse`, which reports only the latest turn's context occupancy),
+    /// so the four classes are tracked separately — cache-write and cache-read are priced at
+    /// different rates and must not be collapsed into `input`.
+    struct TokenTotals: Equatable {
+        var input: Int = 0
+        var output: Int = 0
+        var cacheCreation: Int = 0
+        var cacheRead: Int = 0
+    }
+
+    /// The map key for assistant turns whose record carries no model id — their tokens are still
+    /// counted (so the cost figure never silently drops them) but resolve to no price, raising
+    /// the unpriced sentinel. A real claude model id is never empty, so this can't collide.
+    static let unknownModelKey = ""
+
+    /// Accumulate per-model token totals across EVERY assistant turn. Skips malformed lines with
+    /// the same tolerance as `parse` (a concurrently-appended partial tail is ignored).
+    static func accumulateTokens(transcriptContents: String) -> [String: TokenTotals] {
+        var totals: [String: TokenTotals] = [:]
+        for line in transcriptContents.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  obj["type"] as? String == "assistant",
+                  let message = obj["message"] as? [String: Any],
+                  let usage = message["usage"] as? [String: Any]
+            else { continue }
+            let model = message["model"] as? String ?? unknownModelKey
+            var t = totals[model] ?? TokenTotals()
+            t.input += usage["input_tokens"] as? Int ?? 0
+            t.output += usage["output_tokens"] as? Int ?? 0
+            t.cacheCreation += usage["cache_creation_input_tokens"] as? Int ?? 0
+            t.cacheRead += usage["cache_read_input_tokens"] as? Int ?? 0
+            totals[model] = t
+        }
+        return totals
+    }
+
+    /// Per-1M-token USD rates for a model. Cache write and cache read are DISTINCT rates
+    /// (write ~= 1.25x input, read ~= 0.1x input) — never the input rate, never summed together.
+    /// Using `Decimal` keeps the money math exact.
+    ///
+    /// NOTE (pending user confirmation at verify, #48): these rates are the published
+    /// pay-per-use Anthropic list prices by model FAMILY. They yield a *notional API-equivalent*
+    /// figure (what these tokens would cost on the metered API) for ccusage parity — NOT
+    /// necessarily the user's actual subscription bill.
+    struct ModelPricing: Equatable {
+        let input: Decimal
+        let output: Decimal
+        let cacheWrite: Decimal
+        let cacheRead: Decimal
+    }
+
+    /// Resolve a model id to its price by family prefix, so point releases within a family
+    /// (`claude-opus-4-8`, `claude-opus-4-7`, ...) all price without a table edit. An id in no
+    /// known family (a novel/preview model, or the empty `unknownModelKey`) returns `nil` — the
+    /// caller flags it rather than silently pricing it at $0 or the input rate.
+    static func pricing(forModel model: String) -> ModelPricing? {
+        if model.hasPrefix("claude-opus-") {
+            return ModelPricing(input: 15, output: 75, cacheWrite: Decimal(string: "18.75")!, cacheRead: Decimal(string: "1.50")!)
+        }
+        if model.hasPrefix("claude-sonnet-") {
+            return ModelPricing(input: 3, output: 15, cacheWrite: Decimal(string: "3.75")!, cacheRead: Decimal(string: "0.30")!)
+        }
+        if model.hasPrefix("claude-haiku-") {
+            return ModelPricing(input: 1, output: 5, cacheWrite: Decimal(string: "1.25")!, cacheRead: Decimal(string: "0.10")!)
+        }
+        return nil
+    }
+
+    /// The computed session cost plus whether any turn used an unpriced model.
+    struct SessionCost: Equatable {
+        /// Notional API-equivalent cost in USD (ccusage parity). A LOWER BOUND when
+        /// `hasUnpricedModel` is true, since unpriced turns contribute nothing.
+        let usd: Decimal
+        /// True if any assistant turn used a model with no price entry (novel/preview model, or a
+        /// record with no model id). Surfaced with a visible marker rather than under-reported.
+        let hasUnpricedModel: Bool
+    }
+
+    /// Sum the notional API-equivalent cost over all models in the transcript. Unpriced models
+    /// contribute $0 to the figure but raise `hasUnpricedModel` (visible sentinel, not silent).
+    static func sessionCost(transcriptContents: String) -> SessionCost {
+        let totals = accumulateTokens(transcriptContents: transcriptContents)
+        let perMillion: Decimal = 1_000_000
+        var usd: Decimal = 0
+        var hasUnpriced = false
+        for (model, t) in totals {
+            guard let price = pricing(forModel: model) else {
+                if t.input + t.output + t.cacheCreation + t.cacheRead > 0 { hasUnpriced = true }
+                continue
+            }
+            usd += Decimal(t.input) * price.input / perMillion
+                + Decimal(t.output) * price.output / perMillion
+                + Decimal(t.cacheCreation) * price.cacheWrite / perMillion
+                + Decimal(t.cacheRead) * price.cacheRead / perMillion
+        }
+        return SessionCost(usd: usd, hasUnpricedModel: hasUnpriced)
+    }
+
     /// The transcript to read for a window's session (#49 Part 2). When we spawned claude
     /// with an explicit `--session-id <sessionId>`, prefer the exact `<sessionId>.jsonl`
     /// file — a reliable binding even when several sessions share one config dir. Falls

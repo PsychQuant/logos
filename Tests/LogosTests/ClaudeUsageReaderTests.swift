@@ -97,3 +97,81 @@ struct ClaudeUsageReaderTranscriptURLTests {
         #expect(url?.lastPathComponent == "b.jsonl")
     }
 }
+
+/// #48: session cost = notional API-equivalent (what these tokens would cost on the
+/// pay-per-use API, ccusage parity). Unlike `parse` (latest turn's context occupancy), cost
+/// SUMS every assistant turn's tokens per model, then applies a per-model price with DISTINCT
+/// cache-write and cache-read multipliers (never the input rate, never summed). A model with
+/// no price entry is flagged, not silently priced at $0.
+@Suite("ClaudeUsageReader.sessionCost")
+struct ClaudeUsageReaderCostTests {
+
+    @Test("accumulate: sums every assistant turn's tokens per model")
+    func accumulateSumsAllTurnsPerModel() {
+        let transcript = """
+        {"type":"user","message":{"role":"user"}}
+        {"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":1}}}
+        {"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":200,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9}}}
+        """
+        let totals = ClaudeUsageReader.accumulateTokens(transcriptContents: transcript)
+        #expect(totals["claude-opus-4-8"] == ClaudeUsageReader.TokenTotals(
+            input: 300, output: 30, cacheCreation: 5, cacheRead: 10))
+    }
+
+    @Test("cost: cache-write and cache-read priced at DISTINCT multipliers, not the input rate")
+    func costAppliesDistinctCacheMultipliers() {
+        // One opus turn with exactly 1M of each class so each rate surfaces as itself:
+        // input 15 + output 75 + cacheWrite 18.75 + cacheRead 1.50 = 110.25.
+        // If cache were (wrongly) priced at the input rate the sum would be 120.00; if
+        // read used the write rate it would be 127.50 — so 110.25 pins all four rates.
+        let transcript = """
+        {"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1000000,"output_tokens":1000000,"cache_creation_input_tokens":1000000,"cache_read_input_tokens":1000000}}}
+        """
+        let cost = ClaudeUsageReader.sessionCost(transcriptContents: transcript)
+        #expect(cost.usd == Decimal(string: "110.25"))
+        #expect(cost.hasUnpricedModel == false)
+    }
+
+    @Test("cost: sums across multiple priced models")
+    func costSumsAcrossModels() {
+        // opus: 1M input → 15.00 ; sonnet: 1M output → 15.00 ; total 30.00
+        let transcript = """
+        {"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+        {"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":0,"output_tokens":1000000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+        """
+        let cost = ClaudeUsageReader.sessionCost(transcriptContents: transcript)
+        #expect(cost.usd == Decimal(string: "30.00"))
+        #expect(cost.hasUnpricedModel == false)
+    }
+
+    @Test("cost: an unknown model id is flagged, never silently priced at $0 or the input rate")
+    func costFlagsUnknownModelInsteadOfSilentZero() {
+        // A priced opus turn plus a novel/unpriced model. The unpriced tokens contribute
+        // nothing to the figure (there is no rate to apply) but MUST raise the sentinel so the
+        // status bar can mark the total a lower bound rather than under-report silently.
+        let transcript = """
+        {"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+        {"type":"assistant","message":{"model":"claude-northstar-9","usage":{"input_tokens":1000000,"output_tokens":1000000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+        """
+        let cost = ClaudeUsageReader.sessionCost(transcriptContents: transcript)
+        #expect(cost.usd == Decimal(string: "15.00"))   // only the opus turn is priced
+        #expect(cost.hasUnpricedModel == true)
+    }
+
+    @Test("cost: an assistant turn carrying usage but no model id is flagged unpriced")
+    func costFlagsMissingModelId() {
+        let transcript = """
+        {"type":"assistant","message":{"usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+        """
+        let cost = ClaudeUsageReader.sessionCost(transcriptContents: transcript)
+        #expect(cost.usd == Decimal(string: "0"))
+        #expect(cost.hasUnpricedModel == true)
+    }
+
+    @Test("cost: no assistant usage → zero cost, nothing flagged")
+    func costEmptyTranscript() {
+        let cost = ClaudeUsageReader.sessionCost(transcriptContents: #"{"type":"user","message":{}}"#)
+        #expect(cost.usd == Decimal(string: "0"))
+        #expect(cost.hasUnpricedModel == false)
+    }
+}

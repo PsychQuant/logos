@@ -14,6 +14,15 @@ final class WindowUsageModel {
     var contextTokens: Int = 0
     var contextMax: Int = 200_000
 
+    /// #48: notional API-equivalent session cost (what this session's tokens would cost on the
+    /// metered API, ccusage parity) — NOT necessarily the user's subscription bill. Summed over
+    /// every assistant turn from the same transcript the context read uses.
+    var sessionCostUSD: Decimal = 0
+    /// #48: true when the session used a model with no price entry, so `sessionCostUSD` is a
+    /// lower bound. `sessionCostFormatted` appends a visible "+?" marker rather than silently
+    /// under-reporting.
+    var hasUnpricedModel: Bool = false
+
     @ObservationIgnored private var configDir: String?
     @ObservationIgnored private var watcher: FileWatcher?
 
@@ -39,6 +48,10 @@ final class WindowUsageModel {
     struct Snapshot: Equatable, Sendable {
         var contextTokens: Int
         var contextMax: Int
+        /// #48: cost fields default so existing `Snapshot(contextTokens:contextMax:)` call sites
+        /// (and any pre-#48 reader) keep compiling; a real read fills them in.
+        var sessionCostUSD: Decimal = 0
+        var hasUnpricedModel: Bool = false
     }
 
     /// Off-main read + parse seam. Given the account's config dir and the bound session id
@@ -64,15 +77,27 @@ final class WindowUsageModel {
                   let contents = try? String(contentsOf: url, encoding: .utf8),
                   let usage = ClaudeUsageReader.parse(transcriptContents: contents)
             else { return nil as Snapshot? }
+            // #48: cost is summed over the SAME transcript contents already in hand, so the read
+            // stays one FS hit — context is the latest turn's occupancy, cost is every turn.
+            let cost = ClaudeUsageReader.sessionCost(transcriptContents: contents)
             return Snapshot(
                 contextTokens: usage.contextTokens,
-                contextMax: ClaudeUsageReader.contextMax(forModel: usage.model, observedTokens: usage.contextTokens)
+                contextMax: ClaudeUsageReader.contextMax(forModel: usage.model, observedTokens: usage.contextTokens),
+                sessionCostUSD: cost.usd,
+                hasUnpricedModel: cost.hasUnpricedModel
             )
         }.value
     }
 
     /// Display string `<used> / <max>` with k-compaction (mirrors the old StatusBarViewModel format).
     var formatted: String { "\(formatK(contextTokens)) / \(formatK(contextMax))" }
+
+    /// #48: `$X.XX` cost, with a trailing "+?" when a model had no price (the figure is then a
+    /// lower bound). Mirrors the old `StatusBarViewModel.sessionCostFormatted` for `$0.00`.
+    var sessionCostFormatted: String {
+        let base = String(format: "$%.2f", NSDecimalNumber(decimal: sessionCostUSD).doubleValue)
+        return hasUnpricedModel ? base + "+?" : base
+    }
 
     /// Point this model at an account's config dir (or `nil` to clear, e.g. no active account).
     /// Re-resolvable — call again when the window's account changes. Idempotent teardown of any
@@ -89,6 +114,9 @@ final class WindowUsageModel {
         // no transcript / no usage yet never lingers on the PREVIOUS account's tokens.
         contextTokens = 0
         contextMax = 200_000
+        // #48: same reset-on-switch contract for cost — never linger on the previous session's $.
+        sessionCostUSD = 0
+        hasUnpricedModel = false
         guard let configDir else { return }
         refresh()
         // #47 verify (Codex F5): watch the account's `.claude` dir itself — it always exists
@@ -135,6 +163,8 @@ final class WindowUsageModel {
             guard let snapshot else { return }
             self.contextTokens = snapshot.contextTokens
             self.contextMax = snapshot.contextMax
+            self.sessionCostUSD = snapshot.sessionCostUSD
+            self.hasUnpricedModel = snapshot.hasUnpricedModel
         }
     }
 
