@@ -69,14 +69,41 @@ struct SwiftTermView: NSViewRepresentable {
         let onSessionSpawned: (String) -> Void
         let parser: PatternParser
         weak var view: TeedLocalProcessTerminalView?
-        private var hasStarted = false
+        /// #84: `private(set)` so the spawn-gate tests can read the gate boundary
+        /// (stays false when the #78 gate blocks, flips true when it opens) without
+        /// widening the write surface.
+        private(set) var hasStarted = false
         /// #78: when true, `startIfNeeded` skips spawning the real claude child.
         /// Defaults to the env probe (see `HostedTestEnvironment`) so ANY in-process
         /// unit-test host never spawns a live `--dangerously-skip-permissions`
         /// process — the ~2s-in bystander crasher behind RendererAdoptionTests.
-        /// Injectable (settable) so a future `swift test` that legitimately needs a
-        /// real spawn can force it off; no current test reaches `startIfNeeded`.
+        /// Injectable (settable) so a `swift test` can force it either way — the
+        /// #84 spawn-gate tests drive `attemptStart` with this both true and false.
         var isHostedUnitTesting = HostedTestEnvironment.isHostedUnitTesting()
+
+        /// #84 test seam: the PTY spawn side-effect — `view.startProcess` plus the
+        /// spawn-lifecycle log — behind an injectable closure. `attemptStart` invokes
+        /// it ONLY after the #78 gate passes, so a unit test overriding it observes
+        /// whether the spawn was attempted (gate open) or skipped (gate closed)
+        /// WITHOUT launching a real process or constructing a
+        /// `TeedLocalProcessTerminalView` (which segfaults the bare `swift test`
+        /// runner). Defaults to the real spawn against `self.view`; production is
+        /// byte-identical when unset. Mirrors `metalEnabler` / `isHostedUnitTesting`.
+        lazy var spawnProcess: (_ args: [String]) -> Void = { [weak self] args in
+            guard let self, let view = self.view else { return }
+            view.startProcess(
+                executable: self.processConfig.executablePath,
+                args: args,
+                environment: self.processConfig.environment.map { "\($0.key)=\($0.value)" },
+                execName: nil,
+                currentDirectory: self.processConfig.workingDirectory
+            )
+            // Spawn lifecycle point (#22). Scalars only: arg count, dangerous-mode
+            // flag, account-present — all non-sensitive → public. The executable
+            // path and env stay off the log entirely (carry username / paths). The
+            // session UUID is not secret but stays off the log to keep it scalars-only.
+            Log.terminal.notice("spawned claude — args=\(args.count, privacy: .public) dangerous=\(args.contains("--dangerously-skip-permissions"), privacy: .public) account=\(self.processConfig.account != nil, privacy: .public)")
+        }
         /// Opens the claude login OAuth URL natively (#17) — claude's own
         /// browser-open fails inside Logos's spawned-PTY launchd context.
         private var oauthDetector = OAuthURLDetector()
@@ -171,6 +198,23 @@ struct SwiftTermView: NSViewRepresentable {
         }
 
         func startIfNeeded(_ view: TeedLocalProcessTerminalView) {
+            // Store the view, then run the (view-free) gate + spawn logic. The split
+            // lets a unit test drive `attemptStart` — and the #78 spawn gate —
+            // without constructing a `TeedLocalProcessTerminalView` (which segfaults
+            // the bare `swift test` runner). Production is unaffected: the gate is
+            // open there (`isHostedUnitTesting` false), so this is identical in effect
+            // to a single fused method — the same `self.view` assignment precedes the
+            // same spawn.
+            self.view = view
+            attemptStart()
+        }
+
+        /// The #78 spawn gate + subprocess start, factored out of `startIfNeeded` so a
+        /// unit test can exercise the gate decision without a terminal view. The real
+        /// PTY spawn is reached only through the `spawnProcess` seam (against
+        /// `self.view`), so a test with a nil view / overridden seam observes whether
+        /// the spawn was attempted without launching a process.
+        func attemptStart() {
             guard !hasStarted else { return }
             // #78: in a host process running in-process unit tests, the production
             // UI that reaches this seam must NOT spawn the real
@@ -181,7 +225,6 @@ struct SwiftTermView: NSViewRepresentable {
             // leaving `hasStarted` false so nothing half-initializes.
             if isHostedUnitTesting { return }
             hasStarted = true
-            self.view = view
 
             // E-Task 5: materialize HOME tree for active account before spawn.
             // Without this, claude reads from an empty dir and triggers OAuth.
@@ -213,18 +256,9 @@ struct SwiftTermView: NSViewRepresentable {
                 sessionId: UUID().uuidString.lowercased()
             )
 
-            view.startProcess(
-                executable: processConfig.executablePath,
-                args: spawnArgs,
-                environment: processConfig.environment.map { "\($0.key)=\($0.value)" },
-                execName: nil,
-                currentDirectory: processConfig.workingDirectory
-            )
-            // Spawn lifecycle point (#22). Scalars only: arg count, dangerous-mode
-            // flag, account-present — all non-sensitive → public. The executable
-            // path and env stay off the log entirely (carry username / paths). The
-            // session UUID is not secret but stays off the log to keep it scalars-only.
-            Log.terminal.notice("spawned claude — args=\(spawnArgs.count, privacy: .public) dangerous=\(spawnArgs.contains("--dangerously-skip-permissions"), privacy: .public) account=\(self.processConfig.account != nil, privacy: .public)")
+            // Real PTY spawn + spawn-lifecycle log, behind the #84 seam so a test can
+            // observe the gate opened without launching a process.
+            spawnProcess(spawnArgs)
 
             // Report the bound session id AFTER a successful spawn so the usage model only
             // binds to a session that actually started (the failure path above returns early).

@@ -123,4 +123,61 @@ struct SwiftTermViewCoordinatorTests {
         #expect(args == ["--session-id", "caller-owned"])   // unchanged — no double --session-id
         #expect(id == nil)                                  // nothing to auto-bind → newest-mtime fallback
     }
+
+    // MARK: - #84: the #78 hosted-unit-test spawn gate (behavioral)
+
+    /// Reference recorder for the spawn side-effects the gate governs: whether the
+    /// `spawnProcess` seam fired and whether `onSessionSpawned` reported a bound id.
+    /// A class so the coordinator's escaping closures can flip flags the test reads
+    /// back afterwards.
+    private final class GateProbe {
+        var spawned = false
+        var reported = false
+    }
+
+    /// Wires a Coordinator whose spawn side-effects are replaced by `probe`
+    /// recorders, so `attemptStart` can be driven both ways WITHOUT launching a real
+    /// process or constructing a `TeedLocalProcessTerminalView` (which segfaults the
+    /// bare `swift test` runner). `attemptStart` is the view-free half of
+    /// `startIfNeeded` — it holds the entire #78 gate + spawn path.
+    private func makeGatedCoordinator(hosted: Bool, probe: GateProbe) -> SwiftTermView.Coordinator {
+        let config = ClaudeProcessConfig(executablePath: "/bin/echo")
+        let mgr = AccountManager(registry: tempRegistry(), store: InMemoryActiveAccountStore())
+        let coord = SwiftTermView.Coordinator(
+            processConfig: config,
+            engine: AutoHandleEngine(rules: [], persistence: nil),
+            accountManager: mgr,
+            sessionState: TerminalSessionState(),
+            onSessionSpawned: { _ in probe.reported = true }
+        )
+        // Replace the real PTY spawn with a recorder — asserts "spawn attempted"
+        // without ever launching claude (or any process).
+        coord.spawnProcess = { _ in probe.spawned = true }
+        coord.isHostedUnitTesting = hosted
+        return coord
+    }
+
+    @Test("the #78 gate blocks the spawn side-effect under hosted unit testing (#84)")
+    func hostedGateBlocksSpawn() {
+        let probe = GateProbe()
+        let coord = makeGatedCoordinator(hosted: true, probe: probe)
+
+        coord.attemptStart()
+
+        #expect(probe.spawned == false)     // returned before the spawn seam
+        #expect(probe.reported == false)    // …and before the session-id report
+        #expect(coord.hasStarted == false)  // nothing half-initialized
+    }
+
+    @Test("a non-hosted process reaches the spawn path (#84)")
+    func gateOpenAttemptsSpawn() {
+        let probe = GateProbe()
+        let coord = makeGatedCoordinator(hosted: false, probe: probe)
+
+        coord.attemptStart()
+
+        #expect(probe.spawned == true)      // reached the spawn seam
+        #expect(probe.reported == true)     // …and reported the freshly-bound --session-id
+        #expect(coord.hasStarted == true)   // gate opened
+    }
 }
