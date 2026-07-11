@@ -553,6 +553,69 @@ struct AccountManagerTests {
         #expect(store.loadActiveAccountId() == b.id)
     }
 
+    // MARK: - Display order + reorder (#87)
+
+    // #87: the display-ordered accessor forces the system-default (Main) FIRST,
+    // regardless of its persisted array position — this is what guarantees Main can
+    // never be dragged out of the top slot (the persisted order stays the source of
+    // truth; display just pins Main).
+    @Test("displayOrderedAccounts puts the system-default first (#87)")
+    func displayOrderedPutsMainFirst() throws {
+        let mgr = makeManager()
+        try mgr.createAccount(label: "a")
+        _ = mgr.addSystemDefaultAccount()     // Main added AFTER "a" → not first in persisted order
+        try mgr.createAccount(label: "b")
+        #expect(mgr.accounts.first?.isSystemDefault == false)               // persisted: Main not first
+        #expect(mgr.displayOrderedAccounts.first?.isSystemDefault == true)  // display forces Main first
+        #expect(mgr.displayOrderedAccounts.map(\.label) == ["Main", "a", "b"])
+    }
+
+    // #87: the reorderable accessor is the NON-system-default accounts only, in
+    // persisted order — Main is excluded (the switcher renders it as a pinned row
+    // outside the movable ForEach).
+    @Test("reorderableAccounts excludes the system-default (#87)")
+    func reorderableExcludesMain() throws {
+        let mgr = makeManager()
+        let a = try mgr.createAccount(label: "a")
+        _ = mgr.addSystemDefaultAccount()
+        let b = try mgr.createAccount(label: "b")
+        #expect(mgr.reorderableAccounts.map(\.id) == [a.id, b.id])
+        #expect(mgr.reorderableAccounts.allSatisfy { !$0.isSystemDefault })
+    }
+
+    // #87: reorderAccounts drives the registry reorder; the new order persists and
+    // Main STAYS first in the display accessor after reordering the rest.
+    @Test("reorderAccounts reorders the rest, keeps Main first, and persists (#87)")
+    func reorderKeepsMainFirstAndPersists() throws {
+        let url = tempIndexURL()
+        let mgr = makeManager(indexFileURL: url)
+        let a = try mgr.createAccount(label: "a")
+        _ = mgr.addSystemDefaultAccount()
+        let b = try mgr.createAccount(label: "b")
+        let c = try mgr.createAccount(label: "c")
+        #expect(mgr.reorderAccounts(nonDefaultIDs: [c.id, a.id, b.id]) == true)
+        #expect(mgr.reorderableAccounts.map(\.id) == [c.id, a.id, b.id])   // rest reordered
+        #expect(mgr.displayOrderedAccounts.first?.isSystemDefault == true) // Main still first
+        let mgr2 = makeManager(indexFileURL: url)                          // reload
+        #expect(mgr2.reorderableAccounts.map(\.id) == [c.id, a.id, b.id])  // order survived
+    }
+
+    // #87: a reorder whose registry persist FAILS returns false and leaves the order
+    // intact (composes with #57 — the caller can surface / react to the failure
+    // instead of a silent no-op).
+    @Test("reorderAccounts returns false and preserves order on persist failure (#87)")
+    func reorderReturnsFalseOnPersistFailure() throws {
+        let url = tempIndexURL()
+        let mgr = makeManager(indexFileURL: url)
+        let a = try mgr.createAccount(label: "a")
+        let b = try mgr.createAccount(label: "b")
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        #expect(mgr.reorderAccounts(nonDefaultIDs: [b.id, a.id]) == false)
+        #expect(mgr.reorderableAccounts.map(\.id) == [a.id, b.id])         // unchanged
+    }
+
     // #57 F4 (round-2 #6): when the registry's normalize repair did NOT persist (disk
     // write failed), a healed active id must NOT be written to the store — else the store
     // would point at an id the on-disk index doesn't hold.

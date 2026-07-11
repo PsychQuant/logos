@@ -409,6 +409,31 @@ public final class AccountRegistry {
         try mutate { accounts.removeAll { $0.id == accountId } }
     }
 
+    /// #87: persist a new order for the NON-system-default accounts (the switcher's
+    /// drag-to-reorder). `newOrder` is the desired order of exactly the current
+    /// non-default ids — the view computes it by applying the `.onMove` offsets to
+    /// the reorderable subset. The system-default account is deliberately absent from
+    /// `newOrder` and is re-pinned FIRST in the rebuilt array: keeping Main on top in
+    /// the persisted file (not only in the display accessor) means a non-default
+    /// account can never be persisted above it, and the file matches what the user
+    /// sees. Transactional via `mutate` — a save failure rolls the array back to the
+    /// prior order (#57), so a reorder is atomic: never a half-applied order on disk
+    /// or in memory. A `newOrder` that is not an EXACT permutation of the current
+    /// non-default ids is a stale/malformed call and is a no-op that writes nothing.
+    public func reorder(nonDefaultIDs newOrder: [String]) throws {
+        let nonDefault = accounts.filter { !$0.isSystemDefault }
+        // Exact permutation of the current non-default set, or reject: this guards
+        // against a stale UI call (an id added/removed since the drag began) rewriting
+        // the array against a phantom set.
+        guard newOrder.count == nonDefault.count,
+              Set(newOrder) == Set(nonDefault.map(\.id)) else { return }
+        let byID = Dictionary(uniqueKeysWithValues: nonDefault.map { ($0.id, $0) })
+        let reordered = newOrder.compactMap { byID[$0] }
+        // At most one system-default (invariant), so this is [] or [Main].
+        let systemDefault = accounts.filter { $0.isSystemDefault }
+        try mutate { accounts = systemDefault + reordered }
+    }
+
     // MARK: - Persistence
 
     /// #61: caps on the attacker-writable index. Beyond either cap the file is

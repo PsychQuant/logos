@@ -5,6 +5,24 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- **The account switcher pins Main on top and lets you drag to reorder the rest**
+  ([#87](https://github.com/PsychQuant/logos/issues/87)). The system-default ("Main")
+  account — the one that reuses your Terminal `~/.claude` login — now always renders
+  first and cannot be moved; the remaining accounts are drag-reorderable and the new
+  order persists to `index.json`, surviving relaunch. The switcher moved from a custom
+  `ScrollView + VStack` to a `List` with `.onMove` (the platform's standard reorder
+  affordance): a plain click still selects, a press-drag reorders, and double-click
+  rename plus the per-row trash / open-in-new-window / pencil buttons are untouched.
+  Main is enforced on top by rendering it as a pinned row ABOVE the movable `ForEach`
+  (so `.onMove` can never drop anything above it) and by a display accessor that forces
+  it first regardless of persisted position. Persistence is a new
+  `AccountRegistry.reorder(nonDefaultIDs:)` that runs inside the existing transactional
+  `mutate` — a reorder whose save fails rolls the order back intact
+  ([#57](https://github.com/PsychQuant/logos/issues/57)), never leaving a half-applied
+  order. `AccountRow`'s look is unchanged.
+
 ### Security
 
 - **The account reaper re-validates its target as a single safe path component

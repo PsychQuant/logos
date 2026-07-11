@@ -40,6 +40,30 @@ public final class AccountManager {
     /// process-local mutation lands.
     public var accounts: [Account] { registry.accounts }
 
+    /// #87: the system-default ("Main") account, pinned at the top of the switcher,
+    /// if one exists. The switcher renders it as a fixed, non-draggable row ABOVE the
+    /// reorderable `ForEach` — being outside that ForEach is what guarantees nothing
+    /// can be dropped above it.
+    public var mainAccount: Account? { accounts.first { $0.isSystemDefault } }
+
+    /// #87: the reorderable accounts — every NON-system-default account, in the
+    /// registry's persisted order. The switcher's movable `ForEach` iterates this, so
+    /// its `.onMove` offsets are relative to it and map straight back to
+    /// `reorderAccounts(nonDefaultIDs:)`. A cheap filter over a handful of accounts,
+    /// so computing it per body evaluation is negligible (foreach.md's "don't filter
+    /// inline in ForEach" targets cost that scales with the collection).
+    public var reorderableAccounts: [Account] { accounts.filter { !$0.isSystemDefault } }
+
+    /// #87: the full display order — Main first (if any), then the reorderable
+    /// accounts in persisted order. Forcing Main first HERE (rather than mutating the
+    /// persisted array) is what guarantees it can never be dragged out of the top
+    /// slot, and it presents a legacy index whose Main isn't first correctly without a
+    /// migration. The persisted array stays the source of truth for the rest's order.
+    public var displayOrderedAccounts: [Account] {
+        if let main = mainAccount { return [main] + reorderableAccounts }
+        return reorderableAccounts
+    }
+
     /// The default account a NEWLY-opened window seeds from (#42). Logos windows are
     /// per-account (`WindowAccountSelection`), so this is no longer "the" active account
     /// — it's the seed for new windows and the highlight in the Settings→Accounts tab.
@@ -210,6 +234,26 @@ public final class AccountManager {
     /// its config dir, and the GC must never race that write.
     public func reapOrphanedDirectories() {
         reaper.reapOrphans(liveIDs: Set(accounts.map(\.id)))
+    }
+
+    /// #87: persist a new order for the reorderable (non-system-default) accounts,
+    /// driven by the switcher's drag-to-reorder. `nonDefaultIDs` is the desired order
+    /// of exactly the current non-default ids — the view computes it by applying the
+    /// `.onMove` offsets to `reorderableAccounts`. Delegates to the registry, which
+    /// re-pins the system-default first and persists atomically: a failed save rolls
+    /// the order back (#57). Returns whether it persisted (mirrors `remove`), so the
+    /// caller isn't left believing a rolled-back reorder took — and the failure is
+    /// logged, not silently swallowed. The switcher discards the result: on rollback
+    /// the observed registry list reverts, so the `List` re-renders the prior order.
+    @discardableResult
+    public func reorderAccounts(nonDefaultIDs: [String]) -> Bool {
+        do {
+            try registry.reorder(nonDefaultIDs: nonDefaultIDs)
+            return true
+        } catch {
+            LogoSwitchLog.account.notice("reorder not applied — registry persist failed: \(error.localizedDescription, privacy: .private)")
+            return false
+        }
     }
 
     /// Rename `accountId`'s label. Pure registry metadata — the account **id**

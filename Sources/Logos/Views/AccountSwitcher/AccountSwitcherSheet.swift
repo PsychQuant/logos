@@ -84,25 +84,38 @@ struct AccountSwitcherSheet: View {
                 }
                 .frame(maxHeight: .infinity)
             } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(mgr.accounts) { acc in
-                            AccountRow(
-                                account: acc,
-                                isActive: acc.id == activeSelectionId,
-                                needsReauth: mgr.needsReauth(acc),
-                                isEditing: acc.id == editingAccountId,
-                                onSelect: { selectAccount(acc.id) },
-                                onBeginRename: { beginRename(acc.id) },
-                                onCommitRename: { commitRename(acc.id, to: $0) },
-                                onCancelRename: { cancelRename(acc.id) },
-                                onDelete: { delete(acc.id) },
-                                onOpenInNewWindow: onOpenInNewWindow.map { cb in { cb(acc.id) } }
-                            )
-                            Divider()
-                        }
+                // #87: a List (not the prior ScrollView + VStack) so the non-default
+                // accounts are drag-reorderable via `.onMove` — the platform's standard
+                // reorder affordance. On macOS a plain click still selects and a
+                // press-drag reorders, so this never swallows AccountRow's single-tap
+                // select, double-click rename, or the trash/open/pencil buttons.
+                //
+                // The Main (system-default) account is rendered as a PINNED row ABOVE
+                // the movable ForEach. Being outside that ForEach is what enforces
+                // "Main pinned to the top": `.onMove` destinations are clamped to the
+                // ForEach's range, so nothing can be dropped above Main, and Main itself
+                // is not in the movable set (belt-and-suspenders `.moveDisabled` too).
+                // Row identity is `Account.id` (Identifiable) — stable across a move, so
+                // per-row @State / focus survive a reorder (foreach.md).
+                List {
+                    if let main = mgr.mainAccount {
+                        switcherRow(main)
+                            .moveDisabled(true)
+                    }
+                    ForEach(mgr.reorderableAccounts) { acc in
+                        switcherRow(acc)
+                    }
+                    .onMove { source, destination in
+                        // `.onMove` offsets are relative to the reorderable ForEach, so
+                        // map them onto that subset's id order and hand the result to the
+                        // registry (which re-pins Main first). Main is never in this set.
+                        var order = mgr.reorderableAccounts.map(\.id)
+                        order.move(fromOffsets: source, toOffset: destination)
+                        mgr.reorderAccounts(nonDefaultIDs: order)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)   // keep the sheet's background, not List's
             }
 
             if let err = renameError {
@@ -167,6 +180,36 @@ struct AccountSwitcherSheet: View {
                 onCancel: { dismissAddSheet() }
             )
         }
+    }
+
+    /// #87: one switcher row — the shared `AccountRow` (unchanged look) wrapped with a
+    /// trailing `Divider` and the list-row modifiers that preserve the pre-List
+    /// appearance: zero row insets so AccountRow's own padding governs, and List's
+    /// native separators hidden in favor of the explicit `Divider` that matched the old
+    /// ScrollView + VStack layout. Used for BOTH the pinned Main row and each
+    /// reorderable row so they render identically. A small `@ViewBuilder` helper (not a
+    /// separate `View` type) because it just forwards the sheet's eight per-row closures
+    /// into `AccountRow` — which is itself the row's real, narrow-input invalidation
+    /// boundary.
+    @ViewBuilder
+    private func switcherRow(_ acc: Account) -> some View {
+        VStack(spacing: 0) {
+            AccountRow(
+                account: acc,
+                isActive: acc.id == activeSelectionId,
+                needsReauth: mgr.needsReauth(acc),
+                isEditing: acc.id == editingAccountId,
+                onSelect: { selectAccount(acc.id) },
+                onBeginRename: { beginRename(acc.id) },
+                onCommitRename: { commitRename(acc.id, to: $0) },
+                onCancelRename: { cancelRename(acc.id) },
+                onDelete: { delete(acc.id) },
+                onOpenInNewWindow: onOpenInNewWindow.map { cb in { cb(acc.id) } }
+            )
+            Divider()
+        }
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
     }
 
     /// Create a new EMPTY account (#34 launcher model). The user signs it in via

@@ -868,4 +868,71 @@ struct AccountRegistryTests {
         #expect(throws: (any Error).self) { try registry.rename(accountId: acc.id, to: "work2") }
         #expect(registry.accounts.first?.label == "work")      // rolled back — label unchanged
     }
+
+    // MARK: - Reorder the non-system-default accounts (#87)
+
+    // #87: the switcher's drag-to-reorder must survive relaunch — a new non-default
+    // order persists to the index and a fresh load ("the next launch") keeps it.
+    @Test("reorder persists the non-default order and survives reload (#87)")
+    @MainActor func reorderPersistsAndReloads() throws {
+        let url = tempIndexURL()
+        let r = AccountRegistry(indexFileURL: url)
+        let a = try r.create(label: "a")
+        let b = try r.create(label: "b")
+        let c = try r.create(label: "c")
+        try r.reorder(nonDefaultIDs: [c.id, a.id, b.id])
+        #expect(r.accounts.map(\.id) == [c.id, a.id, b.id])
+        let reloaded = AccountRegistry(indexFileURL: url)               // the next launch
+        #expect(reloaded.accounts.map(\.id) == [c.id, a.id, b.id])
+    }
+
+    // #87: the system-default is NOT part of the reorderable set and is re-pinned
+    // FIRST in the persisted array — so the file matches the switcher's Main-on-top
+    // display and a non-default account can never be persisted above Main.
+    @Test("reorder pins the system-default first and excludes it from the order (#87)")
+    @MainActor func reorderPinsSystemDefaultFirst() throws {
+        let url = tempIndexURL()
+        let r = AccountRegistry(indexFileURL: url)
+        let a = try r.create(label: "a")                                                    // [a]
+        try r.add(Account(id: Account.systemDefaultID, label: "Main", isSystemDefault: true))  // [a, Main]
+        let b = try r.create(label: "b")                                                    // [a, Main, b]
+        try r.reorder(nonDefaultIDs: [b.id, a.id])                     // Main is NOT in the argument
+        #expect(r.accounts.first?.id == Account.systemDefaultID)       // Main pinned to the top
+        #expect(r.accounts.map(\.id) == [Account.systemDefaultID, b.id, a.id])
+    }
+
+    // #87: a newOrder that is not an EXACT permutation of the current non-default ids
+    // is a stale/malformed call — a no-op that writes nothing (the display forcing
+    // still guarantees a coherent order; the array is never corrupted).
+    @Test("reorder ignores a non-permutation argument and does not write (#87)")
+    @MainActor func reorderIgnoresNonPermutation() throws {
+        let url = tempIndexURL()
+        let r = AccountRegistry(indexFileURL: url)
+        let a = try r.create(label: "a")
+        let b = try r.create(label: "b")
+        let before = try Data(contentsOf: url)
+        try r.reorder(nonDefaultIDs: [a.id])                    // missing b → not a permutation
+        #expect(r.accounts.map(\.id) == [a.id, b.id])           // unchanged
+        try r.reorder(nonDefaultIDs: [a.id, b.id, "ghost"])     // extra id → not a permutation
+        #expect(r.accounts.map(\.id) == [a.id, b.id])           // unchanged
+        #expect(try Data(contentsOf: url) == before)            // no write happened
+    }
+
+    // #87: a reorder whose persist FAILS rolls the array back to the prior order
+    // (composes with #57's `mutate` rollback) — never a half-applied order on disk
+    // or in memory.
+    @Test("reorder rolls back the order when save fails (#87 composes with #57)")
+    @MainActor func reorderRollsBackOnSaveFailure() throws {
+        let url = tempIndexURL()
+        let r = AccountRegistry(indexFileURL: url)
+        let a = try r.create(label: "a")
+        let b = try r.create(label: "b")
+        let c = try r.create(label: "c")
+        let parent = url.deletingLastPathComponent()
+        // read-only parent → the atomic write's temp file can't be created → save throws
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        #expect(throws: (any Error).self) { try r.reorder(nonDefaultIDs: [c.id, b.id, a.id]) }
+        #expect(r.accounts.map(\.id) == [a.id, b.id, c.id])     // rolled back — prior order intact
+    }
 }
