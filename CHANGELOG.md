@@ -56,6 +56,25 @@ All notable changes to Logos are documented here. Format loosely follows
   also extracted to a testable `defaultEnsureDirectory` so the production default is
   now covered. No user-visible behavior change.
 
+- **Removing an account now deletes its data dir, and stale account dirs are
+  swept at startup** ([#50](https://github.com/PsychQuant/logos/issues/50)). Every
+  `remove()` rewrote `index.json` but never deleted the account's
+  `~/.logos/accounts/<id>/` dir, so each removed account orphaned its directory
+  forever (50+ observed in practice). A new `AccountReaper` now reaps the removed
+  account's dir — but ONLY after the registry persist durably succeeds (a
+  persist-failed, #57-rolled-back remove deletes nothing) and NEVER for a
+  system-default account (it reuses the shared `~/.claude`, which is never
+  touched). To clear the historical orphans, `AccountManager.reapOrphanedDirectories()`
+  runs a conservative one-shot GC at launch, BEFORE any claude spawn (so it can't
+  race a live session writing its config dir): a `<id>/` is reaped only when it is
+  BOTH absent from the registry AND carries no claude config JSON — the same
+  "never a real account" signal `AccountDiscovery` filters on — so a registered or
+  logged-in dir is always spared. Because deleting account data is irreversible,
+  every removal is doubly guarded: the resolved path must sit directly under the
+  accounts root and must not be a symlink. Production only — the `--ui-testing`
+  path uses a per-launch temp registry and is skipped, so a real orphan is never
+  swept during a UI test.
+
 - **The account-row's icon-only controls and active state are now announced to
   VoiceOver** ([#72](https://github.com/PsychQuant/logos/issues/72)). The trash and
   open-in-new-window buttons were icon-only with no VoiceOver label (their `.help()`

@@ -30,6 +30,10 @@ public final class AccountManager {
     /// Promptless directory creator (ensures a per-account config dir exists
     /// without writing credentials) — injected so the logic is unit-testable.
     @ObservationIgnored private let ensureDirectory: (String) throws -> Void
+    /// #50: deletes a removed account's isolated data dir + runs the one-shot
+    /// startup orphan GC. Injected (temp root) in tests so the suite never
+    /// touches the real `~/.logos/accounts` tree.
+    @ObservationIgnored private let reaper: AccountReaper
 
     /// The shared registry's list. Computed so SwiftUI observation flows
     /// through the `@Observable` registry — the switcher recomputes when any
@@ -72,11 +76,13 @@ public final class AccountManager {
     public init(
         registry: AccountRegistry? = nil,
         store: ActiveAccountStore? = nil,
-        ensureDirectory: @escaping (String) throws -> Void = AccountManager.defaultEnsureDirectory
+        ensureDirectory: @escaping (String) throws -> Void = AccountManager.defaultEnsureDirectory,
+        reaper: AccountReaper = AccountReaper()
     ) {
         self.registry = registry ?? AccountRegistry(legacyDefaults: .standard)
         self.store = store ?? UserDefaultsActiveAccountStore()
         self.ensureDirectory = ensureDirectory
+        self.reaper = reaper
         self.activeAccountId = self.store.loadActiveAccountId()
         // #56 verify B3/C1: distinguish a DANGLING stored id from a FRESH (never-set) one.
         // - Dangling (e.g. after the system-default's id migrated UUID→fixed, leaving the
@@ -169,6 +175,10 @@ public final class AccountManager {
     /// still alive and nothing here may be cleared. Returns whether it happened.
     @discardableResult
     public func remove(accountId: String) -> Bool {
+        // Snapshot BEFORE the registry mutation so we can tell whether the removed
+        // account isolated a per-account dir. A system-default reuses the shared
+        // ~/.claude and has no dir to reap (#54) — its id must never be reaped.
+        let removed = accounts.first { $0.id == accountId }
         do {
             try registry.remove(accountId: accountId)
         } catch {
@@ -180,7 +190,26 @@ public final class AccountManager {
             activeAccountId = accounts.first?.id
             store.saveActiveAccountId(activeAccountId)
         }
+        // #50: reap the now-unregistered account's isolated data dir — ONLY on this
+        // success path (a rolled-back remove returns above and never reaches here, so
+        // it can't delete — the #57 rollback composition) and ONLY for a
+        // non-system-default account (never touch the shared ~/.claude). The reaper
+        // re-confirms the path is under the accounts root and not a symlink.
+        if let removed, !removed.isSystemDefault {
+            reaper.reap(accountID: accountId)
+        }
         return true
+    }
+
+    /// #50: one-shot startup GC — reap the per-account data dirs orphaned by
+    /// pre-#50 removes (which rewrote `index.json` but never deleted the dir).
+    /// Only dirs BOTH absent from the registry AND carrying no claude config JSON
+    /// are removed (see `AccountReaper.reapOrphans`) — a registered account or a
+    /// real, logged-in dir is always spared, so the sweep cannot cost live data.
+    /// Idempotent. MUST run BEFORE any claude spawn: a live session writes into
+    /// its config dir, and the GC must never race that write.
+    public func reapOrphanedDirectories() {
+        reaper.reapOrphans(liveIDs: Set(accounts.map(\.id)))
     }
 
     /// Rename `accountId`'s label. Pure registry metadata — the account **id**

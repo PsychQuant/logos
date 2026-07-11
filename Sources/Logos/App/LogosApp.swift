@@ -63,7 +63,15 @@ struct LogosApp: App {
     private static func makeAccountManager() -> AccountManager {
         let args = CommandLine.arguments
         guard args.contains("--ui-testing") else {
-            return AccountManager(registry: sharedRegistry)
+            let mgr = AccountManager(registry: sharedRegistry)
+            // #50: one-shot startup GC of the account dirs orphaned by pre-#50 removes.
+            // Runs HERE — during @State model construction, before any window/terminal
+            // renders — so it completes BEFORE any claude spawn and never races a live
+            // session writing its config dir. Conservative (only unregistered, no-config
+            // dirs are reaped). Production only: the --ui-testing path below uses a
+            // per-launch temp registry, so real orphans must not be swept during a UI test.
+            mgr.reapOrphanedDirectories()
+            return mgr
         }
         let suiteName = "app.getlogos.logos.uitesting"
         let suite = UserDefaults(suiteName: suiteName) ?? .standard
