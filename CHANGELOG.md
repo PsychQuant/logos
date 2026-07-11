@@ -29,6 +29,22 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **Closing the Account Usage window now cancels its in-flight usage fetches**
+  ([#81](https://github.com/PsychQuant/logos/issues/81)). `AccountsModel.refreshAll`
+  and `RegistryUsageModel.refreshAll` coalesce concurrent passes onto one shared
+  `Task` so overlapping callers can't each start a serialized first pass and re-stack
+  the per-account Keychain authorization dialogs (#51). But an unstructured `Task`
+  does not inherit its creator's cancellation, and `URLSession.data(for:delegate:)`
+  auto-cancels its transfer only when ITS calling Task is cancelled — so the coalescing
+  wrapper severed that link, and closing the usage window (its SwiftUI `.task`
+  cancelled) left the in-flight usage fetches running to completion in the background.
+  No wrong state, just wasted network and CPU nobody was waiting on. A new
+  `RefreshCoalescer` reference-counts the observers awaiting the shared pass and cancels
+  it only once the LAST one goes away — so the #51 coalescing guarantee (one pass under
+  N concurrent callers, one dialog sequence) is preserved while one caller leaving never
+  tears the pass out from under the others, and a fully-abandoned pass stops promptly. A
+  first pass that is cancelled before finishing does not mark first-pass-complete, so the
+  next refresh re-serializes rather than fanning out and re-stacking dialogs.
 - **The native login-URL open now fires for the Anthropic Console form too**
   ([#35](https://github.com/PsychQuant/logos/issues/35)). Installed claude ships TWO
   authorize forms in one OAuth-config struct — `https://claude.com/cai/oauth/authorize`

@@ -196,31 +196,26 @@ public final class AccountsModel {
     /// state, so a fresh process serializes once again.
     @ObservationIgnored private var hasCompletedFirstPass = false
 
-    /// The single in-flight refresh pass, if one is running. Overlapping
-    /// `refreshAll()` callers await this instead of launching a second pass —
-    /// two serialized first passes would interleave and re-stack the per-account
-    /// authorization dialogs the serialization exists to prevent (#51).
-    @ObservationIgnored private var inFlightRefresh: Task<Void, Never>?
+    /// Coalesces overlapping `refreshAll()` callers onto one shared pass and
+    /// cancels that pass when its last observer goes away — two serialized first
+    /// passes would interleave and re-stack the per-account authorization dialogs
+    /// the serialization exists to prevent (#51), while a window-close must not
+    /// leave the in-flight fetches running unwatched (#81).
+    @ObservationIgnored private let refreshCoalescer = RefreshCoalescer()
 
     /// Refreshes every account's usage — first pass serialized, later passes
     /// concurrent (see `UsageRefresh`). Concurrent invocations coalesce onto the
-    /// one in-flight pass. The guard is a synchronous check-and-set with no
-    /// suspension in between, so on the serial main actor it is atomic against
-    /// other callers — no lock needed.
+    /// one in-flight pass; if every caller's window closes, the pass is cancelled
+    /// rather than run to completion in the background (#81).
     public func refreshAll() async {
-        if let inFlightRefresh {
-            await inFlightRefresh.value
-            return
-        }
         let accounts = self.accounts
         let serialized = !hasCompletedFirstPass
-        let task = Task { @MainActor in
+        let finishedCleanly = await refreshCoalescer.run {
             await UsageRefresh.run(accounts, serialized: serialized)
         }
-        inFlightRefresh = task
-        await task.value
-        inFlightRefresh = nil
-        hasCompletedFirstPass = true
+        // Only a pass that ran to completion counts as the first pass; a cancelled
+        // first pass must re-serialize next time so it never stacks dialogs (#51).
+        if finishedCleanly { hasCompletedFirstPass = true }
     }
 }
 

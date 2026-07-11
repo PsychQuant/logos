@@ -29,10 +29,11 @@ public final class RegistryUsageModel {
     /// (the row's own id is a config-dir path, not the registry id).
     @ObservationIgnored private let makeModel: @MainActor (DiscoveredAccount, String, String) -> AccountUsageModel
     @ObservationIgnored private var hasCompletedFirstPass = false
-    /// The single in-flight refresh pass, if one is running. Overlapping callers
-    /// await it rather than starting a second serialized first pass, which would
-    /// re-stack the per-account authorization dialogs (#51).
-    @ObservationIgnored private var inFlightRefresh: Task<Void, Never>?
+    /// Coalesces overlapping callers onto one shared pass and cancels it when its
+    /// last observer leaves — a second serialized first pass would re-stack the
+    /// per-account authorization dialogs (#51), and a window-close must not leave
+    /// the in-flight fetches running unwatched (#81).
+    @ObservationIgnored private let refreshCoalescer = RefreshCoalescer()
 
     public init(
         registry: AccountRegistry,
@@ -64,21 +65,16 @@ public final class RegistryUsageModel {
     /// First pass serialized (authorization dialogs must not stack), later
     /// passes concurrent — same discipline as `AccountsModel`. Concurrent
     /// invocations coalesce onto the one in-flight pass so two serialized first
-    /// passes can never interleave (#51). The check-and-set carries no
-    /// suspension, so it is atomic on the serial main actor.
+    /// passes can never interleave (#51); if every caller's window closes, the
+    /// pass is cancelled rather than run to completion in the background (#81).
     public func refreshAll() async {
-        if let inFlightRefresh {
-            await inFlightRefresh.value
-            return
-        }
         let accounts = self.accounts
         let serialized = !hasCompletedFirstPass
-        let task = Task { @MainActor in
+        let finishedCleanly = await refreshCoalescer.run {
             await UsageRefresh.run(accounts, serialized: serialized)
         }
-        inFlightRefresh = task
-        await task.value
-        inFlightRefresh = nil
-        hasCompletedFirstPass = true
+        // A cancelled first pass must re-serialize next time so it never stacks
+        // the per-account authorization dialogs (#51).
+        if finishedCleanly { hasCompletedFirstPass = true }
     }
 }
