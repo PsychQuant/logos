@@ -29,6 +29,12 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The account switcher's "Add account" and "Add system account" buttons no longer
+  collide** ([#86](https://github.com/PsychQuant/logos/issues/86)). Both live in the
+  sheet's `VStack(spacing: 0)`, but "Add account" set only `.padding(.top)` and "Add
+  system account" only `.padding(.bottom)`, so the gap between them was zero and they
+  sat flush. The system-account button now uses symmetric `.padding(.vertical, 8)`.
+
 - **The activity bar's gear opens Settings and the dead account icon is gone**
   ([#85](https://github.com/PsychQuant/logos/issues/85)). The bottom two icons
   were dead placeholders: clicking the gear or the person just `select()`ed a tab

@@ -147,7 +147,11 @@ struct AccountSwitcherSheet: View {
                         .padding(.vertical, 4)
                 }
                 .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                // #86: symmetric vertical padding so an even gap opens between this
+                // and "Add account" above — the parent VStack has spacing: 0, and
+                // "Add account" sets only `.top`, so a `.bottom`-only here left the
+                // two buttons flush against each other.
+                .padding(.vertical, 8)
                 .accessibilityIdentifier("logos.account.addSystemDefault")
                 .help("Reuse the login you already have in Terminal (~/.claude). No new sign-in — this account shares your system claude login.")
             } else {
