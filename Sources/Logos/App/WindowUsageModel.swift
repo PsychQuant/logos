@@ -1,5 +1,6 @@
 import Observation
 import Foundation
+import os
 
 /// Per-window live token / context-window usage for the status bar (#47).
 ///
@@ -67,15 +68,38 @@ final class WindowUsageModel {
         self.read = read
     }
 
+    /// #83: nonisolated so `defaultRead`'s detached read can log from off the main actor. A
+    /// `Logger` is `Sendable`, and the CI-strict rule that a static on a `@MainActor` type
+    /// inherits `@MainActor` isolation would otherwise make it main-actor-only (see the
+    /// `swift6-mainactor-static-inheritance-ci-skew` note) — `nonisolated` keeps it reachable
+    /// from the detached task.
+    nonisolated private static let log = Logger(subsystem: "app.getlogos.logos", category: "window-usage")
+
     /// Production reader: resolve the session's transcript (id-addressed when a session id is
     /// bound, else newest-mtime) and parse it entirely off the main actor (FS enumerate +
     /// full-file read + per-line JSON parse). Read-only over claude's own transcript tree —
     /// never credentials / keychain (#34).
     nonisolated static let defaultRead: Reader = { configDir, sessionId in
         await Task.detached(priority: .userInitiated) {
-            guard let url = ClaudeUsageReader.transcriptURL(inConfigDir: configDir, sessionId: sessionId),
-                  let contents = try? String(contentsOf: url, encoding: .utf8),
-                  let usage = ClaudeUsageReader.parse(transcriptContents: contents)
+            guard let url = ClaudeUsageReader.transcriptURL(inConfigDir: configDir, sessionId: sessionId)
+            else { return nil as Snapshot? }
+            // #83: a plain `try?` collapsed "transcript not written yet" (benign, the common case
+            // on every fresh window) with a genuine I/O fault (permission denied, disk error) into
+            // one silent `nil`, so a real failure froze the status-bar usage with no `log show`
+            // trail. Split them: file-absent stays silent, any OTHER error is logged. The contract
+            // is unchanged — every failure still returns `nil`, so the caller retains last-known-good.
+            let contents: String
+            do {
+                contents = try String(contentsOf: url, encoding: .utf8)
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+                return nil as Snapshot?   // not written yet — expected, not a fault
+            } catch {
+                // The transcript path can carry an account identifier, and `localizedDescription`
+                // embeds the file name, so the interpolated error is `.private` (#22 / #34).
+                WindowUsageModel.log.error("transcript read failed: \(error.localizedDescription, privacy: .private)")
+                return nil as Snapshot?
+            }
+            guard let usage = ClaudeUsageReader.parse(transcriptContents: contents)
             else { return nil as Snapshot? }
             // #48: cost is summed over the SAME transcript contents already in hand, so the read
             // stays one FS hit — context is the latest turn's occupancy, cost is every turn.

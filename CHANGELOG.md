@@ -29,6 +29,22 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The status-bar usage reader now logs a real transcript I/O error instead of
+  swallowing it silently** ([#83](https://github.com/PsychQuant/logos/issues/83)).
+  `WindowUsageModel.defaultRead` read the session transcript with
+  `try? String(contentsOf:)`, collapsing three outcomes into one silent `nil`: the
+  transcript not being written yet (benign, the common case on every fresh window),
+  a genuine I/O fault (permission denied, disk error), and any other read failure.
+  So a real permission/disk error made the status-bar usage stop updating with no
+  `log show` trail — unlike `AccountReaper`, which logs every guard-refusal and catch.
+  The read is now a `do/catch`: a `CocoaError.fileReadNoSuchFile` (transcript absent)
+  stays silent, and any OTHER error is logged at `.error` via an
+  `os.Logger(subsystem: "app.getlogos.logos", category: "window-usage")`. The
+  interpolated error is marked `privacy: .private` because the transcript path can
+  carry an account identifier (#22 / #34). The return contract is unchanged — every
+  failure still returns `nil`, so the caller retains last-known-good rather than
+  zeroing live usage; a new `WindowUsageModelTests` case pins that retain-last-good
+  invariant against a future `snapshot?.contextTokens ?? 0`-style regression.
 - **The login-URL reassembler now ends the URL at a bare newline instead of
   splicing the next line onto the query** ([#82](https://github.com/PsychQuant/logos/issues/82)).
   `OAuthURLDetector.reassembleURL` stopped only at a structural blank line (two

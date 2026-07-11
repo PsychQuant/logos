@@ -153,6 +153,40 @@ struct WindowUsageModelTests {
         #expect(gate.calls.last == Call(configDir: "B", sessionId: nil))
     }
 
+    // MARK: - #83: a failed read retains last-known-good
+
+    @Test("a nil read (real I/O failure) retains the prior good snapshot, never zeroes it")
+    func nilReadRetainsLastGood() async {
+        let gate = GatedReader()
+        let model = WindowUsageModel(read: { configDir, sessionId in await gate.read(configDir, sessionId) })
+
+        // A first refresh applies a good snapshot.
+        model.track(configDir: "A")
+        await gate.entered("A")
+        gate.release("A", WindowUsageModel.Snapshot(
+            contextTokens: 1234, contextMax: 1_000_000,
+            sessionCostUSD: Decimal(string: "7.50")!, hasUnpricedModel: false))
+        await model.inFlightRefresh?.value
+        #expect(model.contextTokens == 1234)
+        #expect(model.sessionCostUSD == Decimal(string: "7.50"))
+
+        // A LATER refresh on the SAME account (a re-bind / file-watch fire, NOT a switch) whose
+        // read returns nil — the #83 case: `defaultRead` maps a genuine transcript I/O failure
+        // to nil. The model MUST retain the prior good values, never zero them. This pins the
+        // `guard let snapshot else { return }` retain-last-good invariant: it goes RED against a
+        // careless refactor to `snapshot?.contextTokens ?? 0`, which would blank live usage on a
+        // transient read failure.
+        model.setSessionId("session-1")
+        await gate.entered("A")
+        gate.release("A", nil)
+        await model.inFlightRefresh?.value
+
+        #expect(model.contextTokens == 1234)
+        #expect(model.contextMax == 1_000_000)
+        #expect(model.sessionCostUSD == Decimal(string: "7.50"))
+        #expect(model.hasUnpricedModel == false)
+    }
+
     // MARK: - #48: session cost
 
     @Test("a refresh applies the snapshot's session cost and formats it")
