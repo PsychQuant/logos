@@ -199,9 +199,19 @@ Notes:
   **Local Track B prerequisite**: macOS Developer Mode must be enabled
   (`DevToolsSecurity -status`; enable via `sudo DevToolsSecurity -enable`) — with it
   disabled, every XCUITest run times out at "enabling automation mode" before any
-  test code executes. Known flake: `RendererAdoptionTests` can crash its first
-  hosted phase and pass on xcodebuild's retry, leaving a confusing aggregate
-  `** TEST FAILED **` with all suites green (#78).
+  test code executes. `RendererAdoptionTests` could crash its first hosted phase
+  and pass on xcodebuild's retry, leaving a confusing aggregate `** TEST FAILED **`
+  with all suites green (#78). Root cause: `LogosHostedTests` is app-hosted
+  (`TEST_HOST = Logos.app`), so the full production UI launched — asynchronously
+  spawning the real `--dangerously-skip-permissions` claude child and engaging the
+  GPU Metal renderer ~2s in — and whichever bystander test was executing then took
+  the "unexpected exit." #78 gates both side-effects behind a hosted-unit-testing
+  probe (`HostedTestEnvironment.isHostedUnitTesting`, keyed off
+  `XCTestConfigurationFilePath` — present in the app-hosted unit-test host, absent
+  in the separately-launched XCUITest app that self-identifies via `--ui-testing`).
+  `swift test` stays green; the Track-B confirmation that the crash no longer fires
+  is pending a signed hosted run (Metal Toolchain + Apple Development signing +
+  Developer Mode).
   Decision (#27): the exit is driven by the affordance, **not** type-to-stdin
   `/quit` — a keychain-free seeded account yields an unauthenticated claude (a
   login prompt, not a `/quit`-able REPL). The "no keychain dialog appeared"

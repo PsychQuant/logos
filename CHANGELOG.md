@@ -23,6 +23,23 @@ All notable changes to Logos are documented here. Format loosely follows
   (authorize forms drift across claude versions); the proper retirement folds this into a
   first-class `claude auth login` button (tracked separately).
 
+- **Hosted unit tests no longer launch the full production app** and its side-effects
+  ([#78](https://github.com/PsychQuant/logos/issues/78)). `LogosHostedTests` is app-hosted
+  (`TEST_HOST = Logos.app`), so every hosted-test run brought up the entire production UI,
+  which asynchronously spawned the real `--dangerously-skip-permissions` claude subprocess
+  AND engaged the GPU Metal renderer ~2s in. Whichever bystander test was executing then
+  (`RendererAdoptionTests`) was charged with the "unexpected exit," producing the confusing
+  `** TEST FAILED **` aggregate with every suite green — and, worse, a live privileged
+  subprocess ran inside `xcodebuild test` on every launch. A new
+  `HostedTestEnvironment.isHostedUnitTesting` probe (keyed off `XCTestConfigurationFilePath`,
+  which the app-hosted unit-test host carries but the separately-launched XCUITest app does
+  not) now gates the spawn (`SwiftTermView.Coordinator.startIfNeeded` returns early) and the
+  real Metal engagement (`enableMetalIfAvailableOnce` short-circuits). The probe is
+  env-injectable and the Metal flag is set only at the production `makeNSView` seam, so a
+  directly-constructed test view (`RendererAdoptionTests`) still exercises the adoption path
+  and the XCUITest terminal still renders + spawns. `swift test` stays green; the Track-B
+  confirmation that the crash no longer fires is deferred to a signed hosted run.
+
 ### Added
 
 - **VoiceOver can now select and rename an account from the switcher**
