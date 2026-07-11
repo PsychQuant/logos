@@ -13,12 +13,15 @@ import os
 ///    config JSON (the same "is this a real account" signal `AccountDiscovery`
 ///    filters on), sweeping the historical orphans left by pre-#50 removes.
 ///
-/// Deleting account data is irreversible, so every removal is guarded twice
-/// over: the resolved target must sit DIRECTLY under the accounts root and must
-/// NOT be a symlink, so neither a crafted id (already format-validated by #61)
-/// nor a planted link can redirect the removal outside the root. The bias is
-/// deliberately toward NOT deleting — a surviving orphan is harmless cruft; a
-/// wrongly-reaped live dir is data loss.
+/// Deleting account data is irreversible, so every removal is guarded three
+/// times over (#80): `<name>` must be a single safe path component
+/// (`Account.isValidID` — no `/`, `.`, `..`, or empty), the RESOLVED target must
+/// sit DIRECTLY under the accounts root, and it must NOT be a symlink. So neither
+/// a crafted id — an `a/../b` that would redirect the removal onto a sibling, or a
+/// `..` that would climb out — nor a planted link can point the removal anywhere
+/// but at one real `<root>/<name>` directory. The bias is deliberately toward NOT
+/// deleting — a surviving orphan is harmless cruft; a wrongly-reaped live dir is
+/// data loss.
 public struct AccountReaper {
 
     private let accountsRoot: URL
@@ -79,10 +82,26 @@ public struct AccountReaper {
         return reaped
     }
 
-    /// Shared guarded delete core. Resolves `<accountsRoot>/<name>`, confirms it is
-    /// an existing DIRECTORY sitting directly under the accounts root and is NOT a
-    /// symlink, then removes it. Any guard failing → no delete, returns false.
+    /// Shared guarded delete core. Re-validates `<name>` as a single safe path
+    /// component, resolves `<accountsRoot>/<name>`, confirms it is an existing
+    /// DIRECTORY sitting directly under the accounts root and is NOT a symlink, then
+    /// removes it. Any guard failing → no delete, returns false.
     private func reapDirectory(named name: String) -> Bool {
+        // First gate, standing on its own before ANY path math on an irreversible op:
+        // `<name>` must be a single safe path component. Both callers are already gated
+        // upstream (`reap` gets a #61-validated id; `reapOrphans` a `contentsOfDirectory`
+        // single component), but this is the last line before deletion, so it re-derives
+        // the guarantee locally rather than trusting the caller. Without it a crafted
+        // `a/../b` slips through the parent-path guard below: `deletingLastPathComponent()`
+        // .standardizedFileURL collapses `<root>/a/../b`'s parent back to EXACTLY the root,
+        // so `parentPath == rootPath` holds, yet `removeItem` then resolves the `..` and
+        // deletes `<root>/b` — a sibling the caller never named. `Account.isValidID`
+        // (ASCII letters/digits/hyphen, 1-64 chars) rejects `.`, `..`, `/`, and empty, so
+        // the target can only ever resolve to one real `<root>/<name>` directory.
+        guard Account.isValidID(name) else {
+            Self.log.notice("reap refused — name is not a safe single path component")
+            return false
+        }
         let target = accountsRoot.appendingPathComponent(name)
         // Belt-and-suspenders on an irreversible op: the id is already a #61-validated
         // safe path component, but re-confirm the RESOLVED parent is still exactly the

@@ -5,6 +5,28 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Security
+
+- **The account reaper re-validates its target as a single safe path component
+  before any deletion** ([#80](https://github.com/PsychQuant/logos/issues/80)). The
+  guarded delete core (`AccountReaper.reapDirectory`) relied on a resolved-parent
+  check (`deletingLastPathComponent().standardizedFileURL == accountsRoot`) plus an
+  lstat symlink/dir check. A crafted two-component name of the form `a/../b` defeated
+  the parent check — the parent standardizes back to EXACTLY the accounts root, so the
+  guard passes — after which `removeItem` resolves the `..` and deletes `<root>/b`, a
+  DIFFERENT account's dir than the caller named (empirically confirmed; the plain
+  `foo/..` the issue first described is already refused, since its parent standardizes
+  to `~/.logos`, not the root). The escape was unreachable in production (both callers
+  are gated upstream — `reap` gets `Account.isValidID`-validated ids, `reapOrphans` gets
+  `contentsOfDirectory` single-components), but the guard now delivers its documented
+  contract independently: it rejects any `<name>` that is not a single safe path
+  component (`Account.isValidID` — no `/`, `.`, `..`, or empty) as its FIRST gate, ahead
+  of the existing parent-path and symlink guards (defense in depth). Adds
+  `LSMultipleInstancesProhibited` to close a related double-launch window: without a
+  single-instance lock, a second Logos process mid-`createAccount` could race the first's
+  startup GC and have its freshly-created, not-yet-registered dir reaped; Launch Services
+  now refuses the second launch, removing the race's precondition.
+
 ### Fixed
 
 - **The native login-URL open now fires for the Anthropic Console form too**

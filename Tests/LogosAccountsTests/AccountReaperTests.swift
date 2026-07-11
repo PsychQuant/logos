@@ -127,4 +127,38 @@ struct AccountReaperTests {
         #expect(Set(reaper.reapOrphans(liveIDs: [])) == ["orphan-a", "orphan-b"])
         #expect(reaper.reapOrphans(liveIDs: []).isEmpty)   // nothing left
     }
+
+    // #80: a crafted `<comp>/../<sibling>` name slips past the parent-path guard —
+    // `deletingLastPathComponent().standardizedFileURL` collapses it back to EXACTLY
+    // the accounts root, so `parentPath == rootPath` holds — and `removeItem` then
+    // resolves the `..` and deletes `<sibling>`, i.e. a DIFFERENT account's dir than
+    // the caller named. The top-level single-safe-component re-validation must refuse
+    // it before any path math or filesystem touch.
+    @Test("reap refuses a `..`-traversal name and never deletes the redirected sibling (#80)")
+    func refusesTraversalRedirectingSibling() throws {
+        let home = try tempHome()
+        defer { try? fm.removeItem(at: home) }
+        let root = AccountsRoot.url(home: home)
+        // `foo` must exist so the kernel can resolve `foo/..`; `victim` is the sibling
+        // account dir the crafted name would redirect the removal onto.
+        try fm.createDirectory(at: root.appendingPathComponent("foo"), withIntermediateDirectories: true)
+        let victim = try makeAccountDir(home: home, id: "victim", withConfigJSON: true)
+        #expect(AccountReaper(home: home).reap(accountID: "foo/../victim") == false)
+        #expect(exists(victim))                                    // sibling untouched
+        #expect(exists(victim.appendingPathComponent("marker")))   // its data intact
+        #expect(exists(root))                                      // accounts root intact
+    }
+
+    // #80: every non-single-safe-component name is refused outright — the guard now
+    // delivers the documented contract for all crafted ids, not just the reachable ones.
+    @Test("reap refuses `..`, `.`, slash-bearing, and empty names, sparing the root (#80)")
+    func refusesUnsafeComponentNames() throws {
+        let home = try tempHome()
+        defer { try? fm.removeItem(at: home) }
+        let reaper = AccountReaper(home: home)
+        for bad in ["..", ".", "foo/..", "a/b", "with/slash", "/", ""] {
+            #expect(reaper.reap(accountID: bad) == false, "expected refusal for \(bad.debugDescription)")
+        }
+        #expect(exists(AccountsRoot.url(home: home)))   // no crafted name touched the root
+    }
 }
