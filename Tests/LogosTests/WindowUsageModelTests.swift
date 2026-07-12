@@ -251,6 +251,27 @@ struct WindowUsageModelTests {
         #expect(spy.stopCount >= 1)
     }
 
+    // MARK: - #95: context-window max derived from the account's selected model
+
+    @Test("a fresh 1M account reads 0 / 1M from settings.json, not the hardcoded 200k")
+    func freshOneMillionAccountFromSettings() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("logos-95-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data(#"{"model":"claude-opus-4-8[1m]"}"#.utf8)
+            .write(to: root.appendingPathComponent("settings.json"))
+        defer { try? fm.removeItem(at: root) }
+
+        let model = WindowUsageModel()          // production defaultRead
+        model.track(configDir: root.path)       // no transcript, but settings.json selects [1m]
+        await model.inFlightRefresh?.value
+
+        #expect(model.contextTokens == 0)       // fresh — nothing used
+        #expect(model.contextMax == 1_000_000)  // #95: derived from the [1m] selection, up front
+
+        model.track(configDir: nil)             // stop the watcher before the tree is removed (#91)
+    }
+
     // MARK: - #48: session cost
 
     @Test("a refresh applies the snapshot's session cost and formats it")

@@ -103,6 +103,17 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The context bar now shows the model's real window (1M for a 1M-context model), not a flat 200k**
+  ([#95](https://github.com/PsychQuant/logos/issues/95)). `ClaudeUsageReader.contextMax` ignored the
+  model and returned 200k until *used* tokens crossed 200k, so an Opus 4.8 (1M context) session read
+  `0 / 200k`. The transcript's `usage.model` records only the base id (`claude-opus-4-8`, no `[1m]`),
+  but Claude Code persists the `[1m]` beta in the account's `settings.json` `model` field — a
+  read-only signal Logos already had the config dir for. `contextWindow(sessionModel:selectedModel:
+  observedTokens:)` now derives the window from a model→base-window map plus the `[1m]` selection
+  (matched by family so a different family's saved default never cross-applies), keeping the
+  observed-tokens heuristic only as an upward-correcting fallback. A fresh 1M account reads `0 / 1M`
+  up front.
+
 - **The status-bar plan bar now shows *why* it's blank, and surfaces the weekly window too**
   ([#93](https://github.com/PsychQuant/logos/issues/93),
   [#94](https://github.com/PsychQuant/logos/issues/94) quick win). Previously the 5-hour segment

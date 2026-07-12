@@ -40,14 +40,58 @@ enum ClaudeUsageReader {
         return latest
     }
 
-    /// The context-window max for a session. **Data-driven first**: if usage already exceeds
-    /// 200k, this is provably a >200k-context (1M) session → 1M. Otherwise default 200k.
-    /// (The model id alone — e.g. `claude-opus-4-8` — does NOT encode the 1M-context beta, so
-    /// a 1M session reads 200k here until it actually crosses 200k; the *used* count always
-    /// stays correct. See #47 Risks.)
-    static func contextMax(forModel model: String?, observedTokens: Int = 0) -> Int {
-        if observedTokens > 200_000 { return 1_000_000 }
+    /// #95: model family → BASE context window (before the 1M beta). Keyed by prefix like
+    /// `pricing(forModel:)`, so point releases within a family resolve without a table edit. An
+    /// unknown / nil family defaults to 200k (fail-open — never over-reports the window).
+    static func baseWindow(forModel model: String?) -> Int {
+        // opus / sonnet / haiku / fable all ship a 200k base window today; the 1M is a beta on top.
         return 200_000
+    }
+
+    /// #95: the account's SELECTED model, read from `<configDir>/settings.json`'s `model` field
+    /// (e.g. `claude-opus-4-8[1m]`). This is where Claude Code persists the `[1m]` context-beta
+    /// choice — the transcript's `usage.model` does NOT carry it. Lenient: absent file / malformed
+    /// JSON / empty-or-missing `model` all return nil, same read-only discipline as the transcript
+    /// read (#34 — no credentials, just the model string).
+    static func selectedModel(inConfigDir configDir: String) -> String? {
+        let url = URL(fileURLWithPath: configDir).appendingPathComponent("settings.json")
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let model = obj["model"] as? String, !model.isEmpty
+        else { return nil }
+        return model
+    }
+
+    /// #95: does a model id carry the `[1m]`/`[1M]` context-beta suffix (e.g. `claude-opus-4-8[1m]`)?
+    static func hasOneMillionSuffix(_ model: String?) -> Bool {
+        model?.lowercased().hasSuffix("[1m]") ?? false
+    }
+
+    /// #95: strip a trailing `[…]` beta suffix to get the base family id (e.g.
+    /// `claude-opus-4-8[1m]` → `claude-opus-4-8`), so a selected model can be matched against the
+    /// session's transcript model.
+    static func familyBase(_ model: String?) -> String? {
+        guard let model, let bracket = model.firstIndex(of: "[") else { return model }
+        return String(model[..<bracket])
+    }
+
+    /// #95: the session's context-window max, derived from the model rather than a hardcoded
+    /// default. (1) `base` = `baseWindow(sessionModel)`; (2) if the account's SELECTED model carries
+    /// the `[1m]` context-beta suffix AND its base id matches the session's model → 1M up front
+    /// (before any tokens); (3) else if usage already exceeds `base` → 1M (fallback, so it
+    /// self-corrects even without the settings signal); (4) else `base`.
+    static func contextWindow(sessionModel: String?, selectedModel: String?, observedTokens: Int = 0) -> Int {
+        let base = baseWindow(forModel: sessionModel)
+        // (2) The account's SELECTED model carries [1m] → a 1M session. When the session's model is
+        // not known yet (fresh session, no transcript), trust the selection outright — that's the
+        // up-front `0 / 1M`. Once the session model IS known, require a base-id match, so a
+        // different family's saved default (`fable[1m]`) never turns an `opus` session into 1M.
+        if hasOneMillionSuffix(selectedModel),
+           sessionModel == nil || familyBase(selectedModel) == familyBase(sessionModel) {
+            return 1_000_000
+        }
+        if observedTokens > base { return 1_000_000 }   // (3) fallback: usage proved a larger window
+        return base                                      // (4)
     }
 
     // MARK: - #48: session cost (notional API-equivalent, ccusage parity)

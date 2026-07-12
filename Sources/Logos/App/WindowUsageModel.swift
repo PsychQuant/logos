@@ -136,7 +136,13 @@ final class WindowUsageModel {
             let cost = ClaudeUsageReader.sessionCost(transcriptContents: contents)
             return Snapshot(
                 contextTokens: usage.contextTokens,
-                contextMax: ClaudeUsageReader.contextMax(forModel: usage.model, observedTokens: usage.contextTokens),
+                // #95: derive the window from the model, not a hardcoded default. The transcript's
+                // `usage.model` gives the family; the account's settings.json (read off-main here)
+                // carries the `[1m]` beta the transcript omits.
+                contextMax: ClaudeUsageReader.contextWindow(
+                    sessionModel: usage.model,
+                    selectedModel: ClaudeUsageReader.selectedModel(inConfigDir: configDir),
+                    observedTokens: usage.contextTokens),
                 sessionCostUSD: cost.usd,
                 hasUnpricedModel: cost.hasUnpricedModel
             )
@@ -167,7 +173,13 @@ final class WindowUsageModel {
         // #47 verify (Codex F1): reset to defaults on EVERY switch so a target account with
         // no transcript / no usage yet never lingers on the PREVIOUS account's tokens.
         contextTokens = 0
-        contextMax = 200_000
+        // #95: seed the window from the account's SELECTED model (settings.json `[1m]`) so a fresh
+        // 1M account reads 0 / 1M up front, not the hardcoded 200k. settings.json is tiny so this
+        // read stays on the main actor; a nil configDir (clearing) uses the plain default.
+        contextMax = configDir.map {
+            ClaudeUsageReader.contextWindow(
+                sessionModel: nil, selectedModel: ClaudeUsageReader.selectedModel(inConfigDir: $0))
+        } ?? 200_000
         // #48: same reset-on-switch contract for cost — never linger on the previous session's $.
         sessionCostUSD = 0
         hasUnpricedModel = false

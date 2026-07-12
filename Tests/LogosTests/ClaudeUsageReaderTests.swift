@@ -33,10 +33,58 @@ struct ClaudeUsageReaderTests {
         #expect(ClaudeUsageReader.parse(transcriptContents: #"{"type":"user","message":{}}"#) == nil)
     }
 
-    @Test("contextMax: 200k default; 1M once usage provably exceeds 200k")
-    func contextMaxMap() {
-        #expect(ClaudeUsageReader.contextMax(forModel: "claude-opus-4-8") == 200_000)
-        #expect(ClaudeUsageReader.contextMax(forModel: nil, observedTokens: 250_000) == 1_000_000)
+    // MARK: - #95: context window derived from the model (not a hardcoded 200k)
+
+    @Test("contextWindow: a 1M-selected model shows 1M UP FRONT, before any tokens")
+    func contextWindowOneMillionUpFront() {
+        // The transcript records the bare family id; the account's settings.json carries the [1m].
+        #expect(ClaudeUsageReader.contextWindow(
+            sessionModel: "claude-opus-4-8",
+            selectedModel: "claude-opus-4-8[1m]",
+            observedTokens: 0) == 1_000_000)
+    }
+
+    @Test("contextWindow: [1m] selected + session model not known yet → 1M up front")
+    func contextWindowOneMillionBeforeTranscript() {
+        // Fresh session: no transcript yet (sessionModel nil), but the account selected [1m].
+        #expect(ClaudeUsageReader.contextWindow(
+            sessionModel: nil, selectedModel: "claude-opus-4-8[1m]", observedTokens: 0) == 1_000_000)
+    }
+
+    @Test("contextWindow: no [1m] suffix → base 200k")
+    func contextWindowBase() {
+        #expect(ClaudeUsageReader.contextWindow(
+            sessionModel: "claude-opus-4-8", selectedModel: "claude-opus-4-8", observedTokens: 0) == 200_000)
+    }
+
+    @Test("contextWindow: [1m] of a DIFFERENT family does not cross-apply → base")
+    func contextWindowFamilyMismatch() {
+        // Saved default is fable[1m] but the session runs opus → opus base, not 1M.
+        #expect(ClaudeUsageReader.contextWindow(
+            sessionModel: "claude-opus-4-8", selectedModel: "claude-fable-5[1m]", observedTokens: 0) == 200_000)
+    }
+
+    @Test("contextWindow: observed-tokens fallback preserved (never under-reports)")
+    func contextWindowFallback() {
+        #expect(ClaudeUsageReader.contextWindow(
+            sessionModel: nil, selectedModel: nil, observedTokens: 250_000) == 1_000_000)
+    }
+
+    @Test("selectedModel: reads settings.json model; nil when absent / no key")
+    func selectedModelReadsSettings() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("logos-95-\(UUID().uuidString)")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+
+        #expect(ClaudeUsageReader.selectedModel(inConfigDir: dir.path) == nil)   // no settings.json
+
+        try Data(#"{"model":"claude-opus-4-8[1m]","other":1}"#.utf8)
+            .write(to: dir.appendingPathComponent("settings.json"))
+        #expect(ClaudeUsageReader.selectedModel(inConfigDir: dir.path) == "claude-opus-4-8[1m]")
+
+        try Data(#"{"other":1}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        #expect(ClaudeUsageReader.selectedModel(inConfigDir: dir.path) == nil)   // no `model` key
     }
 }
 
