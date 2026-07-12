@@ -9,10 +9,18 @@ struct SidebarView: View {
             SidebarHeader()
             Divider()
             if activityBar.active == .files {
-                if let root = workspace.rootNode {
-                    FileTreeView(root: root)
-                } else {
+                if workspace.roots.isEmpty {
                     noWorkspaceView
+                } else {
+                    // #96: one collapsible section per workspace root, in folder order.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(workspace.roots, id: \.id) { root in
+                                FileTreeView(root: root)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
             } else {
                 placeholderForOtherTabs

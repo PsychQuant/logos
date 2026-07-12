@@ -24,7 +24,13 @@ struct SidebarHeader: View {
     }
 
     private var workspaceName: String {
-        guard let root = workspace.rootNode else { return "NO WORKSPACE" }
-        return (root.path as NSString).lastPathComponent.uppercased()
+        let roots = workspace.roots
+        guard let first = roots.first else { return "NO WORKSPACE" }
+        // Single root → the folder name; multi-root (#96) → a workspace-level title
+        // (the per-root folder names are shown by each root section below).
+        if roots.count == 1 {
+            return (first.path as NSString).lastPathComponent.uppercased()
+        }
+        return "WORKSPACE (\(roots.count) FOLDERS)"
     }
 }

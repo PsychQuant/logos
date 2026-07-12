@@ -1,18 +1,32 @@
 import SwiftUI
 
+/// Renders ONE workspace root as a top-level collapsible section (#96): a
+/// disclosure header carrying the root folder's name, containing the recursive
+/// file tree of that root's children. `SidebarView` owns the surrounding
+/// `ScrollView` and renders one `FileTreeView` per root, in folder order.
 struct FileTreeView: View {
     let root: FileNode
     @Environment(WorkspaceModel.self) private var workspace
+    /// Each root section starts expanded (VS Code shows workspace folders open).
+    @State private var expanded = true
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(filtered(root.children ?? []), id: \.id) { child in
-                    nodeView(child, depth: 0)
-                }
+        DisclosureGroup(isExpanded: $expanded) {
+            ForEach(filtered(root.children ?? []), id: \.id) { child in
+                nodeView(child, depth: 0)
+                    .padding(.leading, 12)
             }
-            .padding(.vertical, 4)
+        } label: {
+            Text(root.displayName)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .textCase(.uppercase)
+                .accessibilityIdentifier("logos.sidebar.rootSection")  // #96: per-root header
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
     }
 
     /// Recursive view returning AnyView to break `some View` self-reference.

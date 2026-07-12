@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import os
+import UniformTypeIdentifiers
 import LogoSwitch
 import LogosUsage
 
@@ -110,8 +111,9 @@ struct MainScene: Scene {
             isSystem: { WorkspaceLoader.isSystemPath(WorkspaceLoader.canonical($0)) }
         ) else { return }
 
-        // Validate the chosen path is an existing directory, off MainActor (#5/#9).
-        guard await Self.directoryExistsOffMain(target) else {
+        // Validate the chosen locator exists, off MainActor (#5/#9). A locator is an
+        // existing directory OR an existing .code-workspace file (#96).
+        guard await Self.locatorExistsOffMain(target) else {
             // Only the persisted path is cleared on a stale/invalid result — an
             // invalid arg/cwd shouldn't nuke a (different) persisted workspace.
             if target == persisted { persistence.clear() }
@@ -191,11 +193,28 @@ struct MainScene: Scene {
         }.value
     }
 
+    /// A launch locator is valid if it's an existing directory OR an existing
+    /// `.code-workspace` file (#96). Evaluated off the main actor (slow `stat`).
+    static func locatorExistsOffMain(_ locator: String) async -> Bool {
+        if CodeWorkspaceReader.isCodeWorkspaceFile(locator) {
+            return await Task.detached(priority: .userInitiated) {
+                var isDir: ObjCBool = false
+                let exists = FileManager.default.fileExists(atPath: locator, isDirectory: &isDir)
+                return exists && !isDir.boolValue    // a regular .code-workspace file
+            }.value
+        }
+        return await directoryExistsOffMain(locator)
+    }
+
     private func openWorkspaceViaDialog() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true          // #96: allow a .code-workspace file too
         panel.allowsMultipleSelection = false
+        // Restrict file selection to `.code-workspace`; folders stay choosable.
+        if let codeWorkspace = UTType(filenameExtension: "code-workspace") {
+            panel.allowedContentTypes = [.folder, codeWorkspace]
+        }
         if panel.runModal() == .OK, let url = panel.url {
             Task { @MainActor in
                 await workspace.openWorkspaceAsync(at: url.path)

@@ -284,6 +284,115 @@ final class WorkspaceModelTests {
         #expect(WorkspaceLoadError.tooLarge(found: 1, cap: 1).isStale == false)
     }
 
+    // MARK: - Multi-root workspace (#96)
+
+    @Test("openWorkspaceAsync loads N roots, in folder order, from a multi-folder .code-workspace")
+    func multiRoot_loadsAllFoldersInOrder() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        try FileManager.default.createDirectory(atPath: "\(base)/proj/app", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: "\(base)/shared", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(base)/proj/app/a.txt", atomically: true, encoding: .utf8)
+        try "x".write(toFile: "\(base)/shared/b.txt", atomically: true, encoding: .utf8)
+        let wsFile = "\(base)/proj/project.code-workspace"
+        try #"{ "folders": [ { "path": "app" }, { "path": "../shared" } ] }"#
+            .write(toFile: wsFile, atomically: true, encoding: .utf8)
+
+        let m = makeModel()
+        await m.openWorkspaceAsync(at: wsFile)
+
+        #expect(m.roots.count == 2)
+        #expect(m.roots[0].path == "\(base)/proj/app")     // first folder
+        #expect(m.roots[1].path == "\(base)/shared")       // ../ resolved, in order
+        #expect(m.rootNode?.path == m.roots.first?.path)   // rootNode = primary root
+        #expect(m.isLoading == false)
+    }
+
+    @Test("ad-hoc folder open yields exactly one root")
+    func adHoc_oneRoot() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
+
+        let m = makeModel()
+        await m.openWorkspaceAsync(at: tmp)
+
+        #expect(m.roots.count == 1)
+        #expect(m.roots[0].path == tmp)
+    }
+
+    @Test("a .code-workspace whose folders all vanished surfaces an error and no roots")
+    func multiRoot_zeroSurvivorsBanner() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        try FileManager.default.createDirectory(atPath: "\(base)/proj", withIntermediateDirectories: true)
+        let wsFile = "\(base)/proj/project.code-workspace"
+        try #"{ "folders": [ { "path": "gone" }, { "path": "also-gone" } ] }"#
+            .write(toFile: wsFile, atomically: true, encoding: .utf8)
+
+        let m = makeModel()
+        await m.openWorkspaceAsync(at: wsFile)
+
+        #expect(m.roots.isEmpty)
+        #expect(m.lastError != nil)
+        #expect(m.isLoading == false)
+    }
+
+    // MARK: - Persistence as workspace locator (#96)
+
+    @Test("opening a .code-workspace persists the FILE locator, not the resolved folder paths")
+    func persistsCodeWorkspaceLocator() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        try FileManager.default.createDirectory(atPath: "\(base)/proj/app", withIntermediateDirectories: true)
+        let wsFile = "\(base)/proj/project.code-workspace"
+        try #"{ "folders": [ { "path": "app" } ] }"#
+            .write(toFile: wsFile, atomically: true, encoding: .utf8)
+
+        let persistence = WorkspacePersistence(defaults: isolatedDefaults())
+        let m = WorkspaceModel(persistence: persistence)
+        await m.openWorkspaceAsync(at: wsFile)
+
+        // The persisted locator is the .code-workspace file, NOT "/base/proj/app".
+        #expect(persistence.loadLastPath() == wsFile)
+        #expect(m.roots.first?.path == "\(base)/proj/app")
+    }
+
+    @Test("a folder locator round-trips and restores as a one-root ad-hoc workspace")
+    func folderLocatorRoundTrips() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
+
+        let persistence = WorkspacePersistence(defaults: isolatedDefaults())
+        let m = WorkspaceModel(persistence: persistence)
+        await m.openWorkspaceAsync(at: tmp)
+        #expect(persistence.loadLastPath() == tmp)
+
+        // Restore via the same entry MainScene uses on relaunch.
+        let restored = WorkspaceModel(persistence: persistence)
+        await restored.openWorkspaceAsync(at: persistence.loadLastPath()!)
+        #expect(restored.roots.count == 1)
+        #expect(restored.roots[0].path == tmp)
+    }
+
+    @Test("a legacy plain-folder persisted value (pre-#96) restores as a one-root ad-hoc workspace")
+    func legacyFolderValueRestoresAdHoc() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try "x".write(toFile: "\(tmp)/a.txt", atomically: true, encoding: .utf8)
+
+        // Simulate a value written before this capability existed: a bare folder path,
+        // no .code-workspace extension, no migration step.
+        let persistence = WorkspacePersistence(defaults: isolatedDefaults())
+        persistence.saveLastPath(tmp)
+
+        let m = WorkspaceModel(persistence: persistence)
+        await m.openWorkspaceAsync(at: persistence.loadLastPath()!)
+        #expect(m.roots.count == 1)
+        #expect(m.roots[0].path == tmp)
+    }
+
     // #10: isolated UserDefaults suite so model tests don't pollute
     // UserDefaults.standard (saveLastPath writes during open*).
     // #16: routed through the tracker so the suite is torn down in `deinit`.

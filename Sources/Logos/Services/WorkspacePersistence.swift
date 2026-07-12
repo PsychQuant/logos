@@ -1,7 +1,14 @@
 import Foundation
 
-/// Last-opened workspace path persistence. UserDefaults-backed for now
-/// because Logos is not sandboxed (Info.plist has no
+/// Last-opened workspace **locator** persistence. The stored string is a workspace
+/// locator (#96): either a `.code-workspace` file path or a plain folder path. On
+/// restore, `WorkspaceModel.resolveWorkspace` selects the `.code-workspace` reader by
+/// extension and otherwise treats the locator as an ad-hoc folder — so a value written
+/// before this capability existed (always a bare folder path) restores as a one-root
+/// ad-hoc workspace with no migration step. The storage stays a single string; only the
+/// *meaning* widened from "folder path" to "locator", so the API is unchanged.
+///
+/// UserDefaults-backed for now because Logos is not sandboxed (Info.plist has no
 /// `com.apple.security.app-sandbox` entitlement) — security-scoped
 /// bookmarks would add complexity without effect. When sandboxing is
 /// adopted, swap the storage implementation inside this struct; callers

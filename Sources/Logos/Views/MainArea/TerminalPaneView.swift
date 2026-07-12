@@ -14,6 +14,11 @@ struct TerminalPaneView: View {
     /// #49 Part 2: this window's live usage model. The terminal reports its spawned
     /// `--session-id` here so the status bar reads exactly this session's transcript.
     @Environment(WindowUsageModel.self) private var usage
+    /// #96: the workspace, so the spawned claude inherits the workspace's first folder as
+    /// its working directory (the deterministic first-folder cwd rule). The fuller
+    /// session ↔ workspace model (§10.7) is deferred; here the session binds to the primary
+    /// root, so re-establishing a different primary folder re-spawns claude in the new cwd.
+    @Environment(WorkspaceModel.self) private var workspace
     /// Lifecycle of the hosted claude session (#18). Drives the exit-state
     /// overlay and the generation-based restart. Owned here so it survives the
     /// view recreation that a restart triggers.
@@ -37,6 +42,9 @@ struct TerminalPaneView: View {
                     executablePath: claudePath,
                     account: active,
                     extraArgs: advanced.claudeExtraArgs,  // #19: dangerous-mode toggle
+                    // #96: spawn claude in the workspace's first folder (deterministic cwd
+                    // rule). nil (no workspace open yet) falls back to the process default.
+                    workingDirectory: workspace.rootNode?.path,
                     // #33: spawn claude with the user's REAL (login-shell) env, not
                     // the bare launchd env a Finder launch provides. Per-account
                     // CLAUDE_* overrides are layered on top inside the init (#12).
@@ -55,7 +63,7 @@ struct TerminalPaneView: View {
                 // Recreate on path / account / restart. The generation suffix
                 // makes Restart re-spawn a fresh claude (fresh detector/parser +
                 // re-materialized creds) by changing the view identity (#18).
-                .id("\(active.id)-\(claudePath)-\(sessionState.generation)")
+                .id("\(active.id)-\(claudePath)-\(workspace.rootNode?.path ?? "")-\(sessionState.generation)")
                 .overlay {
                     if sessionState.hasExited {
                         TerminalExitedOverlay(

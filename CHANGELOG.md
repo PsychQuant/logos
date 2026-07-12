@@ -7,6 +7,20 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Logos opens VS Code multi-root `.code-workspace` files**
+  ([#96](https://github.com/PsychQuant/logos/issues/96)). A workspace is no longer a single
+  root folder — it is now an ordered, non-empty set of root folders, aligned with VS Code's
+  own workspace definition so the two tools agree on what a "workspace" is. `⌘O` (and
+  `--workspace <path>`) accept either a plain directory (→ a one-root workspace, unchanged) or
+  a `.code-workspace` file, whose `folders` are resolved relative to the file (absolute paths
+  pass through, missing folders are dropped, and a file with zero surviving folders surfaces
+  the load-error banner rather than opening empty). The sidebar renders one collapsible section
+  per root in file order, and the hosted `claude` session spawns in the workspace's **first
+  folder** as its working directory. `.code-workspace` files are read **read-only** (Logos
+  never writes them), and a structural `.vscode/settings.json` reader seam is in place that
+  currently honors **zero** keys (editor-only concerns stay out of scope). The last-opened
+  workspace — folder or `.code-workspace` locator — is restored across launches.
+
 - **Logos now has an app icon.** A vector mark — a warm-amber Greek lambda (λ, for λόγος) with a
   terminal-cursor underscore on a deep charcoal-navy rounded tile, marrying the brand's etymology
   ("word / reason") with its role as a Claude Code terminal host. The source is
