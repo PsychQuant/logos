@@ -1,27 +1,29 @@
 import SwiftUI
 import LogosUsage
-import LogoSwitch
 
 /// #90: the 5-hour plan-usage (rate-limit) HUD segment — a green→yellow→red fill bar
 /// for the ACTIVE account's `five_hour` window from `RegistryUsageModel` (#51/#52/#53),
 /// the same plan-budget the 帳號用量 window renders. Distinct from the context bar
 /// (#47), which is this window's per-session context occupancy.
 ///
-/// The active account is bridged through `AccountManager.activeAccountId`, exactly as
-/// `AccountUsageWindow` matches `account.registryAccountId == accountManager.activeAccountId`.
+/// Keyed to THIS WINDOW's account (`WindowAccountSelection.accountId`), consistent with the
+/// account-label + context segments (also per-window): all three show the same account. A
+/// window showing a non-active account then shows that account's budget, not a different
+/// one's. (`AccountUsageWindow` keys to the global active account because it is a single
+/// shared window; the status bar is per terminal window.)
 /// Refresh is event-driven — on appear and on account switch — and coalesces with the
 /// usage window's own refresh through the shared `RefreshCoalescer` (#51), so a status-bar
 /// refresh never stacks a second keychain dialog.
 struct PlanUsageStatusItem: View {
     @Environment(RegistryUsageModel.self) private var registryUsage
-    @Environment(AccountManager.self) private var accountManager
+    @Environment(WindowAccountSelection.self) private var windowSelection
 
-    /// The active account's five-hour window, once its fetch has loaded. `nil` while the
+    /// This window's account's five-hour window, once its fetch has loaded. `nil` while the
     /// account is unloaded / errored / has no such window — the bar then shows an empty
     /// placeholder rather than a stale or full reading.
     private var activeWindow: UsageWindow? {
-        guard let activeId = accountManager.activeAccountId,
-              let model = registryUsage.accounts.first(where: { $0.registryAccountId == activeId }),
+        guard let accountId = windowSelection.accountId,
+              let model = registryUsage.accounts.first(where: { $0.registryAccountId == accountId }),
               case let .loaded(usage, _) = model.state
         else { return nil }
         return usage.windows.first { $0.id == "five_hour" }
@@ -50,8 +52,8 @@ struct PlanUsageStatusItem: View {
             if registryUsage.accounts.isEmpty { registryUsage.load() }
             await registryUsage.refreshAll()
         }
-        .onChange(of: accountManager.activeAccountId) {
-            // The active account moved — re-fetch so the bar reflects the now-active plan
+        .onChange(of: windowSelection.accountId) {
+            // This window's account changed — re-fetch so the bar reflects that account's plan
             // budget. Event-driven only; no periodic poll (the budget changes slowly and
             // the endpoint is rate-limited).
             Task { await registryUsage.refreshAll() }
