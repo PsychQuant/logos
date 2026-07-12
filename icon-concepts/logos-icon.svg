@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024.0" height="1024.0" viewBox="0 0 1024 1024">
+    <defs>
+        <linearGradient y1="0%" x1="0%" id="tile" x2="0%" y2="100%">
+            <stop stop-color="#1C2233" offset="0%"></stop>
+            <stop stop-color="#0F1219" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient y1="0%" x1="0%" id="amber" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#FFD27A"></stop>
+            <stop stop-color="#EFA836" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <rect x="88.0" y="88.0" height="848.0" width="848.0" rx="190.0" ry="190.0" id="tile" fill="url(#tile)"></rect>
+    <path d="M 519 285 L 299 730" id="lam_long" fill="none" stroke="url(#amber)" stroke-width="82.0" stroke-linecap="round" stroke-linejoin="round"></path>
+    <path d="M 449 422 L 569 730" id="lam_short" fill="none" stroke="url(#amber)" stroke-width="82.0" stroke-linecap="round" stroke-linejoin="round"></path>
+    <rect x="607.0" y="690.0" height="46.0" width="118.0" rx="14.0" ry="14.0" id="cursor" fill="url(#amber)"></rect>
+</svg>

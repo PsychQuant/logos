@@ -47,6 +47,8 @@ bundle: build ## Build + assemble .app bundle (ad-hoc signed)
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@cp $(RELEASE_BIN) $(APP_BUNDLE)/Contents/MacOS/$(BINARY_NAME)
 	@cp Info.plist $(APP_BUNDLE)/Contents/Info.plist
+	@mkdir -p $(APP_BUNDLE)/Contents/Resources
+	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
 	@codesign --force --deep --sign - $(APP_BUNDLE)
 	@echo "✓ Bundle ready at $(APP_BUNDLE)"
@@ -97,6 +99,8 @@ release-signed: build ## Build + Developer ID sign + notarize + create .dmg
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@cp $(RELEASE_BIN) $(APP_BUNDLE)/Contents/MacOS/$(BINARY_NAME)
 	@cp Info.plist $(APP_BUNDLE)/Contents/Info.plist
+	@mkdir -p $(APP_BUNDLE)/Contents/Resources
+	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
 	@codesign --force --deep --options runtime \
 		--sign "$(DEVELOPER_ID)" \

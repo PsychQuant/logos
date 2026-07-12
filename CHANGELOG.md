@@ -7,6 +7,13 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Logos now has an app icon.** A vector mark — a warm-amber Greek lambda (λ, for λόγος) with a
+  terminal-cursor underscore on a deep charcoal-navy rounded tile, marrying the brand's etymology
+  ("word / reason") with its role as a Claude Code terminal host. The source is
+  `icon-concepts/logos-icon.svg` (regenerable at any size); the bundled `Resources/AppIcon.icns`
+  carries all sizes 16→1024 (+@2x), wired via `CFBundleIconFile` and copied into the bundle by
+  `make bundle` / `release-signed`.
+
 - **The status bar is now a claude-hud-style HUD with context + plan usage bars**
   ([#90](https://github.com/PsychQuant/logos/issues/90)). The bottom bar becomes a
   segmented, icon-marked HUD divided by hairline separators. The two plain-text usage
