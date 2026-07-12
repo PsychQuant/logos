@@ -2,6 +2,17 @@ import Observation
 import Foundation
 import os
 
+/// #91: the subset of `FileWatcher` this model drives — a `@MainActor` seam so a test can
+/// inject a spy and assert the watcher is stopped on teardown/deinit (mirrors the existing
+/// `read: Reader` injection). The real `FileWatcher` already satisfies it.
+@MainActor
+protocol UsageWatching: AnyObject {
+    func start()
+    func stop()
+}
+
+extension FileWatcher: UsageWatching {}
+
 /// Per-window live token / context-window usage for the status bar (#47).
 ///
 /// Each window (value-based `WindowGroup`, #42) shows its OWN account's claude session usage,
@@ -25,7 +36,7 @@ final class WindowUsageModel {
     var hasUnpricedModel: Bool = false
 
     @ObservationIgnored private var configDir: String?
-    @ObservationIgnored private var watcher: FileWatcher?
+    @ObservationIgnored private var watcher: UsageWatching?
 
     /// #49 Part 2: the id of the claude session this window spawned (via `--session-id`),
     /// or nil before the terminal reports one / for a session started without an id. The
@@ -65,8 +76,26 @@ final class WindowUsageModel {
 
     @ObservationIgnored private let read: Reader
 
-    init(read: @escaping Reader = WindowUsageModel.defaultRead) {
+    /// #91: builds the `FileWatcher` for an account dir. Injected so a test can substitute a spy
+    /// and assert `stop()` fires on teardown/deinit; defaults to a real `FileWatcher`.
+    typealias MakeWatcher = @MainActor (_ path: String, _ debounce: TimeInterval, _ onChange: @escaping () -> Void) -> UsageWatching
+
+    @ObservationIgnored private let makeWatcher: MakeWatcher
+
+    init(read: @escaping Reader = WindowUsageModel.defaultRead,
+         makeWatcher: @escaping MakeWatcher = { FileWatcher(path: $0, debounce: $1, callback: $2) }) {
         self.read = read
+        self.makeWatcher = makeWatcher
+    }
+
+    /// #91: backstop teardown. `WindowRoot.onDisappear` stops the watcher promptly on window
+    /// close, but if it never fires (SwiftUI teardown ordering, or any non-window owner) the
+    /// `FileWatcher`'s FSEventStream would keep firing into a freed watcher — it derefs an
+    /// UNRETAINED `self` (`passUnretained`), a use-after-free. `isolated deinit` (SE-0371, Swift
+    /// 6.1+) runs on the main actor, so this `@MainActor` model CAN stop the `@MainActor` watcher
+    /// on dealloc — the blocker the old `FileWatcher` / `WindowRoot` comments described is gone.
+    isolated deinit {
+        watcher?.stop()
     }
 
     /// #83: nonisolated so `defaultRead`'s detached read can log from off the main actor. A
@@ -151,7 +180,7 @@ final class WindowUsageModel {
         // FileWatcher only WATCHES the parent of the given path — it never creates the
         // sentinel, so the #34 read-only contract holds.
         let sentinel = configDir + "/.logos-usage-watch"
-        let w = FileWatcher(path: sentinel, debounce: 0.5) { [weak self] in self?.refresh() }
+        let w = makeWatcher(sentinel, 0.5) { [weak self] in self?.refresh() }
         w.start()
         watcher = w
     }

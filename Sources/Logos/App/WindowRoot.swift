@@ -27,10 +27,11 @@ struct WindowRoot: View {
                 seedIfNeeded()
                 usage.track(configDir: currentConfigDir)
             }
-            // #47 verify (Codex F3): stop the usage FileWatcher when the window closes —
-            // FileWatcher has no deinit cleanup (Swift-6 non-Sendable FSEventStreamRef), and
-            // an @MainActor model can't stop() it from a nonisolated deinit either, so the
-            // owning view tears it down explicitly (same pattern as PDFLivePreviewModel).
+            // #47 verify (Codex F3): stop the usage FileWatcher promptly when the window closes,
+            // rather than waiting for the model to dealloc. #91 added an `isolated deinit`
+            // backstop on both `WindowUsageModel` and `FileWatcher` (Swift 6.1 SE-0371), so a
+            // missed onDisappear no longer leaks a live FSEventStream — but this explicit stop
+            // is still the prompt path on window close (same pattern as PDFLivePreviewModel).
             .onDisappear {
                 usage.track(configDir: nil)
             }

@@ -76,6 +76,17 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The per-window usage file watcher no longer leaks / risks a use-after-free when a
+  window closes** ([#91](https://github.com/PsychQuant/logos/issues/91)). `FileWatcher`
+  registers its FSEventStream with an UNRETAINED pointer to itself, so a running stream on
+  a deallocated watcher derefs freed memory on the next event. The only teardown was each
+  owner's explicit stop on view disappear (`WindowUsageModel` via `WindowRoot.onDisappear`,
+  `PDFLivePreviewModel` via `unbind()`) — a single fragile path: if it didn't fire, the
+  stream leaked and could crash. `FileWatcher` now self-cleans with an `isolated deinit`
+  (SE-0371, Swift 6.1+) that stops the stream on dealloc, and `WindowUsageModel` gains its
+  own `isolated deinit` backstop; both `stop()`s are idempotent, so the existing prompt
+  teardown paths are unchanged. This closes the same latent gap for `PDFLivePreviewModel`.
+
 - **A fresh session's status bar shows empty usage instead of the previous session's
   tokens/cost** ([#89](https://github.com/PsychQuant/logos/issues/89)). The usage reader
   resolved a window's transcript by session id, but whenever that id-addressed

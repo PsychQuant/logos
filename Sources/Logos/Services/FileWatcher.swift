@@ -74,7 +74,14 @@ public final class FileWatcher {
         debounceTimer = t
     }
 
-    // No deinit cleanup: Swift 6 strict concurrency disallows access to
-    // non-Sendable FSEventStreamRef from nonisolated deinit. Callers
-    // (PDFLivePreviewModel) MUST call .stop() explicitly on unbind.
+    /// #91: self-cleaning backstop. The FSEventStream holds `passUnretained(self)`, so a running
+    /// stream on a deallocated watcher derefs freed memory on the next event (use-after-free).
+    /// A plain nonisolated `deinit` can't touch the non-Sendable `FSEventStreamRef`, but
+    /// `isolated deinit` (SE-0371, Swift 6.1+) runs on this `@MainActor` type's actor, so `stop()`
+    /// — which invalidates + releases the stream — is reachable. `stop()` is idempotent, so an
+    /// owner that already called it on unbind/teardown (`PDFLivePreviewModel.unbind`,
+    /// `WindowUsageModel`) is unaffected; this guarantees cleanup even when they don't.
+    isolated deinit {
+        stop()
+    }
 }

@@ -214,13 +214,41 @@ struct WindowUsageModelTests {
         #expect(model.contextTokens == 0)
         #expect(model.sessionCostUSD == Decimal(string: "0"))
 
-        // `track(configDir:)` starts a real FileWatcher on `root`; FileWatcher has no deinit
-        // cleanup (its FSEventStream callback derefs an UNRETAINED `self`), so it MUST be stopped
-        // before the tree is removed — deleting a watched dir otherwise fires an event into a
-        // possibly-freed watcher (a use-after-free SIGABRT). `track(nil)` is the documented
-        // teardown: it stops the watcher and starts none. Order matters — stop, THEN remove.
+        // `track(configDir:)` starts a real FileWatcher on `root`. The model is still ALIVE here,
+        // so #91's deinit backstop hasn't run — stop the watcher explicitly before removing the
+        // watched tree, else deleting the dir fires an event into a live watcher mid-test.
+        // `track(nil)` is the deterministic teardown: it stops the watcher and starts none.
+        // Order matters — stop, THEN remove.
         model.track(configDir: nil)
         try? fm.removeItem(at: root)
+    }
+
+    // MARK: - #91: deinit stops the file watcher (UAF backstop)
+
+    @Test("deinit stops the file watcher even if onDisappear never fired")
+    func deinitStopsWatcher() async {
+        // A spy watcher the TEST holds, so it outlives the model and we can inspect
+        // stop-on-teardown. `track()` starts it; releasing the model must stop it (the #91
+        // backstop) — otherwise a stray FS event on the account dir would deref the freed
+        // FileWatcher (`passUnretained` → use-after-free SIGABRT).
+        @MainActor final class SpyWatcher: UsageWatching {
+            var stopCount = 0
+            func start() {}
+            func stop() { stopCount += 1 }
+        }
+        let spy = SpyWatcher()
+
+        var model: WindowUsageModel? = WindowUsageModel(
+            read: { _, _ in nil },
+            makeWatcher: { _, _, _ in spy })
+        model?.track(configDir: "/tmp/logos-91-watch")   // creates + starts the spy watcher
+        #expect(spy.stopCount == 0)                       // still alive → not torn down
+
+        model = nil   // last strong ref gone → isolated deinit → watcher.stop()
+        // The isolated deinit runs on the main actor: synchronously when released on-main,
+        // otherwise enqueued — yield so a hop drains before the assert.
+        for _ in 0..<10 where spy.stopCount == 0 { await Task.yield() }
+        #expect(spy.stopCount >= 1)
     }
 
     // MARK: - #48: session cost
