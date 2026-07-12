@@ -11,10 +11,10 @@ let package = Package(
         // #34: first-party-safe claude multi-account switching + auth, as a
         // LAUNCHER. UI-free; links Foundation + os only — NOT Security (so a
         // keychain call is a compile error, enforced by RedLineAuditTests).
-        .library(name: "LogoSwitch", targets: ["LogoSwitch"]),
-        // merge-multistats-into-logos: the standalone multi-account usage
-        // viewer, retained as a thin product of the merged package.
-        .executable(name: "MultiStats", targets: ["MultiStats"])
+        .library(name: "LogoSwitch", targets: ["LogoSwitch"])
+        // #92: the standalone MultiStats viewer target was retired — the in-app
+        // 帳號用量 window (AccountUsageWindow over LogosUsage) is its superset. Its
+        // source is preserved under archive/logos-multistats-target/.
     ],
     dependencies: [
         .package(url: "https://github.com/PsychQuant/SwiftTerm.git", branch: "logos-renderer-base"),
@@ -51,12 +51,6 @@ let package = Package(
             ]
         ),
 
-        // merge-multistats-into-logos — thin standalone viewer executable
-        // (SwiftUI shell over LogosUsage).
-        .executableTarget(
-            name: "MultiStats",
-            dependencies: ["LogosAccounts", "LogosUsage"]
-        ),
         .testTarget(
             name: "LogoSwitchTests",
             dependencies: [

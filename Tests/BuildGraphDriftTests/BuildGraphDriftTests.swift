@@ -32,16 +32,15 @@ import Yams
         let libraries = Self.packageLibraryTargets(in: packageSwift)
         let projectTargets = try Self.projectYmlTargetKeys(in: projectYml)
 
-        // Extraction sanity: found the three known libraries and NOT the two
-        // executables (Logos, MultiStats) or any test target. This is what keeps
-        // MultiStats — a standalone executable deliberately absent from
-        // project.yml — from being a false positive.
+        // Extraction sanity: found the three known libraries and NOT the `Logos`
+        // executable or any test target — keeping an executable (deliberately absent
+        // from project.yml) from being a false positive. (The MultiStats executable
+        // that used to sit alongside Logos here was retired in #92.)
         #expect(
             Set(libraries) == ["LogosAccounts", "LogosUsage", "LogoSwitch"],
             "Package.swift library extraction drifted: got \(libraries.sorted())"
         )
         #expect(!libraries.contains("Logos"), ".executableTarget(Logos) must not be read as a library")
-        #expect(!libraries.contains("MultiStats"), ".executableTarget(MultiStats) must not be read as a library")
 
         let missing = Self.missingTargets(libraries: libraries, projectTargets: projectTargets)
         #expect(
@@ -58,7 +57,7 @@ import Yams
     /// RED proof on the pure comparison logic, run against a synthetic pair so the
     /// real files stay untouched: a library present in `Package.swift` but absent
     /// from `project.yml` must be flagged by name, and `.executableTarget` /
-    /// `.testTarget` must be skipped (the MultiStats false-positive boundary).
+    /// `.testTarget` must be skipped (the executable / test-target false-positive boundary).
     @Test func syntheticMissingTargetIsDetectedAndExecutablesAreExcluded() throws {
         let syntheticPackage = """
         let package = Package(
@@ -135,8 +134,8 @@ import Yams
     /// whitespace/newline-tolerant, so `.target (name: "X")` and a multi-line
     /// `.target(\n  name : "X"\n)` are both caught (`\s` spans newlines in ICU).
     /// `.executableTarget(` and `.testTarget(` use a capital-T `Target(` with no
-    /// preceding dot, so neither matches `\.target` (excludes `Logos`, `MultiStats`,
-    /// and every test target). Full-line `//` comments are stripped first (house
+    /// preceding dot, so neither matches `\.target` (excludes `Logos` and every
+    /// test target). Full-line `//` comments are stripped first (house
     /// idiom, mirrors RedLineAuditTests.strippingComments) so a commented-out
     /// `.target(name: "X")` is not read as a live library.
     static func packageLibraryTargets(in packageSwift: String) -> [String] {

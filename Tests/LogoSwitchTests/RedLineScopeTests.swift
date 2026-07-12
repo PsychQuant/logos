@@ -33,8 +33,9 @@ import Testing
     /// Keychain WRITE forms — forbidden everywhere, including LogosUsage.
     static let writeTokens = ["SecItemAdd", "SecItemUpdate", "SecItemDelete"]
 
-    /// Targets that must remain structurally credential-free.
-    static let credentialFreeTargets = ["Sources/LogosAccounts", "Sources/Logos", "Sources/MultiStats"]
+    /// Targets that must remain structurally credential-free. (`Sources/MultiStats` was
+    /// retired in #92 — the red line now covers the registry layer + the app.)
+    static let credentialFreeTargets = ["Sources/LogosAccounts", "Sources/Logos"]
 
     /// The single target permitted to import Security.
     static let auditedUsageTarget = "Sources/LogosUsage"

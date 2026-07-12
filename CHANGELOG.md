@@ -74,6 +74,17 @@ All notable changes to Logos are documented here. Format loosely follows
   startup GC and have its freshly-created, not-yet-registered dir reaped; Launch Services
   now refuses the second launch, removing the race's precondition.
 
+### Removed
+
+- **The standalone `MultiStats` viewer target is retired**
+  ([#92](https://github.com/PsychQuant/logos/issues/92)). The in-app 帳號用量 window
+  (`AccountUsageWindow`, a SwiftUI `Window` over the same `RegistryUsageModel` /
+  `LogosUsage` layer) is its superset — the same per-account plan-usage list, plus
+  active-account highlighting, with no separate app to launch — so the redundant
+  `MultiStats` product + executable target are removed from `Package.swift`. The shared
+  `LogosUsage` / `LogosAccounts` layer is kept (the app + the usage window still use it).
+  The retired source is archived, not deleted, under `archive/logos-multistats-target/`.
+
 ### Fixed
 
 - **The per-window usage file watcher no longer leaks / risks a use-after-free when a
