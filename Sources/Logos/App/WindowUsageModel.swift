@@ -29,8 +29,9 @@ final class WindowUsageModel {
 
     /// #49 Part 2: the id of the claude session this window spawned (via `--session-id`),
     /// or nil before the terminal reports one / for a session started without an id. The
-    /// reader binds to `<sessionId>.jsonl` directly when set, and falls back to newest-mtime
-    /// when nil — so several sessions sharing one config dir never cross-read each other.
+    /// reader binds to `<sessionId>.jsonl` directly when set; when nil (or before that file
+    /// exists) the read resolves to no transcript, so the status bar shows empty rather than a
+    /// FOREIGN session's tokens (#89 — the newest-mtime fallback that cross-read them is gone).
     @ObservationIgnored private var sessionId: String?
 
     /// #49 Part 1: monotonic refresh counter for newest-wins ordering. A refresh reads +
@@ -56,10 +57,10 @@ final class WindowUsageModel {
     }
 
     /// Off-main read + parse seam. Given the account's config dir and the bound session id
-    /// (nil → newest-mtime fallback), returns the parsed snapshot (or `nil` when there is no
-    /// transcript / no usage yet). The production default hops the blocking filesystem read
-    /// off the main actor; tests inject a controllable reader to make the newest-wins
-    /// ordering deterministic.
+    /// (nil → no transcript, so an empty status bar rather than a foreign read; #89), returns
+    /// the parsed snapshot (or `nil` when there is no transcript / no usage yet). The production
+    /// default hops the blocking filesystem read off the main actor; tests inject a controllable
+    /// reader to make the newest-wins ordering deterministic.
     typealias Reader = @Sendable (String, String?) async -> Snapshot?
 
     @ObservationIgnored private let read: Reader
@@ -76,9 +77,9 @@ final class WindowUsageModel {
     nonisolated private static let log = Logger(subsystem: "app.getlogos.logos", category: "window-usage")
 
     /// Production reader: resolve the session's transcript (id-addressed when a session id is
-    /// bound, else newest-mtime) and parse it entirely off the main actor (FS enumerate +
-    /// full-file read + per-line JSON parse). Read-only over claude's own transcript tree —
-    /// never credentials / keychain (#34).
+    /// bound, else no transcript → nil; #89) and parse it entirely off the main actor (FS
+    /// enumerate + full-file read + per-line JSON parse). Read-only over claude's own transcript
+    /// tree — never credentials / keychain (#34).
     nonisolated static let defaultRead: Reader = { configDir, sessionId in
         await Task.detached(priority: .userInitiated) {
             guard let url = ClaudeUsageReader.transcriptURL(inConfigDir: configDir, sessionId: sessionId)
@@ -131,8 +132,8 @@ final class WindowUsageModel {
         watcher = nil
         self.configDir = configDir
         // #49 Part 2: a switch will spawn a NEW claude session; clear the previous account's
-        // bound session id so the fallback read never targets its transcript. The terminal
-        // re-binds via setSessionId once the new session spawns.
+        // bound session id so the next read resolves to no transcript (#89 — empty, not the old
+        // account's numbers) until the terminal re-binds via setSessionId for the new session.
         self.sessionId = nil
         // #47 verify (Codex F1): reset to defaults on EVERY switch so a target account with
         // no transcript / no usage yet never lingers on the PREVIOUS account's tokens.

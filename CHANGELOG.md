@@ -60,6 +60,23 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **A fresh session's status bar shows empty usage instead of the previous session's
+  tokens/cost** ([#89](https://github.com/PsychQuant/logos/issues/89)). The usage reader
+  resolved a window's transcript by session id, but whenever that id-addressed
+  `<sessionId>.jsonl` was not found it fell back to the newest-mtime file under the config
+  dir — which, on a fresh session (before claude writes the new session's transcript) or
+  during the transient window with no bound session id, is a FOREIGN (previous/other)
+  session's transcript. So a just-opened session displayed the prior session's token count
+  and cost. `ClaudeUsageReader.transcriptURL` now binds only to the exact `<sessionId>.jsonl`
+  and returns `nil` when there is no bound session id or its transcript does not exist yet;
+  the status bar then shows empty/zero rather than another session's numbers (the
+  reset-on-switch of [#47](https://github.com/PsychQuant/logos/issues/47) held by the
+  retain-last-good guard of [#83](https://github.com/PsychQuant/logos/issues/83)). The
+  newest-mtime `activeTranscriptURL` heuristic — the pre-[#49](https://github.com/PsychQuant/logos/issues/49)
+  MVP fallback and the root of the staleness — is removed. The rare
+  caller-supplied-own-`--session-id` case now shows empty rather than a best-effort
+  newest-mtime read; empty is strictly better than a stale foreign session's figures.
+
 - **The account switcher's "Add account" and "Add system account" buttons no longer
   collide** ([#86](https://github.com/PsychQuant/logos/issues/86)). Both live in the
   sheet's `VStack(spacing: 0)`, but "Add account" set only `.padding(.top)` and "Add

@@ -152,18 +152,23 @@ enum ClaudeUsageReader {
         return SessionCost(usd: usd, hasUnpricedModel: hasUnpriced)
     }
 
-    /// The transcript to read for a window's session (#49 Part 2). When we spawned claude
-    /// with an explicit `--session-id <sessionId>`, prefer the exact `<sessionId>.jsonl`
-    /// file — a reliable binding even when several sessions share one config dir. Falls
-    /// back to the newest-mtime heuristic when there is no id (session spawned without one)
-    /// or the id-addressed file has not been created yet (the window before claude's first
-    /// write). Read-only; never touches credentials (#34).
+    /// The transcript to read for a window's session (#49 Part 2, tightened in #89). Bind only
+    /// to the exact `<sessionId>.jsonl` claude wrote for the id we spawned it with — a reliable
+    /// binding even when several sessions share one config dir. Returns `nil` when there is no
+    /// bound session id, and `nil` (via `sessionTranscriptURL`) until claude has materialized the
+    /// id-addressed file — the fresh-session window before its first write. Read-only; never
+    /// touches credentials (#34).
+    ///
+    /// #89: there is deliberately NO newest-mtime fallback. The pre-#49 MVP heuristic
+    /// (`activeTranscriptURL`, newest-mtime = a FOREIGN session's transcript) was the root of the
+    /// stale-usage bug — a window with no bound session, or one whose transcript isn't written
+    /// yet, would read the PREVIOUS session's `.jsonl` and show its tokens/cost. Resolving to
+    /// `nil` instead makes the status bar show empty/zero, which is strictly better than a
+    /// foreign session's numbers. This drops the rare caller-supplied-own-`--session-id` case
+    /// (`onSessionSpawned(nil)`) from a best-effort read to empty — accepted, for the same reason.
     static func transcriptURL(inConfigDir configDir: String, sessionId: String?) -> URL? {
-        if let sessionId,
-           let match = sessionTranscriptURL(inConfigDir: configDir, sessionId: sessionId) {
-            return match
-        }
-        return activeTranscriptURL(inConfigDir: configDir)
+        guard let sessionId else { return nil }
+        return sessionTranscriptURL(inConfigDir: configDir, sessionId: sessionId)
     }
 
     /// Recursively locate `<sessionId>.jsonl` under `<configDir>/projects/` — the exact file
@@ -180,24 +185,5 @@ enum ClaudeUsageReader {
             return url
         }
         return nil
-    }
-
-    /// Most-recently-modified `.jsonl` transcript under `<configDir>/projects/` — the MVP
-    /// heuristic for "the active session" (no session-UUID handshake with claude). `nil` if
-    /// none exists yet. FS access — kept out of the pure core.
-    static func activeTranscriptURL(inConfigDir configDir: String) -> URL? {
-        let projects = URL(fileURLWithPath: configDir).appendingPathComponent("projects")
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: projects,
-            includingPropertiesForKeys: [.contentModificationDateKey]
-        ) else { return nil }
-        var newest: (url: URL, date: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey])
-                .contentModificationDate) ?? .distantPast
-            if newest == nil || mod > newest!.date { newest = (url, mod) }
-        }
-        return newest?.url
     }
 }

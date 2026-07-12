@@ -187,6 +187,42 @@ struct WindowUsageModelTests {
         #expect(model.hasUnpricedModel == false)
     }
 
+    // MARK: - #89: a fresh session shows empty, never a foreign transcript's numbers
+
+    @Test("a fresh session (bound id with no transcript) shows 0, not a foreign transcript's tokens")
+    func freshSessionShowsEmptyNotForeignTranscript() async throws {
+        // Drives the PRODUCTION `defaultRead` end to end: the injectable gate returns a canned
+        // snapshot and never exercises `transcriptURL`, so proving the fresh-session-shows-empty
+        // contract needs the real reader against a real config dir that ALREADY holds a
+        // previous/other session's transcript (a decoy with real usage).
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("logos-usage-\(UUID().uuidString)")
+        let proj = root.appendingPathComponent("projects/-Users-che-proj")
+        try fm.createDirectory(at: proj, withIntermediateDirectories: true)
+        let decoy = #"{"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":777,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":1}}}"# + "\n"
+        try Data(decoy.utf8).write(to: proj.appendingPathComponent("decoy-other-session.jsonl"))
+
+        let model = WindowUsageModel()             // production defaultRead
+        model.track(configDir: root.path)          // unbound refresh — pre-#89 would read the decoy
+        await model.inFlightRefresh?.value
+        model.setSessionId("fresh-uuid-with-no-file")   // bound to an id whose .jsonl doesn't exist
+        await model.inFlightRefresh?.value
+
+        // Pre-#89 the newest-mtime fallback resolves the decoy → contextTokens == 777 and a
+        // non-zero cost. Fixed: the fresh session resolves to nil → the reset-0 (track's
+        // reset-on-switch, retained by #83's `guard let snapshot`) stays → the status bar is empty.
+        #expect(model.contextTokens == 0)
+        #expect(model.sessionCostUSD == Decimal(string: "0"))
+
+        // `track(configDir:)` starts a real FileWatcher on `root`; FileWatcher has no deinit
+        // cleanup (its FSEventStream callback derefs an UNRETAINED `self`), so it MUST be stopped
+        // before the tree is removed — deleting a watched dir otherwise fires an event into a
+        // possibly-freed watcher (a use-after-free SIGABRT). `track(nil)` is the documented
+        // teardown: it stops the watcher and starts none. Order matters — stop, THEN remove.
+        model.track(configDir: nil)
+        try? fm.removeItem(at: root)
+    }
+
     // MARK: - #48: session cost
 
     @Test("a refresh applies the snapshot's session cost and formats it")

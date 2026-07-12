@@ -40,11 +40,13 @@ struct ClaudeUsageReaderTests {
     }
 }
 
-/// #49 Part 2: id-addressed transcript resolution. When we spawn claude with an explicit
-/// `--session-id <uuid>`, the status bar reads exactly `<uuid>.jsonl` under `projects/`
-/// instead of guessing "newest mtime" — which mis-binds when several sessions share one
-/// config dir. Newest-mtime is kept as the FALLBACK for the window before the file exists
-/// and for sessions spawned without an id.
+/// #49 Part 2 → #89: id-addressed transcript resolution. When we spawn claude with an explicit
+/// `--session-id <uuid>`, the status bar reads exactly `<uuid>.jsonl` under `projects/` instead
+/// of guessing "newest mtime" — which mis-binds when several sessions share one config dir.
+/// There is NO newest-mtime fallback (#89): a window with no bound session, or one whose
+/// session's `.jsonl` has not been written yet (the fresh-session window), resolves to `nil` →
+/// the status bar shows empty, never a FOREIGN (previous/other) session's tokens. The pre-#89
+/// newest-mtime fallback was the root of the stale-usage-on-a-fresh-session bug.
 @Suite("ClaudeUsageReader.transcriptURL")
 struct ClaudeUsageReaderTranscriptURLTests {
 
@@ -77,24 +79,29 @@ struct ClaudeUsageReaderTranscriptURLTests {
         #expect(url?.lastPathComponent == "11111111-1111-1111-1111-111111111111.jsonl")
     }
 
-    @Test("falls back to newest-mtime when the id file does not exist yet")
-    func fallbackWhenIdAbsent() throws {
+    @Test("nil when the id-addressed file does not exist yet — never a foreign transcript (#89)")
+    func nilWhenIdFileAbsent() throws {
+        // The fresh-session window: the bound session's own `<uuid>.jsonl` has not been written
+        // yet, but a DECOY (a previous/other session's) transcript is present AND is the newest
+        // file. Pre-#89 the id branch fell through to newest-mtime and returned the decoy, so the
+        // status bar showed the previous session's tokens. The contract now: resolve to nil.
         let dir = try makeTree([
-            ("a.jsonl", 1_000),
-            ("b.jsonl", 2_000),   // newest
+            ("decoy-other-session.jsonl", 2_000),   // newest, someone else's — must NOT be picked
         ])
         let url = ClaudeUsageReader.transcriptURL(inConfigDir: dir, sessionId: "not-created-yet")
-        #expect(url?.lastPathComponent == "b.jsonl")
+        #expect(url == nil)
     }
 
-    @Test("falls back to newest-mtime when sessionId is nil")
-    func fallbackWhenNilSessionId() throws {
+    @Test("nil when sessionId is nil — never a foreign transcript (#89)")
+    func nilWhenSessionIdNil() throws {
+        // The transient `track()` window before the terminal binds a session id. A decoy foreign
+        // transcript is present; pre-#89 the nil-id branch fell back to it. The contract now: nil,
+        // so a window with no bound session shows empty rather than another session's numbers.
         let dir = try makeTree([
-            ("a.jsonl", 1_000),
-            ("b.jsonl", 2_000),   // newest
+            ("decoy-other-session.jsonl", 2_000),
         ])
         let url = ClaudeUsageReader.transcriptURL(inConfigDir: dir, sessionId: nil)
-        #expect(url?.lastPathComponent == "b.jsonl")
+        #expect(url == nil)
     }
 }
 
