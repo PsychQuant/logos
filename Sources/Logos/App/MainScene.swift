@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import os
 import LogoSwitch
+import LogosUsage
 
 struct MainScene: Scene {
 
@@ -15,6 +16,11 @@ struct MainScene: Scene {
     let terminalConfig: TerminalConfig
     let autoHandleEngine: AutoHandleEngine
     let accountManager: AccountManager
+    /// #90: the shared plan-usage registry model, threaded into the main window so the
+    /// status bar's 5-hour plan bar can read the active account's `five_hour` window.
+    /// The SAME instance `LogosApp` injects into the 帳號用量 window — one registry, so
+    /// the status bar and the usage window can never disagree.
+    let registryUsage: RegistryUsageModel
     let workspace: WorkspaceModel
     let pdfPreview: PDFLivePreviewModel
     let generalSettings: GeneralSettings
@@ -43,7 +49,7 @@ struct MainScene: Scene {
 
     /// The per-window content + all global-model injections (#42). Extracted from the
     /// `WindowGroup` closure into a named `some View` helper: the value-based
-    /// `WindowGroup(for:)` binding-closure plus the ten `.environment` injections forms
+    /// `WindowGroup(for:)` binding-closure plus the eleven `.environment` injections forms
     /// one expression large enough to crash the Swift 6.2 type-checker (signal 6) when
     /// inlined — the function gives the type-checker a discrete anchor. `WindowRoot`
     /// owns the per-window account; the global models (incl. `AccountManager`) are
@@ -57,6 +63,7 @@ struct MainScene: Scene {
             .environment(terminalConfig)
             .environment(autoHandleEngine)
             .environment(accountManager)
+            .environment(registryUsage)
             .environment(workspace)
             .environment(pdfPreview)
             .environment(generalSettings)

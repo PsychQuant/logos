@@ -136,6 +136,7 @@ struct LogosApp: App {
             terminalConfig: terminalConfig,
             autoHandleEngine: autoHandleEngine,
             accountManager: accountManager,
+            registryUsage: registryUsage,
             workspace: workspace,
             pdfPreview: pdfPreview,
             generalSettings: generalSettings,

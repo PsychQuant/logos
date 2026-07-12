@@ -7,6 +7,22 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **The status bar is now a claude-hud-style HUD with context + plan usage bars**
+  ([#90](https://github.com/PsychQuant/logos/issues/90)). The bottom bar becomes a
+  segmented, icon-marked HUD divided by hairline separators. The two plain-text usage
+  readouts become green→yellow→red fill bars driven by a shared `HUDProgressBar`
+  (green under 70% consumed, yellow 70–90%, red at/above 90%): the **context-window**
+  bar reads this window's per-session `WindowUsageModel` (#47/#49) — a fresh session
+  reads 0 (#89), so it renders empty, never full — and a new **5-hour plan-usage**
+  bar reads the active account's `five_hour` window from the shared `RegistryUsageModel`
+  (#51/#52/#53), the same plan budget the 帳號用量 window shows. The plan bar is wired by
+  threading the one shared `RegistryUsageModel` into the main window (a new `MainScene`
+  parameter + `.environment` injection) and bridging the active account through
+  `AccountManager.activeAccountId`; it refreshes event-driven only — on window appear and
+  on account switch — coalescing with the usage window's refresh through the shared
+  `RefreshCoalescer` (#51), so it never stacks a second keychain dialog. The account
+  switcher (⌘K), the cost `+?` sentinel, and the auto-handle state are unchanged.
+
 - **The reorderable account rows now show a drag-handle grip**
   ([#88](https://github.com/PsychQuant/logos/issues/88)). Each drag-reorderable account
   row ([#87](https://github.com/PsychQuant/logos/issues/87)) gains a leading 6-dot grip
