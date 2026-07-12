@@ -50,6 +50,48 @@ struct UsageParseTests {
         #expect(usage.windows.map(\.id) == ["five_hour", "seven_day"])
     }
 
+    /// #94: the per-model weekly window ("Current week (Fable)") lives ONLY in the `limits`
+    /// array's `weekly_scoped` entry — the flat `seven_day_<model>` fields are null on the live
+    /// endpoint. Mirrors the real shape: session + weekly_all + a weekly_scoped(Fable) limit.
+    static let perModelJSON = Data(#"""
+    {
+      "five_hour": {"utilization": 72.0, "resets_at": "2026-07-12T09:10:00.494222+00:00"},
+      "seven_day": {"utilization": 52.0, "resets_at": "2026-07-15T03:00:00.494247+00:00"},
+      "seven_day_opus": null,
+      "seven_day_sonnet": null,
+      "limits": [
+        {"kind": "session", "group": "session", "percent": 72, "is_active": true},
+        {"kind": "weekly_all", "group": "weekly", "percent": 52, "is_active": false},
+        {"kind": "weekly_scoped", "group": "weekly", "percent": 70,
+         "resets_at": "2026-07-15T03:00:00.494582+00:00",
+         "scope": {"model": {"display_name": "Fable"}}, "is_active": false}
+      ]
+    }
+    """#.utf8)
+
+    @Test("a per-model weekly_scoped limit becomes its own window, after the flat windows")
+    func perModelWeeklyFromLimits() throws {
+        let usage = try #require(UsageClient.parse(Self.perModelJSON))
+        // five_hour + seven_day from the flat fields, then the ONE scoped window. The session /
+        // weekly_all limits are NOT re-added (they'd double-count the flat windows).
+        #expect(usage.windows.map(\.id) == ["five_hour", "seven_day", "weekly_scoped:Fable"])
+
+        let fable = try #require(usage.windows.first { $0.id == "weekly_scoped:Fable" })
+        #expect(fable.utilization == 70.0)
+        #expect(fable.label == "每週（Fable）")
+        #expect(fable.resetsAt != nil)
+    }
+
+    @Test("a weekly_scoped limit with no model scope is skipped (not a nameless window)")
+    func scopedWithoutModelSkipped() throws {
+        let json = Data(#"""
+        {"five_hour": {"utilization": 10.0},
+         "limits": [{"kind": "weekly_scoped", "percent": 88, "scope": {"model": {"display_name": null}}}]}
+        """#.utf8)
+        let usage = try #require(UsageClient.parse(json))
+        #expect(usage.windows.map(\.id) == ["five_hour"])
+    }
+
     @Test("valid JSON object with no known windows yields empty, not nil")
     func emptyObjectTolerated() throws {
         let usage = try #require(UsageClient.parse(Data("{}".utf8)))

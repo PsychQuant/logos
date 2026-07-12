@@ -122,7 +122,13 @@ struct PlanUsageStatusItem: View {
         switch window.id {
         case "five_hour": return "5h"
         case "seven_day": return "7d"
-        default: return window.label
+        default:
+            // #94: per-model weekly ids are "weekly_scoped:<model>" → show just the model name
+            // (the full "每週（<model>）" label is in the tooltip + the 帳號用量 window).
+            if window.id.hasPrefix("weekly_scoped:") {
+                return String(window.id.dropFirst("weekly_scoped:".count))
+            }
+            return window.label
         }
     }
 

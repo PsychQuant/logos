@@ -118,12 +118,33 @@ public struct UsageClient: Sendable {
                     resets_at = try? container.decodeIfPresent(String.self, forKey: .resets_at)
                 }
             }
+            /// One entry of the endpoint's `limits` array — the canonical, complete
+            /// source (the top-level `seven_day_*` per-model fields are all null; the
+            /// per-model breakdown lives ONLY here as `kind == "weekly_scoped"` with a
+            /// `scope.model`). #94: read it to surface the per-model weekly window(s)
+            /// (e.g. "Current week (Fable)") the flat `five_hour` + `seven_day` decode
+            /// can't see. Everything is lenient/optional so a shape drift nils the one
+            /// entry instead of sinking the response.
+            struct Limit: Decodable {
+                let kind: String?
+                let percent: Double?
+                let resets_at: String?
+                let scope: Scope?
+
+                struct Scope: Decodable {
+                    let model: Model?
+                    struct Model: Decodable { let display_name: String? }
+                }
+            }
+
             let five_hour: Window?
             let seven_day: Window?
+            let limits: [Limit]?
 
             private enum CodingKeys: String, CodingKey {
                 case five_hour
                 case seven_day
+                case limits
             }
 
             /// Per-window lenient decode: a type-drift inside one window nils that
@@ -134,6 +155,7 @@ public struct UsageClient: Sendable {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 five_hour = try? container.decodeIfPresent(Window.self, forKey: .five_hour)
                 seven_day = try? container.decodeIfPresent(Window.self, forKey: .seven_day)
+                limits = try? container.decodeIfPresent([Limit].self, forKey: .limits)
             }
         }
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return nil }
@@ -149,6 +171,20 @@ public struct UsageClient: Sendable {
         }
         append(response.five_hour, id: "five_hour", label: "工作階段（5 小時）")
         append(response.seven_day, id: "seven_day", label: "每週（7 天）")
+        // #94: per-model weekly windows (e.g. "Current week (Fable)") come only from the
+        // `limits` array's `weekly_scoped` entries — the flat `seven_day_<model>` fields are null.
+        // The all-models weekly is already covered by `seven_day` above, so take ONLY the scoped
+        // entries here to avoid double-counting it.
+        for limit in response.limits ?? [] {
+            guard limit.kind == "weekly_scoped",
+                  let model = limit.scope?.model?.display_name, !model.isEmpty,
+                  let percent = limit.percent else { continue }
+            windows.append(UsageWindow(
+                id: "weekly_scoped:\(model)",
+                label: "每週（\(model)）",
+                utilization: percent,
+                resetsAt: limit.resets_at.flatMap(parseDate)))
+        }
         return PlanUsage(windows: windows)
     }
 

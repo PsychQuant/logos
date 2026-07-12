@@ -74,6 +74,15 @@ All notable changes to Logos are documented here. Format loosely follows
   startup GC and have its freshly-created, not-yet-registered dir reaped; Launch Services
   now refuses the second launch, removing the race's precondition.
 
+- **The HUD (and 帳號用量 window) now show per-model weekly usage**
+  ([#94](https://github.com/PsychQuant/logos/issues/94)). Claude Code's `/usage` panel shows a
+  "Current week (&lt;model&gt;)" bar (e.g. Fable) beyond the 5-hour + all-models-weekly windows; that
+  per-model data lives **only** in the endpoint's `limits` array as `weekly_scoped` entries (the flat
+  `seven_day_<model>` response fields are null). `UsageClient` now decodes those into their own
+  windows (`每週（<model>）`), so both the status-bar HUD and the 帳號用量 window render a bar per
+  model the plan scopes — the status bar abbreviates it to the model name. Additive and
+  lenient: a response without `limits` (or without scoped entries) is unchanged.
+
 ### Removed
 
 - **The standalone `MultiStats` viewer target is retired**
