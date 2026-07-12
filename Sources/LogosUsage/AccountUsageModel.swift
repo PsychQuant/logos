@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 import LogosAccounts
 
 /// Observable per-account view model driving one row of the account list.
@@ -59,6 +60,14 @@ public final class AccountUsageModel: Identifiable {
     private let credentialsReader: KeychainCredentialsReader
     private let usageClient: UsageClient
 
+    /// #93: diagnosability for the status-bar plan bar — `LogosUsage` was previously silent, so a
+    /// blank / re-login plan segment left no `log show` trail. `nonisolated` so it stays reachable
+    /// despite the Swift-6 rule that a static on a `@MainActor` type inherits `@MainActor`
+    /// isolation (same note as `WindowUsageModel.log`). The account `id` is a config-dir path that
+    /// can carry an account identifier, so it is always logged `.private`; the failure `reason` is a
+    /// generic `describe()` string (HTTP code / transport) with no secrets, logged `.public`.
+    nonisolated private static let log = Logger(subsystem: "app.getlogos.logos", category: "account-usage")
+
     /// - Parameter labelOverride: display label that wins over the
     ///   identity-derived one — the registry's user-chosen label when the row
     ///   is built from the shared registry.
@@ -100,7 +109,10 @@ public final class AccountUsageModel: Identifiable {
         guard let credentials = await Task.detached(priority: .userInitiated, operation: {
             reader.credentials(for: account)
         }).value else {
-            if generation == refreshGeneration { state = .noCredentials }
+            if generation == refreshGeneration {
+                state = .noCredentials
+                Self.log.notice("usage: no credentials — account=\(self.id, privacy: .private)")
+            }
             return
         }
 
@@ -108,17 +120,29 @@ public final class AccountUsageModel: Identifiable {
         // re-login prompt without a doomed round-trip. Unknown expiry falls
         // through and lets the endpoint's 401 decide.
         if credentials.isExpired(asOf: Date()) {
-            if generation == refreshGeneration { state = .needsLogin }
+            if generation == refreshGeneration {
+                state = .needsLogin
+                Self.log.notice("usage: stored token expired → needsLogin — account=\(self.id, privacy: .private)")
+            }
             return
         }
 
         do {
             let usage = try await usageClient.fetchUsage(accessToken: credentials.accessToken)
-            if generation == refreshGeneration { state = .loaded(usage, fetchedAt: Date()) }
+            if generation == refreshGeneration {
+                state = .loaded(usage, fetchedAt: Date())
+                Self.log.info("usage: loaded \(usage.windows.count) window(s) — account=\(self.id, privacy: .private)")
+            }
         } catch UsageError.unauthorized {
-            if generation == refreshGeneration { state = .needsLogin }
+            if generation == refreshGeneration {
+                state = .needsLogin
+                Self.log.notice("usage: 401 unauthorized → needsLogin — account=\(self.id, privacy: .private)")
+            }
         } catch {
-            if generation == refreshGeneration { state = .failed(Self.describe(error)) }
+            if generation == refreshGeneration {
+                state = .failed(Self.describe(error))
+                Self.log.error("usage: fetch failed — account=\(self.id, privacy: .private) reason=\(Self.describe(error), privacy: .public)")
+            }
         }
     }
 

@@ -87,6 +87,20 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The status-bar plan bar now shows *why* it's blank, and surfaces the weekly window too**
+  ([#93](https://github.com/PsychQuant/logos/issues/93),
+  [#94](https://github.com/PsychQuant/logos/issues/94) quick win). Previously the 5-hour segment
+  collapsed every non-loaded state — loading, needs-login, no-credentials, failed — into an
+  indistinguishable `5h · —`, so an expired token (Logos reads usage read-only and never refreshes
+  tokens by design) looked the same as "still loading". `PlanUsageStatusItem` now renders each state
+  distinctly: the HUD bars when loaded, a spinner while loading, and — the actionable one — a
+  「⚠ 登入」hint when the account's stored token is expired (re-login in that account's terminal
+  restores it), plus 「未登入」/「用量錯誤」for the credential / fetch-failure cases. It also now
+  draws the weekly (`seven_day`) window alongside the 5-hour one — `UsageClient` already decoded it,
+  the HUD just wasn't showing it. And `LogosUsage`'s usage fetch, previously silent, now logs each
+  outcome under subsystem `app.getlogos.logos` (category `account-usage`; account id `.private`), so
+  a blank plan segment is diagnosable from `log show`.
+
 - **The per-window usage file watcher no longer leaks / risks a use-after-free when a
   window closes** ([#91](https://github.com/PsychQuant/logos/issues/91)). `FileWatcher`
   registers its FSEventStream with an UNRETAINED pointer to itself, so a running stream on
