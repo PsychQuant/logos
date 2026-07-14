@@ -338,6 +338,26 @@ final class WorkspaceModelTests {
         #expect(m.isLoading == false)
     }
 
+    // MARK: - files.exclude honored on load (#97 Slice 1)
+
+    @Test("files.exclude in .vscode/settings.json hides matching entries in the loaded root")
+    func filesExcludeHonoredOnLoad() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try FileManager.default.createDirectory(atPath: "\(tmp)/.vscode", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: "\(tmp)/dist", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(tmp)/keep.swift", atomically: true, encoding: .utf8)
+        try #"{ "files.exclude": { "dist": true } }"#
+            .write(toFile: "\(tmp)/.vscode/settings.json", atomically: true, encoding: .utf8)
+
+        let m = makeModel()   // real WorkspaceLoader — exercises the reader→loader wiring
+        await m.openWorkspaceAsync(at: tmp)
+
+        let names = m.rootNode?.children?.map(\.displayName).sorted() ?? []
+        #expect(names.contains("keep.swift"))
+        #expect(!names.contains("dist"))       // hidden by files.exclude ( .vscode itself is skipNames)
+    }
+
     // MARK: - Persistence as workspace locator (#96)
 
     @Test("opening a .code-workspace persists the FILE locator, not the resolved folder paths")

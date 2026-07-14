@@ -28,15 +28,27 @@ final class CancelFlag: @unchecked Sendable {
 /// because the conforming value is captured across the `[loader, persistence]`
 /// boundary in `openWorkspaceAsync`.
 public protocol WorkspaceLoading: Sendable {
-    func load(rootPath: String, isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode
-    func loadAsync(rootPath: String) async throws -> FileNode
+    func load(rootPath: String, excludeGlobs: [String], isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode
+    func loadAsync(rootPath: String, excludeGlobs: [String]) async throws -> FileNode
 }
 
 extension WorkspaceLoading {
-    /// Default `isCancelled` so a stub need only implement the cancellable
-    /// overload, and sync callers that don't cancel can omit the argument.
-    public func load(rootPath: String) throws -> FileNode {
-        try load(rootPath: rootPath, isCancelled: { false })
+    /// Zero-exclude sync convenience — covers both `load(rootPath:)` and
+    /// `load(rootPath:isCancelled:)` so callers predating the `excludeGlobs` requirement
+    /// (#97 Slice 1) are unaffected. Distinct arity from the requirement, so no ambiguity.
+    public func load(rootPath: String, isCancelled: @escaping @Sendable () -> Bool = { false }) throws -> FileNode {
+        try load(rootPath: rootPath, excludeGlobs: [], isCancelled: isCancelled)
+    }
+
+    /// Sync convenience carrying excludeGlobs but no cancellation — used by the sync
+    /// `WorkspaceModel.openWorkspace` path.
+    public func load(rootPath: String, excludeGlobs: [String]) throws -> FileNode {
+        try load(rootPath: rootPath, excludeGlobs: excludeGlobs, isCancelled: { false })
+    }
+
+    /// Zero-exclude async convenience — preserves the existing `loadAsync(rootPath:)` call site.
+    public func loadAsync(rootPath: String) async throws -> FileNode {
+        try await loadAsync(rootPath: rootPath, excludeGlobs: [])
     }
 }
 
@@ -195,7 +207,7 @@ public struct WorkspaceLoader: Sendable {
     /// Synchronous walk. `isCancelled` is polled cooperatively so a caller can
     /// halt an in-flight walk's I/O (Issue #4); defaults to never-cancelled so
     /// existing sync callers are unaffected.
-    public func load(rootPath: String, isCancelled: @escaping @Sendable () -> Bool = { false }) throws -> FileNode {
+    public func load(rootPath: String, excludeGlobs: [String], isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode {
         let canonical = Self.canonical(rootPath)
         if Self.isSystemPath(canonical) {
             throw LoaderError.refusedSystemPath(canonical)
@@ -204,7 +216,11 @@ public struct WorkspaceLoader: Sendable {
         // opening e.g. `~/Documents` directly should still walk (one expected
         // prompt for the user-chosen folder). TCC filtering applies to children.
         var counter = 0
-        return try walk(path: rootPath, depth: 1, counter: &counter, isCancelled: isCancelled)
+        // #97 Slice 1: per-root .vscode `files.exclude` globs, applied additively on
+        // top of the static `skipNames` floor during the walk.
+        let excludeMatcher = ExcludeGlobMatcher(patterns: excludeGlobs)
+        return try walk(path: rootPath, depth: 1, counter: &counter,
+                        isCancelled: isCancelled, excludeMatcher: excludeMatcher)
     }
 
     /// True if `canonical` is a system path that must never be walked into.
@@ -270,12 +286,12 @@ public struct WorkspaceLoader: Sendable {
     /// awaiting task's cancellation into the walk via `withTaskCancellationHandler`
     /// (Issue #4): when the awaiting task is cancelled, `onCancel` flips the flag
     /// and the walk throws `CancellationError` at its next poll point.
-    public func loadAsync(rootPath: String) async throws -> FileNode {
+    public func loadAsync(rootPath: String, excludeGlobs: [String]) async throws -> FileNode {
         let loader = self
         let flag = CancelFlag()
         return try await withTaskCancellationHandler {
             try await Task.detached(priority: .userInitiated) {
-                try loader.load(rootPath: rootPath, isCancelled: { flag.isCancelled })
+                try loader.load(rootPath: rootPath, excludeGlobs: excludeGlobs, isCancelled: { flag.isCancelled })
             }.value
         } onCancel: {
             flag.cancel()
@@ -299,7 +315,8 @@ public struct WorkspaceLoader: Sendable {
     }
 
     private func walk(path: String, depth: Int, counter: inout Int,
-                      isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode {
+                      isCancelled: @escaping @Sendable () -> Bool,
+                      excludeMatcher: ExcludeGlobMatcher) throws -> FileNode {
         // Cooperative cancellation poll (#4): halts an in-flight walk between
         // entries when the awaiting task is cancelled (rapid Cmd+O).
         if isCancelled() { throw CancellationError() }
@@ -340,8 +357,13 @@ public struct WorkspaceLoader: Sendable {
             return FileNode(path: path, kind: .directory, children: nil, isProtected: true)
         }
 
+        // The root's direct children are the entries filtered in the depth-1 frame; a bare
+        // (root-anchored) files.exclude pattern applies only to them (#97 Slice 1).
+        let isRootChild = depth == 1
         let entries: [WalkEntry] = rawEntries
-            .filter { !Self.skipNames.contains($0) }
+            // Static skipNames floor + per-root files.exclude globs (#97 Slice 1), both
+            // matched on the leaf name.
+            .filter { !Self.skipNames.contains($0) && !excludeMatcher.matches(name: $0, isRootChild: isRootChild) }
             .map { name -> WalkEntry in
                 let childPath = "\(path)/\(name)"
                 var d: ObjCBool = false
@@ -377,7 +399,7 @@ public struct WorkspaceLoader: Sendable {
             // the whole load — restores #2's permissive walk.
             do {
                 children.append(try walk(path: entry.path, depth: depth + 1, counter: &counter,
-                                         isCancelled: isCancelled))
+                                         isCancelled: isCancelled, excludeMatcher: excludeMatcher))
             } catch let e as LoaderError {
                 if case .tooManyFiles = e { throw e }
                 continue

@@ -47,6 +47,84 @@ struct WorkspaceLoaderTests {
         try FileManager.default.removeItem(atPath: tmp)
     }
 
+    // MARK: - files.exclude globs (#97 Slice 1)
+
+    @Test("excludeGlobs drop matching entries additively with the skipNames floor")
+    func excludeGlobsDropEntries() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try FileManager.default.createDirectory(atPath: "\(tmp)/dist", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: "\(tmp)/.git", withIntermediateDirectories: true)  // skipNames floor
+        try "x".write(toFile: "\(tmp)/keep.swift", atomically: true, encoding: .utf8)
+        try "x".write(toFile: "\(tmp)/debug.log", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader().load(rootPath: tmp, excludeGlobs: ["dist", "*.log"])
+        let names = tree.children?.map(\.displayName).sorted() ?? []
+        // dist + debug.log excluded by globs; .git by the skipNames floor; keep.swift survives.
+        #expect(names == ["keep.swift"])
+    }
+
+    @Test("excludeGlobs match at any depth (**/*.ext)")
+    func excludeGlobsAnyDepth() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try FileManager.default.createDirectory(atPath: "\(tmp)/sub", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(tmp)/sub/nested.log", atomically: true, encoding: .utf8)
+        try "x".write(toFile: "\(tmp)/sub/keep.swift", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader().load(rootPath: tmp, excludeGlobs: ["**/*.log"])
+        let sub = tree.children?.first { $0.displayName == "sub" }
+        let names = sub?.children?.map(\.displayName).sorted() ?? []
+        #expect(names == ["keep.swift"])   // nested.log excluded at depth
+    }
+
+    @Test("a bare files.exclude pattern is root-anchored, not any-depth (VS Code semantics)")
+    func excludeGlobsBareIsRootAnchored() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try FileManager.default.createDirectory(atPath: "\(tmp)/build", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: "\(tmp)/src/build", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(tmp)/src/build/out.o", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader().load(rootPath: tmp, excludeGlobs: ["build"])
+        let top = tree.children?.map(\.displayName).sorted() ?? []
+        #expect(!top.contains("build"))   // root-level build/ hidden
+        #expect(top.contains("src"))      // src/ kept
+
+        // Nested src/build/ is NOT hidden — a bare pattern anchors to the root, matching VS Code.
+        let src = tree.children?.first { $0.displayName == "src" }
+        #expect(src?.children?.map(\.displayName) == ["build"])
+    }
+
+    @Test("a **/ pattern hides a directory name at any depth")
+    func excludeGlobsAnyDepthDirectory() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try FileManager.default.createDirectory(atPath: "\(tmp)/build", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: "\(tmp)/src/build", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(tmp)/src/keep.swift", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader().load(rootPath: tmp, excludeGlobs: ["**/build"])
+        let top = tree.children?.map(\.displayName).sorted() ?? []
+        #expect(!top.contains("build"))   // root build/ hidden
+
+        // Nested src/build/ ALSO hidden — **/ matches at every depth.
+        let src = tree.children?.first { $0.displayName == "src" }
+        #expect(src?.children?.map(\.displayName) == ["keep.swift"])
+    }
+
+    @Test("empty excludeGlobs is a no-op — the skipNames floor still applies, everything else kept")
+    func excludeGlobsEmptyIsNoop() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try FileManager.default.createDirectory(atPath: "\(tmp)/dist", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(tmp)/keep.swift", atomically: true, encoding: .utf8)
+
+        let tree = try WorkspaceLoader().load(rootPath: tmp, excludeGlobs: [])
+        let names = tree.children?.map(\.displayName).sorted() ?? []
+        #expect(names == ["dist", "keep.swift"])   // nothing excluded; dist survives (not in skipNames)
+    }
+
     @Test("loads sorted alphabetically with dirs first")
     func sortedDirsFirst() throws {
         let tmp = try makeTempDir()

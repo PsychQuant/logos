@@ -50,7 +50,11 @@ public final class WorkspaceModel {
     /// and persists the locator.
     public func openWorkspace(at locator: String) throws {
         let workspace = try Self.resolveWorkspace(locator: locator)
-        roots = try workspace.folders.map { try loader.load(rootPath: $0.path) }
+        roots = try workspace.folders.map { folder in
+            // #97 Slice 1: honor the folder's .vscode/settings.json files.exclude in the walk.
+            let excludes = VSCodeSettingsReader.read(folderPath: folder.path).filesExclude
+            return try loader.load(rootPath: folder.path, excludeGlobs: excludes)
+        }
         persistence.saveLastPath(locator)
     }
 
@@ -99,7 +103,15 @@ public final class WorkspaceModel {
             let workspace = try resolveWorkspace(locator: locator)
             var loaded: [FileNode] = []
             for folder in workspace.folders {
-                loaded.append(try await loader.loadAsync(rootPath: folder.path))
+                // #97 Slice 1: honor the folder's .vscode/settings.json files.exclude in the
+                // walk. `performLoad` is main-actor-isolated (it mutates model state), so the
+                // synchronous settings read is dispatched off-main to keep the load path free of
+                // main-thread file I/O (#4/#96); the `[String]` result is Sendable.
+                let folderPath = folder.path
+                let excludes = await Task.detached {
+                    VSCodeSettingsReader.read(folderPath: folderPath).filesExclude
+                }.value
+                loaded.append(try await loader.loadAsync(rootPath: folderPath, excludeGlobs: excludes))
             }
             guard !Task.isCancelled else { return }
             model.roots = loaded

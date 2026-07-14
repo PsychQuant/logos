@@ -119,13 +119,15 @@ final class StubWorkspaceLoader: WorkspaceLoading, Sendable {
         self.control = control
     }
 
-    func load(rootPath: String, isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode {
+    func load(rootPath: String, excludeGlobs: [String], isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode {
         // Unused by the async-only #15 model tests; provide a benign tree so the
-        // protocol requirement is satisfied without affecting those tests.
+        // protocol requirement is satisfied without affecting those tests. excludeGlobs
+        // is irrelevant to the canned outcomes this stub returns (#97 Slice 1).
         FileNode(path: rootPath, kind: .directory, children: [])
     }
 
-    func loadAsync(rootPath: String) async throws -> FileNode {
+    func loadAsync(rootPath: String, excludeGlobs: [String]) async throws -> FileNode {
+        // excludeGlobs ignored — the stub returns pre-configured outcomes, not a real walk.
         let outcome = await control.arriveAndAwait(rootPath)
         // Honor cooperative cancellation AFTER release so a superseded load that
         // is released by the test still takes the catch-branch race guard path

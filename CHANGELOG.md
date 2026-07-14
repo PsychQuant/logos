@@ -7,6 +7,20 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Logos honors `.vscode/settings.json` `files.exclude` in the sidebar**
+  ([#97](https://github.com/PsychQuant/logos/issues/97), Slice 1). The `.vscode/settings.json`
+  reader seam from #96 (which parsed the file but honored zero keys) now honors its first key:
+  a workspace folder's enabled `files.exclude` glob patterns are hidden from the file tree, so
+  Logos hides the same entries VS Code hides (e.g. `dist/`, generated output). Only patterns
+  whose value is exactly the JSON boolean `true` are applied; a `false`, a conditional
+  `{ "when": … }` value, or a non-boolean (e.g. an integer `1`) is left visible. The supported
+  glob subset is the common VS Code forms — a `**/`-prefixed pattern (`**/name`, `**/*.ext`)
+  matches the leaf name at any depth, while a bare pattern (`name`, `*.ext`) is root-anchored and
+  matches only a direct child of the workspace root, exactly as VS Code interprets them (its own
+  defaults all carry `**/`). This hard-coded skip list remains a floor `files.exclude` adds to;
+  arbitrary path globs and full micromatch are out of scope. The remaining VS Code
+  workspace-protocol slices stay tracked in #97.
+
 - **Logos opens VS Code multi-root `.code-workspace` files**
   ([#96](https://github.com/PsychQuant/logos/issues/96)). A workspace is no longer a single
   root folder — it is now an ordered, non-empty set of root folders, aligned with VS Code's
