@@ -44,6 +44,34 @@ struct CodeWorkspaceReaderTests {
         #expect(ws.firstFolder.path == "\(base)/proj/app")    // first folder = cwd
     }
 
+    // #97 non-goal boundary: a .code-workspace may carry `launch`, `tasks`, `extensions`
+    // (.recommendations), and a top-level `settings` block. Logos is not an editor — it has no
+    // debugger, task runner, or extension host — so those keys are deliberately ignored: only
+    // `folders` is read. This test pins that boundary so a future reader change can't silently
+    // start honoring them (design doc §11).
+    @Test("ignores launch/tasks/extensions/settings keys — only folders is honored")
+    func ignoresNonGoalKeys() throws {
+        let base = try makeBase()
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        try mkdir("\(base)/proj/app")
+        let wsFile = "\(base)/proj/project.code-workspace"
+        try writeWorkspaceFile(wsFile, json: """
+        {
+          "folders": [ { "path": "app" } ],
+          "settings": { "files.exclude": { "dist": true } },
+          "launch": { "configurations": [ { "type": "lldb", "request": "launch" } ] },
+          "tasks": { "version": "2.0.0", "tasks": [ { "label": "build" } ] },
+          "extensions": { "recommendations": [ "ms-vscode.cpptools" ] }
+        }
+        """)
+
+        let ws = try CodeWorkspaceReader.read(codeWorkspaceFile: wsFile)
+        // Loads cleanly, honoring only folders — the extra keys neither break the parse nor
+        // surface anywhere on Workspace (there is no field for them).
+        #expect(ws.folders.count == 1)
+        #expect(ws.folders[0].path == "\(base)/proj/app")
+    }
+
     @Test("drops a folder that does not exist on disk, survivors remain in order")
     func dropsMissing() throws {
         let base = try makeBase()

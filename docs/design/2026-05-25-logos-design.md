@@ -409,6 +409,7 @@ What Logos is explicitly **NOT**:
 - ❌ **A session sync service**. Sessions are local. No cloud. (If user wants remote Claude Code observation, that's a different product — see § 13 reference to claude-code-watchdog).
 - ❌ **A collaborative tool**. One user per window. No multiplayer.
 - ❌ **A replacement for `claude-code-watchdog`**. Watchdog supervises background bots in tmux. Logos is for interactive workstations. Some pattern-detection logic ports between them but they target different scenarios.
+- ❌ **A runner of VS Code `launch` / `tasks` configs or an extension host** (#97). A `.code-workspace` file may carry `launch` (debugger configs), `tasks` (task-runner definitions), and `extensions.recommendations`, and a folder may carry `.vscode/extensions.json`. Logos deliberately **ignores** all of them: it has no debugger, no task runner, and no extension host, so honoring them would be meaningless. `CodeWorkspaceReader` reads only `folders`; `.vscode/settings.json` honors only the keys explicitly wired (currently `files.exclude`, #97 Slice 1). This is a drawn boundary, not an omission — the VS Code keys that DO map onto a Logos concept are tracked slice-by-slice in #97; these two never will.
 
 ## 12. Naming
 
