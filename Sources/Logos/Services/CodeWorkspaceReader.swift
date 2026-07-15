@@ -46,7 +46,13 @@ public enum CodeWorkspaceReader {
             resolved.append(Workspace.Folder(path: abs, name: entry["name"] as? String))
         }
 
-        guard let workspace = Workspace(source: .codeWorkspaceFile(path: path), folders: resolved) else {
+        // #97: honor the workspace-scope files.exclude from the top-level `settings` block.
+        // Only files.exclude is read; launch/tasks/extensions stay ignored (design §11).
+        let workspaceExcludes = VSCodeSettingsReader.filesExcludeMap(
+            from: (obj["settings"] as? [String: Any])?["files.exclude"])
+        guard let workspace = Workspace(source: .codeWorkspaceFile(path: path),
+                                        folders: resolved,
+                                        workspaceExcludes: workspaceExcludes) else {
             throw ReadError.noSurvivingFolders
         }
         return workspace

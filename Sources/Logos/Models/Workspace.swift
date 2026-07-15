@@ -38,12 +38,18 @@ public struct Workspace: Equatable, Sendable {
     /// Ordered, guaranteed non-empty (enforced by `init?`).
     public let folders: [Folder]
 
+    /// The `.code-workspace` top-level `settings.files.exclude` map (key → enabled), applied to
+    /// every folder in the multi-root merge (#97). Empty for an adHoc folder open or a workspace
+    /// file with no `settings` block.
+    public let workspaceExcludes: [String: Bool]
+
     /// Fails (returns nil) when `folders` is empty — the non-empty invariant. Callers that
     /// resolve a `.code-workspace` treat a nil here (no surviving folder) as a load error.
-    public init?(source: Source, folders: [Folder]) {
+    public init?(source: Source, folders: [Folder], workspaceExcludes: [String: Bool] = [:]) {
         guard !folders.isEmpty else { return nil }
         self.source = source
         self.folders = folders
+        self.workspaceExcludes = workspaceExcludes
     }
 
     /// The primary folder — the session `cwd` and preview-config owner. Total (non-optional)

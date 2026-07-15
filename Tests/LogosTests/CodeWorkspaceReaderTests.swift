@@ -44,12 +44,35 @@ struct CodeWorkspaceReaderTests {
         #expect(ws.firstFolder.path == "\(base)/proj/app")    // first folder = cwd
     }
 
-    // #97 non-goal boundary: a .code-workspace may carry `launch`, `tasks`, `extensions`
-    // (.recommendations), and a top-level `settings` block. Logos is not an editor — it has no
-    // debugger, task runner, or extension host — so those keys are deliberately ignored: only
-    // `folders` is read. This test pins that boundary so a future reader change can't silently
-    // start honoring them (design doc §11).
-    @Test("ignores launch/tasks/extensions/settings keys — only folders is honored")
+    @Test("parses top-level settings.files.exclude into workspaceExcludes; empty when absent/adHoc")
+    func parsesWorkspaceExcludes() throws {
+        let base = try makeBase()
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        try mkdir("\(base)/proj/app")
+        let wsFile = "\(base)/proj/project.code-workspace"
+        try writeWorkspaceFile(wsFile, json: """
+        { "folders": [ { "path": "app" } ],
+          "settings": { "files.exclude": { "dist": true, "keep": false } } }
+        """)
+        let ws = try CodeWorkspaceReader.read(codeWorkspaceFile: wsFile)
+        #expect(ws.workspaceExcludes == ["dist": true, "keep": false])   // present keys, enabled = value===true
+
+        // No settings block → empty
+        let bare = "\(base)/proj/bare.code-workspace"
+        try writeWorkspaceFile(bare, json: #"{ "folders": [ { "path": "app" } ] }"#)
+        #expect(try CodeWorkspaceReader.read(codeWorkspaceFile: bare).workspaceExcludes.isEmpty)
+
+        // adHoc plain-folder open → empty
+        #expect(CodeWorkspaceReader.adHoc(folder: "\(base)/proj/app").workspaceExcludes.isEmpty)
+    }
+
+    // #97 non-goal boundary: a .code-workspace may carry `launch`, `tasks`, and `extensions`
+    // (.recommendations). Logos is not an editor — it has no debugger, task runner, or extension
+    // host — so those keys are deliberately ignored (design doc §11). The `settings` block is
+    // read for `files.exclude` ONLY (the multi-root precedence slice); every other settings key
+    // stays ignored. This test pins that precise boundary so a future reader change can't
+    // silently widen it.
+    @Test("ignores launch/tasks/extensions and non-files.exclude settings; honors settings.files.exclude")
     func ignoresNonGoalKeys() throws {
         let base = try makeBase()
         defer { try? FileManager.default.removeItem(atPath: base) }
@@ -58,7 +81,7 @@ struct CodeWorkspaceReaderTests {
         try writeWorkspaceFile(wsFile, json: """
         {
           "folders": [ { "path": "app" } ],
-          "settings": { "files.exclude": { "dist": true } },
+          "settings": { "editor.fontSize": 14, "files.exclude": { "dist": true } },
           "launch": { "configurations": [ { "type": "lldb", "request": "launch" } ] },
           "tasks": { "version": "2.0.0", "tasks": [ { "label": "build" } ] },
           "extensions": { "recommendations": [ "ms-vscode.cpptools" ] }
@@ -66,10 +89,11 @@ struct CodeWorkspaceReaderTests {
         """)
 
         let ws = try CodeWorkspaceReader.read(codeWorkspaceFile: wsFile)
-        // Loads cleanly, honoring only folders — the extra keys neither break the parse nor
-        // surface anywhere on Workspace (there is no field for them).
         #expect(ws.folders.count == 1)
         #expect(ws.folders[0].path == "\(base)/proj/app")
+        // launch/tasks/extensions and editor.fontSize neither break the parse nor surface; only
+        // settings.files.exclude is honored (#97 multi-root precedence).
+        #expect(ws.workspaceExcludes == ["dist": true])
     }
 
     @Test("drops a folder that does not exist on disk, survivors remain in order")
