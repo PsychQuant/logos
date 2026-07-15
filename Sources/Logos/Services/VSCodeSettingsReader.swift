@@ -69,6 +69,16 @@ public enum VSCodeSettingsReader {
         return map
     }
 
+    /// Merge a workspace-scope and a folder-scope `files.exclude` map into the enabled patterns
+    /// for one folder, matching VS Code's object-merge precedence: union of keys, the **folder**
+    /// winning on conflicts (including a folder `false` un-hiding a workspace exclude). Returns
+    /// the enabled (`true`) keys, sorted (#97).
+    static func resolvedExcludes(workspace: [String: Bool], folder: [String: Bool]) -> [String] {
+        var merged = workspace
+        for (key, enabled) in folder { merged[key] = enabled }   // folder wins per key
+        return merged.filter { $0.value }.keys.sorted()
+    }
+
     /// True only for a genuine JSON boolean `true`. `JSONSerialization` decodes JSON booleans to
     /// `CFBoolean` and integers to `CFNumber`, but `NSNumber(1) as? Bool` is `true` — so a plain
     /// `as? Bool` would wrongly accept an integer `1` as enabled. Gate on the `CFBoolean` type id

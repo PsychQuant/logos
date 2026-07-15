@@ -43,6 +43,22 @@ struct VSCodeSettingsReaderTests {
         #expect(s.filesExclude == ["dist"])                                       // derived: enabled-only, sorted
     }
 
+    @Test("resolvedExcludes: folder merges over workspace, folder wins incl. false-override")
+    func resolvedExcludesMerge() {
+        // union + folder-wins: folder's false un-hides the workspace-hidden **/*.log
+        #expect(VSCodeSettingsReader.resolvedExcludes(
+            workspace: ["dist": true, "**/*.log": true],
+            folder: ["**/*.log": false, "build": true]) == ["build", "dist"])
+        // folder empty → workspace applies unchanged (sorted: "*" < "d")
+        #expect(VSCodeSettingsReader.resolvedExcludes(
+            workspace: ["dist": true, "**/*.log": true], folder: [:]) == ["**/*.log", "dist"])
+        // workspace empty → folder applies (its false key drops out)
+        #expect(VSCodeSettingsReader.resolvedExcludes(
+            workspace: [:], folder: ["out": true, "keep": false]) == ["out"])
+        // both empty
+        #expect(VSCodeSettingsReader.resolvedExcludes(workspace: [:], folder: [:]) == [])
+    }
+
     @Test("an empty or key-less files.exclude honors nothing")
     func filesExcludeEmptyHonorsNothing() throws {
         let dir = try makeTempDir()
