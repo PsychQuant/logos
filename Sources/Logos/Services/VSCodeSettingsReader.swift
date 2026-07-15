@@ -18,14 +18,20 @@ public enum VSCodeSettingsReader {
     public struct Settings: Equatable, Sendable {
         public let presentKeys: [String]
 
-        /// Enabled `files.exclude` glob patterns — the keys of the `files.exclude` object whose
-        /// value is exactly `true` (a `false` or a conditional `{ "when": … }` value is not
-        /// enabled). Sorted for deterministic ordering. Empty when the key is absent/empty.
-        public let filesExclude: [String]
+        /// Every key present in the `files.exclude` object → whether it is enabled (its value is
+        /// a genuine JSON `true`). Present-but-`false` keys are retained so a folder can override
+        /// (un-hide) a workspace-level exclude in the multi-root merge (#97). Source of truth.
+        public let filesExcludeMap: [String: Bool]
 
-        public init(presentKeys: [String] = [], filesExclude: [String] = []) {
+        public init(presentKeys: [String] = [], filesExcludeMap: [String: Bool] = [:]) {
             self.presentKeys = presentKeys
-            self.filesExclude = filesExclude
+            self.filesExcludeMap = filesExcludeMap
+        }
+
+        /// The enabled `files.exclude` patterns (value `true`), sorted. Derived from
+        /// `filesExcludeMap` — the single-folder view Slice 1 exposed; behavior is unchanged.
+        public var filesExclude: [String] {
+            filesExcludeMap.filter { $0.value }.keys.sorted()
         }
 
         /// The keys Logos interprets as behavior. `files.exclude` is honored when it has >=1
@@ -35,7 +41,7 @@ public enum VSCodeSettingsReader {
         }
 
         /// The result when there is nothing to read (absent / malformed settings).
-        public static let neutral = Settings(presentKeys: [], filesExclude: [])
+        public static let neutral = Settings(presentKeys: [], filesExcludeMap: [:])
     }
 
     /// Read `<folderPath>/.vscode/settings.json`. Absent / unreadable / malformed all return
@@ -47,17 +53,20 @@ public enum VSCodeSettingsReader {
             let data = fileManager.contents(atPath: path),
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return .neutral }
-        return Settings(presentKeys: Array(obj.keys), filesExclude: enabledExcludes(obj["files.exclude"]))
+        return Settings(presentKeys: Array(obj.keys),
+                        filesExcludeMap: filesExcludeMap(from: obj["files.exclude"]))
     }
 
-    /// Extract the enabled patterns from a `files.exclude` value. VS Code's shape is
-    /// `{ "<glob>": <bool | { when: … }> }`; only a value of literal `true` is enabled — a
-    /// `false` (explicitly un-hidden) or a conditional object is conservatively left unhonored.
-    private static func enabledExcludes(_ raw: Any?) -> [String] {
-        guard let dict = raw as? [String: Any] else { return [] }
-        return dict.compactMap { key, value in
-            isEnabled(value) ? key : nil
-        }.sorted()
+    /// Parse a `files.exclude`-shaped JSON value into a key→enabled map. VS Code's shape is
+    /// `{ "<glob>": <bool | { when: … }> }`; every present key is retained with
+    /// `enabled = (value is a genuine JSON true)`. Reused for a folder's `.vscode/settings.json`
+    /// and a `.code-workspace` top-level `settings.files.exclude` (#97). Lenient — a non-object
+    /// (or nil) yields an empty map.
+    static func filesExcludeMap(from raw: Any?) -> [String: Bool] {
+        guard let dict = raw as? [String: Any] else { return [:] }
+        var map: [String: Bool] = [:]
+        for (key, value) in dict { map[key] = isEnabled(value) }
+        return map
     }
 
     /// True only for a genuine JSON boolean `true`. `JSONSerialization` decodes JSON booleans to

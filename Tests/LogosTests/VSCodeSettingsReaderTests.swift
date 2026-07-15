@@ -31,6 +31,18 @@ struct VSCodeSettingsReaderTests {
         #expect(settings.honoredKeys == ["files.exclude"])                  // seam now honors a key
     }
 
+    @Test("filesExcludeMap retains every present key (incl. false); filesExclude derives enabled-only")
+    func filesExcludeMapRetainsPresentKeys() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        // dist:true enabled; keep:false present-but-disabled; n:1 present-but-disabled (integer, not bool)
+        try writeSettings(#"{ "files.exclude": { "dist": true, "keep": false, "n": 1 } }"#, into: dir)
+
+        let s = VSCodeSettingsReader.read(folderPath: dir)
+        #expect(s.filesExcludeMap == ["dist": true, "keep": false, "n": false])  // all present; enabled = value===true
+        #expect(s.filesExclude == ["dist"])                                       // derived: enabled-only, sorted
+    }
+
     @Test("an empty or key-less files.exclude honors nothing")
     func filesExcludeEmptyHonorsNothing() throws {
         let dir = try makeTempDir()
