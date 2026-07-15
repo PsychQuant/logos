@@ -7,6 +7,12 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Added
 
+- **Multi-root `files.exclude` precedence** ([#97](https://github.com/PsychQuant/logos/issues/97)).
+  A `.code-workspace` top-level `settings.files.exclude` now applies to every folder, merged with
+  each folder's `.vscode/settings.json` `files.exclude` the VS Code way: union of patterns, the
+  folder winning per key — so a folder can un-hide a workspace-level exclude by setting it `false`.
+  Builds on the per-folder support from the earlier slice.
+
 - **Logos honors `.vscode/settings.json` `files.exclude` in the sidebar**
   ([#97](https://github.com/PsychQuant/logos/issues/97), Slice 1). The `.vscode/settings.json`
   reader seam from #96 (which parsed the file but honored zero keys) now honors its first key:

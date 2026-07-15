@@ -358,6 +358,36 @@ final class WorkspaceModelTests {
         #expect(!names.contains("dist"))       // hidden by files.exclude ( .vscode itself is skipNames)
     }
 
+    // MARK: - Multi-root files.exclude precedence (#97)
+
+    @Test("multi-root: workspace files.exclude applies per folder; a folder false-override un-hides")
+    func multiRootExcludePrecedence() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: base) }
+        let fm = FileManager.default
+        // Folder A: dist/ + keep.swift, no .vscode override.
+        try fm.createDirectory(atPath: "\(base)/a/dist", withIntermediateDirectories: true)
+        try "x".write(toFile: "\(base)/a/keep.swift", atomically: true, encoding: .utf8)
+        // Folder B: dist/ + a .vscode/settings.json that un-hides dist via false.
+        try fm.createDirectory(atPath: "\(base)/b/dist", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: "\(base)/b/.vscode", withIntermediateDirectories: true)
+        try #"{ "files.exclude": { "dist": false } }"#
+            .write(toFile: "\(base)/b/.vscode/settings.json", atomically: true, encoding: .utf8)
+        // .code-workspace: two folders + a workspace-level exclude of dist.
+        let wsFile = "\(base)/proj.code-workspace"
+        try #"{ "folders": [ { "path": "a" }, { "path": "b" } ], "settings": { "files.exclude": { "dist": true } } }"#
+            .write(toFile: wsFile, atomically: true, encoding: .utf8)
+
+        let m = makeModel()   // real WorkspaceLoader — exercises reader→merge→loader end to end
+        await m.openWorkspaceAsync(at: wsFile)
+
+        #expect(m.roots.count == 2)
+        // Folder A: workspace exclude hides root-level dist/ (bare pattern = root-anchored).
+        #expect((m.roots[0].children?.map(\.displayName).sorted() ?? []) == ["keep.swift"])
+        // Folder B: its false override un-hides dist/ (folder wins the merge).
+        #expect((m.roots[1].children?.map(\.displayName) ?? []).contains("dist"))
+    }
+
     // MARK: - Persistence as workspace locator (#96)
 
     @Test("opening a .code-workspace persists the FILE locator, not the resolved folder paths")

@@ -51,8 +51,11 @@ public final class WorkspaceModel {
     public func openWorkspace(at locator: String) throws {
         let workspace = try Self.resolveWorkspace(locator: locator)
         roots = try workspace.folders.map { folder in
-            // #97 Slice 1: honor the folder's .vscode/settings.json files.exclude in the walk.
-            let excludes = VSCodeSettingsReader.read(folderPath: folder.path).filesExclude
+            // #97: merge the workspace-level settings.files.exclude with this folder's
+            // .vscode/settings.json (folder wins per key), then filter the walk.
+            let excludes = VSCodeSettingsReader.resolvedExcludes(
+                workspace: workspace.workspaceExcludes,
+                folder: VSCodeSettingsReader.read(folderPath: folder.path).filesExcludeMap)
             return try loader.load(rootPath: folder.path, excludeGlobs: excludes)
         }
         persistence.saveLastPath(locator)
@@ -103,13 +106,17 @@ public final class WorkspaceModel {
             let workspace = try resolveWorkspace(locator: locator)
             var loaded: [FileNode] = []
             for folder in workspace.folders {
-                // #97 Slice 1: honor the folder's .vscode/settings.json files.exclude in the
-                // walk. `performLoad` is main-actor-isolated (it mutates model state), so the
-                // synchronous settings read is dispatched off-main to keep the load path free of
-                // main-thread file I/O (#4/#96); the `[String]` result is Sendable.
+                // #97: read this folder's .vscode/settings.json off the main actor, then merge it
+                // with the workspace-level excludes (folder wins per key). `performLoad` is
+                // main-actor-isolated (it mutates model state), so the synchronous read + pure
+                // merge run off-main to keep the load path free of main-thread file I/O (#4/#96);
+                // the `[String:Bool]` inputs and `[String]` result are all Sendable.
                 let folderPath = folder.path
+                let workspaceExcludes = workspace.workspaceExcludes
                 let excludes = await Task.detached {
-                    VSCodeSettingsReader.read(folderPath: folderPath).filesExclude
+                    VSCodeSettingsReader.resolvedExcludes(
+                        workspace: workspaceExcludes,
+                        folder: VSCodeSettingsReader.read(folderPath: folderPath).filesExcludeMap)
                 }.value
                 loaded.append(try await loader.loadAsync(rootPath: folderPath, excludeGlobs: excludes))
             }
