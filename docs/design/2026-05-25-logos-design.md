@@ -198,13 +198,19 @@ Persistent strip at window bottom. Items left-to-right:
 | File encoding | UTF-8 |
 | Workspace mode hint | LaTeX / Markdown / Generic (inferred from files) |
 
-### 7.8 Multi-session
+### 7.8 Multi-window (per-account)
 
-- ⌘N to spawn new session
-- ⌘1/2/3 to switch
-- Each session: own terminal, own account binding, own workspace cwd, own auto-handle rules
-- Visible session list in activity bar (or sidebar mode, TBD)
-- **Open question § 10.7**: session ↔ workspace relationship — 1:1, N:1, or N:N?
+**Shipped model (#42), superseding the earlier `⌘N`-session sketch.** Multi-instance is per
+**account**, not per free-standing "session": `File ▸ New Window for Account ▸ <account>` opens a
+window bound to that account (`WindowGroup(for: accountID)`), deduped so one account has at most
+one window. Each window owns its account selection + live usage; the **workspace is shared** across
+all windows (one app-global `WorkspaceModel`). So a window binds **1:1 to an account** and **N:1 to
+the workspace** (§10.7, resolved #98) — `⌘O` retargets that one shared workspace for every window.
+
+**Not built** (the original sketch, kept for context): `⌘N` new session · `⌘1/2/3` switch ·
+per-session workspace cwd · a distinct session list in the activity bar. Per-window workspaces (the
+1:1 model, letting two windows show two different projects) are **deferred** until that need is
+real; see §10.7.
 
 ### 7.9 Settings UI
 
@@ -383,7 +389,7 @@ Each numbered question needs explicit user answer before writing-plans phase.
 | 10.4 | **PDF pane**: always visible with empty state, OR conditional (only when PDF bound)? | Layout invariant |
 | 10.5 | ~~**Activity bar**: confirm inclusion~~ → **RESOLVED 2026-05-25**: Keep activity bar with icons Files / Search / Sessions / Settings / Account | Layout invariant |
 | 10.6 | ~~**Status bar items**~~ → **RESOLVED 2026-05-25**: All 4 items confirmed for v1.0 (Account, Cost, Auto-handle status, Token usage) | Layout invariant |
-| 10.7 | **Session ↔ workspace**: 1:1 (each session = one workspace), N:1 (multiple sessions same workspace), or N:N? | Multi-session model |
+| 10.7 | ~~**Session ↔ workspace**: 1:1 / N:1 / N:N?~~ → **RESOLVED 2026-07-16** (#98): **N:1** — a window binds 1:1 to an account (`WindowGroup(for: accountID)`, #42) and N:1 to a single shared `WorkspaceModel`. Per-window workspace (1:1) is **deferred** (no "two projects in two windows" demand; the deletion test shows nothing breaks without it); N:N is a **non-goal**. See §7.8. | Multi-session model |
 | 10.8 | **Syntax highlighter**: TreeSitter (heavier, real parsing) vs Highlightr (lighter, regex-based)? | Dependency choice |
 | 10.9 | **Auto-handle rule UI in v1.0**: simple on/off toggle, OR per-rule editor? | Settings scope cut |
 | 10.10 | ~~**Min macOS**~~ → **RESOLVED 2026-05-25**: macOS 15 (Sequoia) | Compatibility floor |
