@@ -49,9 +49,17 @@ bundle: build ## Build + assemble .app bundle (ad-hoc signed)
 	@cp Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns
+	@# #99: embed the SwiftPM-generated resource bundles (SwiftTerm_SwiftTerm.bundle carries the
+	@# Metal shaders; Highlightr_Highlightr.bundle the highlight themes). Bundle.module resolves
+	@# them via Contents/Resources; without them the only lookup that succeeds is the compiled-in
+	@# dev path into this repo's .build, so every installed/distributed app trap-crashes at Metal
+	@# adoption the moment that tree is cleaned or absent.
+	@cp -R $(BUILD_DIR)/release/*.bundle $(APP_BUNDLE)/Contents/Resources/
+	@test -d $(APP_BUNDLE)/Contents/Resources/SwiftTerm_SwiftTerm.bundle || \
+		{ echo "✗ SwiftTerm_SwiftTerm.bundle missing from app bundle (Bundle.module would trap at launch)"; exit 1; }
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
 	@codesign --force --deep --sign - $(APP_BUNDLE)
-	@echo "✓ Bundle ready at $(APP_BUNDLE)"
+	@echo "✓ Bundle ready at $(APP_BUNDLE) (resource bundles embedded)"
 
 run: bundle ## Build + bundle + open
 	@open $(APP_BUNDLE)

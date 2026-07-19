@@ -5,6 +5,18 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Installed app no longer crashes at launch when the dev build tree is absent**
+  ([#99](https://github.com/PsychQuant/logos/issues/99)). `make bundle` never embedded the
+  SwiftPM-generated resource bundles (`SwiftTerm_SwiftTerm.bundle` — the Metal shaders —
+  and `Highlightr_Highlightr.bundle`), so `Bundle.module` inside the SwiftTerm fork only ever
+  resolved via its compiled-in fallback into this repo's `.build` tree. Cleaning `.build`
+  (or running the app on any other machine) made that lookup fail and trap with
+  `fatalError` at Metal-renderer adoption, ~4s after launch. The bundle step now copies the
+  resource bundles into `Contents/Resources/` and fails loudly if the SwiftTerm bundle is
+  missing, making every installed/distributed copy self-contained.
+
 ### Added
 
 - **Multi-root `files.exclude` precedence** ([#97](https://github.com/PsychQuant/logos/issues/97)).
