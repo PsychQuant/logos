@@ -35,6 +35,56 @@ struct WindowLayoutStateTests {
         #expect(state.isSidebarHidden == false)
     }
 
+    // MARK: - revealSidebar (#100)
+
+    @Test("reveal restores default width when persisted width was sub-threshold at init")
+    func revealHealsBadPersistedWidth() {
+        let defaults = InMemoryLayoutDefaults()
+        defaults.set(CGFloat(32.27), forKey: "logos.layout.sidebarWidth")   // the #100 broken state
+        let state = WindowLayoutState(defaults: defaults)
+        #expect(state.isSidebarHidden == true)
+        state.revealSidebar()
+        #expect(state.isSidebarHidden == false)
+        #expect(state.sidebarWidth == WindowLayoutState.sidebarDefaultWidth)
+    }
+
+    @Test("reveal restores the last visible width after a drag-collapse")
+    func revealRestoresLastVisibleWidth() {
+        let state = WindowLayoutState(defaults: InMemoryLayoutDefaults())
+        state.sidebarWidth = 300      // user's chosen width
+        state.sidebarWidth = 10       // drag-collapse below threshold
+        #expect(state.isSidebarHidden == true)
+        state.revealSidebar()
+        #expect(state.sidebarWidth == 300)
+    }
+
+    @Test("reveal is a no-op when the sidebar is already visible")
+    func revealNoopWhenVisible() {
+        let state = WindowLayoutState(defaults: InMemoryLayoutDefaults())
+        state.sidebarWidth = 250
+        state.revealSidebar()
+        #expect(state.sidebarWidth == 250)
+    }
+
+    @Test("sub-threshold widths never update the remembered last-visible width")
+    func subThresholdDoesNotPolluteLastVisible() {
+        let state = WindowLayoutState(defaults: InMemoryLayoutDefaults())
+        state.sidebarWidth = 300
+        state.sidebarWidth = 30
+        state.sidebarWidth = 5        // multiple sub-threshold writes
+        state.revealSidebar()
+        #expect(state.sidebarWidth == 300)   // 30/5 must not have become the restore target
+    }
+
+    @Test("reveal persists the restored width")
+    func revealPersistsRestoredWidth() {
+        let defaults = InMemoryLayoutDefaults()
+        defaults.set(CGFloat(20), forKey: "logos.layout.sidebarWidth")
+        let state = WindowLayoutState(defaults: defaults)
+        state.revealSidebar()
+        #expect((defaults.object(forKey: "logos.layout.sidebarWidth") as? CGFloat) == WindowLayoutState.sidebarDefaultWidth)
+    }
+
     @Test("default top area height fraction is 0.6")
     func defaultTopAreaHeightFraction() {
         let state = WindowLayoutState(defaults: InMemoryLayoutDefaults())

@@ -7,6 +7,14 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **Sidebar can no longer be permanently lost** ([#100](https://github.com/PsychQuant/logos/issues/100)).
+  Dragging the sidebar below its minimum visible width persisted that width, after which the file
+  explorer never rendered again — the activity-bar Files icon only toggled a visibility flag
+  (never restoring the width) and opening a workspace never revealed the sidebar. Now: clicking an
+  activity-bar tab while the sidebar is hidden (for either reason) reveals it at its last visible
+  width, and every successful workspace open reveals the file explorer (VS Code parity), which
+  also heals an already-broken persisted width at the next launch.
+
 - **Installed app no longer crashes at launch when the dev build tree is absent**
   ([#99](https://github.com/PsychQuant/logos/issues/99)). `make bundle` never embedded the
   SwiftPM-generated resource bundles (`SwiftTerm_SwiftTerm.bundle` — the Metal shaders —

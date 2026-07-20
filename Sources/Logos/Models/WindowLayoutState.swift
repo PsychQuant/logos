@@ -48,6 +48,11 @@ public final class WindowLayoutState {
     }
 
     @ObservationIgnored private var _sidebarWidth: CGFloat = WindowLayoutState.sidebarDefaultWidth
+    /// The last width at or above `sidebarMinVisible` — the restore target for
+    /// `revealSidebar()`. In-memory only (not persisted): across launches a healthy
+    /// persisted width seeds it in `init`, and a sub-threshold one falls back to the
+    /// default. Sub-threshold writes never pollute it (#100).
+    @ObservationIgnored private var _lastVisibleSidebarWidth: CGFloat = WindowLayoutState.sidebarDefaultWidth
     public var sidebarWidth: CGFloat {
         get {
             access(keyPath: \.sidebarWidth)
@@ -56,9 +61,22 @@ public final class WindowLayoutState {
         set {
             withMutation(keyPath: \.sidebarWidth) {
                 _sidebarWidth = min(max(newValue, 0), Self.sidebarMaxWidth)
+                if _sidebarWidth >= Self.sidebarMinVisible {
+                    _lastVisibleSidebarWidth = _sidebarWidth
+                }
                 defaults.set(_sidebarWidth, forKey: Key.sidebarWidth)
             }
         }
+    }
+
+    /// Restore the sidebar to its last visible width (#100). A width below
+    /// `sidebarMinVisible` — reachable by drag and persisted across launches — hides
+    /// the sidebar with, previously, no code path ever bringing it back. This is that
+    /// path: activity-bar clicks and successful workspace opens call it so a collapsed
+    /// sidebar is always recoverable (VS Code parity). No-op when already visible.
+    public func revealSidebar() {
+        guard isSidebarHidden else { return }
+        sidebarWidth = _lastVisibleSidebarWidth
     }
 
     @ObservationIgnored private var _topAreaHeightFraction: CGFloat = WindowLayoutState.topAreaDefaultFraction
@@ -104,6 +122,11 @@ public final class WindowLayoutState {
 
         if let stored = defaults.object(forKey: Key.sidebarWidth) as? CGFloat {
             self._sidebarWidth = stored
+            // A healthy persisted width is the reveal restore target; a sub-threshold
+            // one (the #100 broken state) keeps the default so reveal heals it.
+            if stored >= Self.sidebarMinVisible {
+                self._lastVisibleSidebarWidth = stored
+            }
         }
         if let stored = defaults.object(forKey: Key.topAreaFraction) as? CGFloat {
             self._topAreaHeightFraction = stored

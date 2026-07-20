@@ -32,6 +32,12 @@ public final class WorkspaceModel {
     /// cleared on the next successful load or via `clearError()`.
     public private(set) var lastError: WorkspaceLoadError?
 
+    /// Monotonic count of *successful* workspace loads (#100). The reveal-on-open
+    /// wiring observes this instead of `roots`: a counter is cheap to compare and,
+    /// unlike a tree diff, also fires on a same-path reopen. Failure and superseded
+    /// (cancelled) loads never increment.
+    public private(set) var loadCount: Int = 0
+
     public init(
         loader: any WorkspaceLoading = WorkspaceLoader(),
         persistence: WorkspacePersistence = WorkspacePersistence()
@@ -58,6 +64,7 @@ public final class WorkspaceModel {
                 folder: VSCodeSettingsReader.read(folderPath: folder.path).filesExcludeMap)
             return try loader.load(rootPath: folder.path, excludeGlobs: excludes)
         }
+        loadCount += 1
         persistence.saveLastPath(locator)
     }
 
@@ -122,6 +129,7 @@ public final class WorkspaceModel {
             }
             guard !Task.isCancelled else { return }
             model.roots = loaded
+            model.loadCount += 1           // successful-load signal (#100 reveal-on-open)
             model.lastError = nil          // healthy load clears any prior error (#9)
             persistence.saveLastPath(locator)
             // Success lifecycle marker (#22 follow-up): complements the failure-path

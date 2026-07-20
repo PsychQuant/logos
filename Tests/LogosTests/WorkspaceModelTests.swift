@@ -388,6 +388,61 @@ final class WorkspaceModelTests {
         #expect((m.roots[1].children?.map(\.displayName) ?? []).contains("dist"))
     }
 
+    // MARK: - loadCount successful-load signal (#100)
+
+    @Test("loadCount increments on successful async and sync opens, not on failure")
+    func loadCountTracksSuccessfulLoadsOnly() async throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        try "x".write(toFile: "\(tmp)/a.swift", atomically: true, encoding: .utf8)
+
+        let m = makeModel()
+        #expect(m.loadCount == 0)
+
+        await m.openWorkspaceAsync(at: tmp)          // async success
+        #expect(m.loadCount == 1)
+
+        await m.openWorkspaceAsync(at: tmp)          // same-path reopen still counts (#100 reveal-on-open)
+        #expect(m.loadCount == 2)
+
+        await m.openWorkspaceAsync(at: "/System")    // refused system path → failure
+        #expect(m.lastError != nil)
+        #expect(m.loadCount == 2)                    // unchanged on failure
+
+        try m.openWorkspace(at: tmp)                 // sync success
+        #expect(m.loadCount == 3)
+    }
+
+    @Test("loadCount — a superseded (cancelled) load never increments")
+    func loadCountSupersededLoadDoesNotIncrement() async {
+        // #100 verify C3: the increment sits after `guard !Task.isCancelled`, so a
+        // load that was superseded mid-flight must not count as a successful open
+        // (else reveal-on-open would fire for a workspace that never landed).
+        // Deterministic via the #15 LoaderControl handshake — no sleeps.
+        let control = LoaderControl()
+        let pathA = "/stub/A"
+        let pathB = "/stub/B"
+        await control.setGate(pathA, outcome: .success(FileNode(path: pathA, kind: .directory, children: [])))
+        await control.setGate(pathB, outcome: .success(FileNode(path: pathB, kind: .directory, children: [])))
+
+        let persistence = WorkspacePersistence(defaults: isolatedDefaults())
+        let m = WorkspaceModel(loader: StubWorkspaceLoader(control: control), persistence: persistence)
+
+        async let loadA: Void = m.openWorkspaceAsync(at: pathA)
+        await control.waitUntilInFlight(pathA)
+        async let loadB: Void = m.openWorkspaceAsync(at: pathB)   // cancels A
+        await control.waitUntilInFlight(pathB)
+
+        await control.release(pathA)   // A completes "successfully" but its task is cancelled
+        await loadA
+        #expect(m.loadCount == 0)      // superseded load must NOT have counted
+
+        await control.release(pathB)
+        await loadB
+        #expect(m.loadCount == 1)      // only the winner counts
+        #expect(m.rootNode?.path == pathB)
+    }
+
     // MARK: - Persistence as workspace locator (#96)
 
     @Test("opening a .code-workspace persists the FILE locator, not the resolved folder paths")

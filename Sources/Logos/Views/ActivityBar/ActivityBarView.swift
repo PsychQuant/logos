@@ -3,6 +3,7 @@ import SwiftUI
 struct ActivityBarView: View {
 
     @Environment(ActivityBarSelection.self) private var selection
+    @Environment(WindowLayoutState.self) private var layout
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -13,8 +14,15 @@ struct ActivityBarView: View {
                 ActivityBarIcon(
                     systemImage: tab.systemImage,
                     label: tab.label,
-                    isActive: selection.active == tab && selection.isVisible,
-                    action: { selection.select(tab) }
+                    // Effective visibility, not the raw flag (#100 verify C1): after a
+                    // drag-collapse the flag stays true while the sidebar is gone — the
+                    // raw form would leave this icon lit for a vanished panel.
+                    isActive: ActivityBarSelection.isShownAsActive(
+                        tab: tab, active: selection.active,
+                        isVisible: selection.isVisible,
+                        sidebarHiddenByWidth: layout.isSidebarHidden
+                    ),
+                    action: { activate(tab) }
                 )
             }
 
@@ -33,5 +41,23 @@ struct ActivityBarView: View {
         }
         .frame(width: 36)
         .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
+    }
+
+    /// Tab click with recovery semantics (#100): the decision lives in the pure,
+    /// unit-tested `ActivityBarSelection.clickOutcome` (effective visibility — in the
+    /// broken persisted state a plain `select` would toggle the flag off, making the
+    /// first recovery click do nothing observable). This glue only dispatches.
+    private func activate(_ tab: ActivityBarSelection.Tab) {
+        switch ActivityBarSelection.clickOutcome(
+            tab: tab, active: selection.active,
+            isVisible: selection.isVisible,
+            sidebarHiddenByWidth: layout.isSidebarHidden
+        ) {
+        case .toggleHide:
+            selection.select(tab)          // collapse: toggle off
+        case .reveal:
+            selection.reveal(tab)          // show: never toggles
+            layout.revealSidebar()         // restore a usable width if collapsed
+        }
     }
 }

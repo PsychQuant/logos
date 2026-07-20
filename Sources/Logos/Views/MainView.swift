@@ -47,6 +47,18 @@ struct MainView: View {
                 errorBanner(error.message)
             }
         }
+        // #100: every successful workspace open reveals the file explorer (VS Code
+        // parity, user-confirmed policy). Observes the monotonic loadCount — not
+        // `roots` — so a same-path reopen also fires, and it heals the broken
+        // persisted sub-threshold width at launch (auto-load → reveal).
+        // Known limits (#100 verify): workspace/layout/activityBar are app-global
+        // (N:1 window model, #98), so this fires in every open window at once; and
+        // it force-switches the active tab to Files — harmless while Search/Sessions
+        // are placeholders, revisit when a real Search panel carries state.
+        .onChange(of: workspace.loadCount) {
+            activityBar.reveal(.files)
+            layout.revealSidebar()
+        }
     }
 
     @ViewBuilder
