@@ -12,6 +12,15 @@ INSTALL_PATH    := /Applications/$(APP_NAME).app
 DEVELOPER_ID    ?= F2523DCF6D02BE99B67C7D27F633119292DA4934
 NOTARY_PROFILE  ?= che-mcps-notary
 
+# #101: stable signing identity for DEV bundles. Ad-hoc (`--sign -`) anchors the
+# designated requirement to the CDHash, which changes on every rebuild — so a
+# keychain ACL grant (永遠允許 on the claude-credentials read) can never stick and
+# the authorization dialog reappears at every launch. Signing with the machine's
+# Apple Development certificate anchors the requirement to Team ID + identifier,
+# stable across rebuilds: authorize once, never asked again. Machines without the
+# cert fall back to ad-hoc (today's behavior) with a visible warning.
+DEV_SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -1 | awk '{print $$2}')
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
@@ -58,8 +67,14 @@ bundle: build ## Build + assemble .app bundle (ad-hoc signed)
 	@test -d $(APP_BUNDLE)/Contents/Resources/SwiftTerm_SwiftTerm.bundle || \
 		{ echo "✗ SwiftTerm_SwiftTerm.bundle missing from app bundle (Bundle.module would trap at launch)"; exit 1; }
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
-	@codesign --force --deep --sign - $(APP_BUNDLE)
-	@echo "✓ Bundle ready at $(APP_BUNDLE) (resource bundles embedded)"
+	@if [ -n "$(DEV_SIGN_ID)" ]; then \
+		codesign --force --deep --sign "$(DEV_SIGN_ID)" $(APP_BUNDLE); \
+		echo "✓ Bundle ready at $(APP_BUNDLE) (Apple Development $(DEV_SIGN_ID); keychain grants persist across rebuilds)"; \
+	else \
+		codesign --force --deep --sign - $(APP_BUNDLE); \
+		echo "⚠ No Apple Development identity in keychain — ad-hoc signed; keychain authorization will NOT stick across rebuilds (#101)"; \
+		echo "✓ Bundle ready at $(APP_BUNDLE) (ad-hoc, resource bundles embedded)"; \
+	fi
 
 run: bundle ## Build + bundle + open
 	@open $(APP_BUNDLE)

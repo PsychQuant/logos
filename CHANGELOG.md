@@ -7,6 +7,15 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **The keychain authorization dialog no longer reappears on every launch of a dev build**
+  ([#101](https://github.com/PsychQuant/logos/issues/101)). `make bundle` signed ad-hoc, whose
+  designated requirement is anchored to the CDHash — different on every rebuild — so the 永遠允許
+  grant for the status bar's read-only usage lookup (claude CLI's credential items) could never
+  persist. Dev bundles now sign with the machine's Apple Development certificate (requirement
+  anchored to identifier + certificate chain, stable across rebuilds): authorize once, never asked
+  again. Machines without the certificate fall back to ad-hoc with a visible warning. Credentials
+  stay in the keychain — nothing about credential storage or the read-only access pattern changed.
+
 - **Sidebar can no longer be permanently lost** ([#100](https://github.com/PsychQuant/logos/issues/100)).
   Dragging the sidebar below its minimum visible width persisted that width, after which the file
   explorer never rendered again — the activity-bar Files icon only toggled a visibility flag

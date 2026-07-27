@@ -84,7 +84,12 @@ make release-signed    # Developer ID sign + notarize + .dmg (for distribution)
 make help              # List all targets
 ```
 
-First launch from /Applications may show "unidentified developer" warning since the local install uses ad-hoc signature. Right-click → Open once to permanently trust.
+Local installs sign with your Apple Development certificate when one is in the keychain
+(so keychain authorizations — e.g. the usage HUD's read of claude's credentials — are granted
+once and persist across rebuilds, [#101](https://github.com/PsychQuant/logos/issues/101));
+without a certificate the build falls back to ad-hoc signing, which may show an
+"unidentified developer" warning on first launch (right-click → Open once) and re-prompts
+keychain authorization after every rebuild.
 
 For distribution to others, `make release-signed` produces a notarized `.dmg` (requires the `che-mcps-notary` keychain profile and Developer ID cert per `~/.claude/CLAUDE.md`).
 
