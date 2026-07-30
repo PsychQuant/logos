@@ -123,8 +123,8 @@ rather than the real proxy.
 ### main stays out of the pool
 
 `acquire(account:)` returns `nil` for the system-default account. Main keeps whatever
-`~/.claude/settings.json` specifies, and Logos never touches it — the same zero-touch principle
-#54 established for its credentials, applied to its routing.
+`~/.claude/settings.json` specifies, and Logos never touches it — the same zero-touch
+principle #54 established for its credentials, applied to its routing.
 
 This is the design's largest compromise, and it is load-bearing rather than lazy: fact 1 above
 makes env injection ineffective for main, and the alternatives are worse. Giving main a
