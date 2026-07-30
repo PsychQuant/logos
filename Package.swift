@@ -27,6 +27,12 @@ let package = Package(
         // identity parsing. Foundation-only; covered by the red-line audit scan.
         .target(name: "LogosAccounts"),
 
+        // Per-account inference gateway (spec 2026-07-31): refcounted pool of
+        // supervised proxy child processes, one per active isolated account.
+        // Foundation + os only; handles no credentials, so it never imports
+        // Security (same red line as LogoSwitch).
+        .target(name: "LogosGateway", dependencies: ["LogosAccounts"]),
+
         // merge-multistats-into-logos — the ONLY target permitted to import
         // Security. Read-only Keychain credential reads (SecItemCopyMatching
         // only — writes are forbidden package-wide by audit test), usage API
@@ -44,6 +50,7 @@ let package = Package(
             dependencies: [
                 "LogoSwitch",
                 "LogosAccounts",
+                "LogosGateway",
                 "LogosUsage",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
                 .product(name: "Highlightr", package: "Highlightr"),
@@ -66,6 +73,10 @@ let package = Package(
         .testTarget(
             name: "LogosAccountsTests",
             dependencies: ["LogosAccounts"]
+        ),
+        .testTarget(
+            name: "LogosGatewayTests",
+            dependencies: ["LogosGateway", "LogosAccounts"]
         ),
         .testTarget(
             name: "LogosUsageTests",

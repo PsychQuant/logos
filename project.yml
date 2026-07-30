@@ -71,6 +71,23 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosAccounts
         GENERATE_INFOPLIST_FILE: "YES"
 
+  # LogosGateway — per-account inference gateway pool (spec 2026-07-31).
+  # Foundation + os only; depends on LogosAccounts for the Account model, and it
+  # must NOT link Security (it handles no credentials). Mirrors the LogosAccounts
+  # framework recipe.
+  LogosGateway:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/LogosGateway
+    dependencies:
+      - target: LogosAccounts
+    settings:
+      base:
+        PRODUCT_NAME: LogosGateway
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logosGateway
+        GENERATE_INFOPLIST_FILE: "YES"
+
   # LogosUsage — the ONE target allowed to import Security (read-only keychain +
   # usage API). Depends on LogosAccounts.
   LogosUsage:
@@ -116,6 +133,7 @@ targets:
     dependencies:
       - target: LogoSwitch
       - target: LogosAccounts
+      - target: LogosGateway
       - target: LogosUsage
       - package: SwiftTerm
         product: SwiftTerm

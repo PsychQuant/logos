@@ -37,7 +37,7 @@ import Yams
         // from project.yml) from being a false positive. (The MultiStats executable
         // that used to sit alongside Logos here was retired in #92.)
         #expect(
-            Set(libraries) == ["LogosAccounts", "LogosUsage", "LogoSwitch"],
+            Set(libraries) == ["LogosAccounts", "LogosGateway", "LogosUsage", "LogoSwitch"],
             "Package.swift library extraction drifted: got \(libraries.sorted())"
         )
         #expect(!libraries.contains("Logos"), ".executableTarget(Logos) must not be read as a library")
