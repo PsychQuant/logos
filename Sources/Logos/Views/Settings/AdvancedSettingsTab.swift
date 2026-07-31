@@ -46,6 +46,25 @@ struct AdvancedSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Gateway") {
+                Toggle(
+                    "Route accounts through per-account gateways",
+                    isOn: $settings.gatewayEnabled
+                )
+                .accessibilityIdentifier("logos.settings.gatewayToggle")
+                Text(
+                    "Each account gets its own gateway process, so one account hitting a rate limit cannot throttle another. The main account is not included — it keeps whatever your global ~/.claude/settings.json specifies."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Label(
+                    "Routing through a gateway disables Remote Control, and MCP tool search unless ENABLE_TOOL_SEARCH is set. Both require a direct connection to api.anthropic.com.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(settings.gatewayEnabled ? Color.orange : Color.secondary)
+            }
+
             Section("Logging") {
                 Picker("Log level", selection: $settings.logLevel) {
                     ForEach(AdvancedSettings.LogLevel.allCases) { l in

@@ -25,23 +25,35 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
     /// this one account (PsychQuant/logos#54).
     public let isSystemDefault: Bool
 
+    /// Per-account gateway upstream (spec 2026-07-31). `nil` means the default
+    /// `https://api.anthropic.com`. When set, the gateway failure policy becomes
+    /// FAIL-CLOSED: silently falling back to the default upstream would send traffic
+    /// somewhere the operator did not direct it, which is a routing-policy violation
+    /// rather than a degradation.
+    ///
+    /// Orthogonal to `isSystemDefault` — the model permits either combination; it is
+    /// `GatewayPool` that declines to route the system-default account at all.
+    public let upstream: String?
+
     public init(
         id: String = UUID().uuidString,
         label: String,
         createdAt: Date = Date(),
-        isSystemDefault: Bool = false
+        isSystemDefault: Bool = false,
+        upstream: String? = nil
     ) {
         self.id = id
         self.label = Account.byteBoundedLabel(label)   // #62: trim + byte cap (see byteBoundedLabel)
         self.createdAt = createdAt
         self.isSystemDefault = isSystemDefault
+        self.upstream = upstream
     }
 
     /// Custom decode so accounts persisted before `isSystemDefault` existed (no
     /// such key) decode as `false` rather than throwing (#54). `encode(to:)`
     /// stays synthesized — it uses the same `CodingKeys` and emits all four fields.
     enum CodingKeys: String, CodingKey {
-        case id, label, createdAt, isSystemDefault
+        case id, label, createdAt, isSystemDefault, upstream
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,6 +62,9 @@ public struct Account: Identifiable, Hashable, Sendable, Codable {
         self.label = try c.decode(String.self, forKey: .label)
         self.createdAt = try c.decode(Date.self, forKey: .createdAt)
         self.isSystemDefault = try c.decodeIfPresent(Bool.self, forKey: .isSystemDefault) ?? false
+        // Same reason as `isSystemDefault` above: an index.json written before this
+        // field existed must still decode, or one missing key drops the whole registry.
+        self.upstream = try c.decodeIfPresent(String.self, forKey: .upstream)
     }
 
     /// The account's Logos-internal data directory (`~/.logos/accounts/<id>`).

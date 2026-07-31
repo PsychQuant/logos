@@ -82,6 +82,59 @@ struct AdvancedSettingsTests {
         #expect(s.dangerouslySkipPermissions == false)
     }
 
+    // MARK: - Gateway (spec 2026-07-31)
+
+    @Test("gateway defaults: enabled, auto-detect command")
+    func gatewayDefaults() {
+        let s = AdvancedSettings(persistence: SettingsPersistence(directory: tempDir()))
+        #expect(s.gatewayEnabled == true)
+        #expect(s.gatewayCommand == nil)
+    }
+
+    @Test("gateway command persists as argv")
+    func gatewayCommandPersists() {
+        let dir = tempDir()
+        let p = SettingsPersistence(directory: dir)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+
+        let s1 = AdvancedSettings(persistence: p)
+        // A path containing a space proves argv storage: a shell-string field would
+        // need quoting here and would word-split on read.
+        s1.gatewayCommand = ["/usr/bin/env", "python3", "/tmp/my proxy.py"]
+        s1.gatewayEnabled = false
+
+        let s2 = AdvancedSettings(persistence: p)
+        #expect(s2.gatewayCommand == ["/usr/bin/env", "python3", "/tmp/my proxy.py"])
+        #expect(s2.gatewayEnabled == false)
+    }
+
+    @Test("an empty or all-blank gateway command is treated as nil")
+    func emptyGatewayCommandAsNil() {
+        let s = AdvancedSettings(persistence: SettingsPersistence(directory: tempDir()))
+        s.gatewayCommand = []
+        #expect(s.gatewayCommand == nil)
+        s.gatewayCommand = ["", ""]
+        #expect(s.gatewayCommand == nil)
+    }
+
+    /// A pre-gateway advanced.json must still decode. A non-optional field in the
+    /// DTO would fail the decode and reset EVERY advanced setting.
+    @Test("legacy advanced.json without gateway fields still decodes")
+    func legacyDecodeKeepsOtherSettings() throws {
+        let dir = tempDir()
+        try FileManager.default.createDirectory(
+            atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let legacy = #"{"claudePathOverride":"/opt/homebrew/bin/claude","logLevel":"debug"}"#
+        try Data(legacy.utf8).write(to: URL(fileURLWithPath: dir + "/advanced.json"))
+
+        let s = AdvancedSettings(persistence: SettingsPersistence(directory: dir))
+        #expect(s.claudePathOverride == "/opt/homebrew/bin/claude")
+        #expect(s.logLevel == .debug)
+        #expect(s.gatewayEnabled == true)
+        #expect(s.gatewayCommand == nil)
+    }
+
     private func tempDir() -> String {
         NSTemporaryDirectory() + "logos-as-\(UUID().uuidString)"
     }

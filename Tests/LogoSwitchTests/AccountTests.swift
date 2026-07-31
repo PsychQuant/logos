@@ -170,3 +170,45 @@ struct AccountTests {
         #expect(Account.systemDefaultID == "system-default")
     }
 }
+
+/// Per-account gateway upstream (spec 2026-07-31).
+@Suite("Account upstream")
+struct AccountUpstreamTests {
+
+    @Test("defaults to nil")
+    func upstreamDefaultsToNil() {
+        #expect(Account(label: "Work").upstream == nil)
+    }
+
+    @Test("round-trips through Codable")
+    func roundTripsUpstream() throws {
+        let account = Account(label: "Work", upstream: "https://gateway.example.com")
+        let data = try JSONEncoder().encode(account)
+        let decoded = try JSONDecoder().decode(Account.self, from: data)
+        #expect(decoded.upstream == "https://gateway.example.com")
+    }
+
+    /// An index.json written before this field existed must still decode. A
+    /// non-optional property here would throw and drop the ENTIRE registry — the
+    /// same failure mode `isSystemDefault` was made optional to avoid.
+    @Test("a legacy account without the field still decodes")
+    func decodesLegacyAccountWithoutUpstream() throws {
+        let legacy = #"{"id":"ACC-1","label":"Work","createdAt":0,"isSystemDefault":false}"#
+        let account = try JSONDecoder().decode(Account.self, from: Data(legacy.utf8))
+        #expect(account.upstream == nil)
+        #expect(account.id == "ACC-1")
+        #expect(account.label == "Work")
+    }
+
+    /// The system-default account can carry an upstream in the model, but it is
+    /// never routed through the pool — this pins the model as orthogonal to the
+    /// pool's exclusion rule so the two cannot drift into contradicting each other.
+    @Test("upstream is independent of isSystemDefault")
+    func upstreamIndependentOfSystemDefault() {
+        let main = Account(
+            id: Account.systemDefaultID, label: "Main",
+            isSystemDefault: true, upstream: "https://example.com")
+        #expect(main.upstream == "https://example.com")
+        #expect(main.spawnConfigDir == nil)
+    }
+}
