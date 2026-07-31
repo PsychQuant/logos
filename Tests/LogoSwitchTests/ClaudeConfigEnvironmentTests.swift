@@ -71,3 +71,73 @@ struct ClaudeConfigEnvironmentTests {
         #expect(env["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == "/acc/.claude")
     }
 }
+
+/// Transport-layer routing (spec 2026-07-31). Separate suite from the config-dir
+/// contract above because it answers a different question: not "whose credentials"
+/// but "through whose gateway".
+@Suite("ClaudeConfigEnvironment gateway")
+struct ClaudeConfigEnvironmentGatewayTests {
+
+    @Test("injects the gateway base URL when given")
+    func injectsGatewayBaseURL() {
+        let env = ClaudeConfigEnvironment.apply(
+            base: [:],
+            configDir: "/tmp/acc/.claude",
+            gatewayBaseURL: URL(string: "http://127.0.0.1:51234")!
+        )
+        #expect(env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:51234")
+    }
+
+    /// The mirror of the #54 stale-CLAUDE_CONFIG_DIR strip. Without it, launching
+    /// Logos from a shell that exports ANTHROPIC_BASE_URL makes every account
+    /// silently inherit one shared gateway — the exact bug this feature fixes,
+    /// re-entering through the back door.
+    @Test("strips an inherited base URL when there is no gateway")
+    func stripsInheritedBaseURL() {
+        let env = ClaudeConfigEnvironment.apply(
+            base: ["ANTHROPIC_BASE_URL": "http://127.0.0.1:8787"],
+            configDir: "/tmp/acc/.claude",
+            gatewayBaseURL: nil
+        )
+        #expect(env["ANTHROPIC_BASE_URL"] == nil)
+    }
+
+    /// Omitting the argument must behave exactly like passing nil, so no existing
+    /// call site accidentally leaks an inherited value.
+    @Test("the default argument also strips")
+    func defaultArgumentStrips() {
+        let env = ClaudeConfigEnvironment.apply(
+            base: ["ANTHROPIC_BASE_URL": "http://127.0.0.1:8787"],
+            configDir: nil
+        )
+        #expect(env["ANTHROPIC_BASE_URL"] == nil)
+    }
+
+    /// A per-account gateway must beat an inherited one, mirroring how the
+    /// per-account config dir beats a stale base value.
+    @Test("the gateway beats a stale base value")
+    func gatewayBeatsStaleBase() {
+        let env = ClaudeConfigEnvironment.apply(
+            base: ["ANTHROPIC_BASE_URL": "http://127.0.0.1:8787"],
+            configDir: "/acc/.claude",
+            gatewayBaseURL: URL(string: "http://127.0.0.1:51234")!
+        )
+        #expect(env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:51234")
+    }
+
+    /// The pre-existing config-dir contract is untouched by the new parameter.
+    @Test("config-dir behavior is unchanged")
+    func configDirUnchanged() {
+        let isolated = ClaudeConfigEnvironment.apply(
+            base: [:], configDir: "/tmp/acc/.claude",
+            gatewayBaseURL: URL(string: "http://127.0.0.1:51234")!)
+        #expect(isolated["CLAUDE_CONFIG_DIR"] == "/tmp/acc/.claude")
+        #expect(isolated["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == "/tmp/acc/.claude")
+
+        let systemDefault = ClaudeConfigEnvironment.apply(
+            base: ["CLAUDE_CONFIG_DIR": "/stale", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/stale"],
+            configDir: nil)
+        #expect(systemDefault["CLAUDE_CONFIG_DIR"] == nil)
+        #expect(systemDefault["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == nil)
+    }
+}

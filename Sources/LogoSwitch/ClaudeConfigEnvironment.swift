@@ -26,12 +26,19 @@ public enum ClaudeConfigEnvironment {
     ///   `CLAUDE_SECURESTORAGE_CONFIG_DIR` to it (claude resolves the keychain
     ///   service from securestorage first, config dir only as fallback), so creds
     ///   land under `Claude Code-credentials-<hash>` per account.
+    /// - When `gatewayBaseURL` is given, sets `ANTHROPIC_BASE_URL` so this account's
+    ///   claude talks to its OWN gateway; when nil, STRIPS any inherited value so an
+    ///   account can never silently join another's gateway (spec 2026-07-31).
     /// - **Never** touches `HOME` (#21): macOS resolves the login keychain via
     ///   `$HOME/Library/Keychains/...`; a per-account HOME has no keychain, so
     ///   claude's credential write would fail with the "找不到鑰匙圈" dialog. The
     ///   keychain is per-login-user, so isolation needs only the two
     ///   `CLAUDE_*_CONFIG_DIR` vars — never a per-account HOME.
-    public static func apply(base: [String: String], configDir: String?) -> [String: String] {
+    public static func apply(
+        base: [String: String],
+        configDir: String?,
+        gatewayBaseURL: URL? = nil
+    ) -> [String: String] {
         var env = base
         env["TERM"] = "xterm-256color"
         env["LC_ALL"] = env["LC_ALL"] ?? "en_US.UTF-8"
@@ -49,6 +56,24 @@ public enum ClaudeConfigEnvironment {
             env.removeValue(forKey: "CLAUDE_CONFIG_DIR")
             env.removeValue(forKey: "CLAUDE_SECURESTORAGE_CONFIG_DIR")
         }
+
+        // Transport-layer routing (spec 2026-07-31). Symmetric with the config-dir
+        // strip above and for the same reason: an inherited ANTHROPIC_BASE_URL from
+        // the login-shell env would silently pin this account to somebody else's
+        // gateway, which is the very cross-account bleed the gateway pool exists to
+        // remove.
+        //
+        // This governs the PROCESS env only. A settings.json `env` entry OUTRANKS it
+        // — Claude Code writes each `env` entry over the inherited value at startup
+        // (docs: env-vars, Precedence). That is exactly why the system-default
+        // account is excluded from the pool: its settings come from the user's
+        // global ~/.claude/settings.json, which no process env can override.
+        if let gatewayBaseURL {
+            env["ANTHROPIC_BASE_URL"] = gatewayBaseURL.absoluteString
+        } else {
+            env.removeValue(forKey: "ANTHROPIC_BASE_URL")
+        }
+
         return env
     }
 }
