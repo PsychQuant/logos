@@ -13,7 +13,8 @@ public struct ClaudeProcessConfig: Sendable {
         account: Account? = nil,
         extraArgs: [String] = [],
         workingDirectory: String? = nil,
-        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        gatewayBaseURL: URL? = nil
     ) {
         self.executablePath = executablePath
         self.account = account
@@ -33,9 +34,14 @@ public struct ClaudeProcessConfig: Sendable {
         // account's spawn config dir. `spawnConfigDir` is nil for a non-account
         // spawn AND for a system-default ("main") account (#54) — both fall
         // through to the system ~/.claude; an isolated account gets its own dir.
+        // `gatewayBaseURL` is resolved by the caller (the pane awaits GatewayPool
+        // before building this descriptor — a SwiftUI body cannot await). nil means
+        // "no gateway", which the transform turns into a STRIP so no account can
+        // inherit another's gateway from the login-shell env.
         self.environment = ClaudeConfigEnvironment.apply(
             base: baseEnvironment,
-            configDir: account.flatMap(\.spawnConfigDir)
+            configDir: account.flatMap(\.spawnConfigDir),
+            gatewayBaseURL: gatewayBaseURL
         )
     }
 }

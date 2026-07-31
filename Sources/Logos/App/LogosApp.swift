@@ -6,6 +6,11 @@ import LogosUsage
 @main
 struct LogosApp: App {
 
+    /// spec 2026-07-31: orderly gateway teardown at quit. A Process child is not
+    /// reaped when its parent exits, so without this every gateway spawned during
+    /// the session would outlive the app and keep holding its port.
+    @NSApplicationDelegateAdaptor(LogosAppDelegate.self) private var appDelegate
+
     // App-level ownership of the shared @Observable models (#20). Holding them
     // here (instead of inside MainScene) lets the same instances be injected into
     // BOTH the main WindowGroup and the Settings scene — a separate `Settings`

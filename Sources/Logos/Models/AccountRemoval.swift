@@ -27,6 +27,11 @@ public enum AccountRemoval {
     /// persist). That is the deliberate trade: a stopped gateway is recoverable —
     /// the next `acquire` starts a fresh one — whereas reaping a directory out from
     /// under a live writer is not.
+    /// `@MainActor` because both steps are: `AccountManager` is main-actor isolated,
+    /// and the caller is a SwiftUI action. Keeping the whole sequence on the main
+    /// actor means neither closure crosses an isolation boundary — only the inner
+    /// `await` on the pool actor hops off and back.
+    @MainActor
     public static func perform(
         accountID: String,
         stopGateway: (String) async -> Void,

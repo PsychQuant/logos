@@ -22,7 +22,7 @@ private final class StepRecorder: @unchecked Sendable {
     }
 }
 
-@Suite struct AccountRemovalTests {
+@Suite @MainActor struct AccountRemovalTests {
 
     /// THE invariant. The gateway child writes rate-limit state into the account's
     /// own directory, and its writer creates that directory if missing. Removing

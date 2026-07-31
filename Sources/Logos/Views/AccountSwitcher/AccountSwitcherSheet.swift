@@ -5,6 +5,9 @@ import os
 struct AccountSwitcherSheet: View {
     @Environment(AccountManager.self) private var mgr
     @Environment(\.dismiss) private var dismiss
+    /// spec 2026-07-31: deleting an account must stop its gateway BEFORE the
+    /// registry removal reaps the data directory — see `AccountRemoval`.
+    @Environment(\.gatewayPool) private var gatewayPool
 
     /// #42: when non-nil, the switcher selects/highlights THIS window's per-window
     /// account (status-bar context). nil → it falls back to the global
@@ -390,15 +393,26 @@ struct AccountSwitcherSheet: View {
         deleteError = nil
         renameError = nil
         systemDefaultError = nil   // #74: a delete is a user action — clear the sibling caption too
-        guard mgr.remove(accountId: accountId) else {
-            // #69: English like every sibling message — this was the sheet's only
-            // Chinese string. Localization proper (typed pipeline) stays recorded
-            // debt on #69 until i18n actually lands.
-            setDeleteError("Couldn't remove the account — the change didn't save. Try again.")
-            return
-        }
-        if editingAccountId == accountId {
-            editingAccountId = nil
+
+        // spec 2026-07-31: the gateway writes into the account directory that
+        // `remove` reaps inline, so it must be stopped first — `AccountRemoval`
+        // owns that ordering and is tested for it.
+        Task {
+            let removed = await AccountRemoval.perform(
+                accountID: accountId,
+                stopGateway: { await gatewayPool.shutdown(accountID: $0) },
+                removeFromRegistry: { mgr.remove(accountId: $0) }
+            )
+            guard removed else {
+                // #69: English like every sibling message — this was the sheet's only
+                // Chinese string. Localization proper (typed pipeline) stays recorded
+                // debt on #69 until i18n actually lands.
+                setDeleteError("Couldn't remove the account — the change didn't save. Try again.")
+                return
+            }
+            if editingAccountId == accountId {
+                editingAccountId = nil
+            }
         }
     }
 
