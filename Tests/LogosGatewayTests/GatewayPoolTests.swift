@@ -13,11 +13,16 @@ private actor StubLauncher {
     private(set) var descriptors: [GatewayDescriptor] = []
 
     var shouldFail = false
+    /// Widens the window between "no entry yet" and "entry registered" so a
+    /// concurrent-acquire race is deterministic rather than timing-dependent.
+    var launchDelay: Duration = .zero
 
     func fail() { shouldFail = true }
+    func setLaunchDelay(_ d: Duration) { launchDelay = d }
 
     func launch(_ descriptor: GatewayDescriptor) async throws {
         if shouldFail { throw GatewayProcessError.launchFailed("stubbed failure") }
+        if launchDelay != .zero { try? await Task.sleep(for: launchDelay) }
         launched.append(descriptor.accountID)
         descriptors.append(descriptor)
     }
@@ -214,5 +219,45 @@ private actor StubLauncher {
         #expect(second == first, "re-acquire should reuse the lingering gateway")
         #expect(await stub.launched == ["ACC-1"], "re-acquire should not spawn a second child")
         #expect(await stub.terminated.isEmpty, "pending teardown was not cancelled")
+    }
+
+    /// Actor mutual exclusion is NOT cross-await atomicity. `acquire` awaits twice
+    /// between checking for an existing entry and registering one (port allocation,
+    /// then the launch), so two panes acquiring the same account concurrently could
+    /// both pass the check and each start a gateway — with the second entry
+    /// overwriting the first, leaking that child forever. Observed live in the Track
+    /// A smoke: two "gateway spawned" lines for one account, one "torn down".
+    @Test func concurrentAcquiresStartOnlyOneGateway() async throws {
+        let stub = StubLauncher()
+        await stub.setLaunchDelay(.milliseconds(150))
+        let pool = makePool(stub: stub)
+        let account = isolatedAccount()
+
+        async let first = pool.acquire(account: account, command: anyCommand, upstream: nil)
+        async let second = pool.acquire(account: account, command: anyCommand, upstream: nil)
+        let (a, b) = try await (first, second)
+
+        #expect(a != nil)
+        #expect(a == b, "concurrent acquires handed back different gateways")
+        #expect(await stub.launched == ["ACC-1"], "a second gateway was started for one account")
+    }
+
+    /// The coalesced acquires must each hold their OWN reference, or the first
+    /// release would tear down a gateway the second pane is still using.
+    @Test func concurrentAcquiresEachHoldAReference() async throws {
+        let stub = StubLauncher()
+        await stub.setLaunchDelay(.milliseconds(150))
+        let pool = makePool(stub: stub)
+        let account = isolatedAccount()
+
+        async let first = pool.acquire(account: account, command: anyCommand, upstream: nil)
+        async let second = pool.acquire(account: account, command: anyCommand, upstream: nil)
+        _ = try await (first, second)
+
+        await pool.release(accountID: "ACC-1")
+        #expect(await stub.terminated.isEmpty, "refcount was 1, not 2, after two concurrent acquires")
+
+        await pool.release(accountID: "ACC-1")
+        #expect(await stub.terminated == ["ACC-1"])
     }
 }

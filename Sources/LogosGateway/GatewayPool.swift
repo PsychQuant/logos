@@ -18,6 +18,16 @@ public actor GatewayPool {
 
     private var entries: [String: Entry] = [:]
 
+    /// In-flight starts, keyed by account id.
+    ///
+    /// Actor mutual exclusion is not cross-`await` atomicity: `acquire` suspends
+    /// twice between finding no entry and registering one (port allocation, then
+    /// the launch). Without this, two panes acquiring the same account concurrently
+    /// each pass the "no entry" check and each start a gateway, and the second
+    /// entry overwrites the first — leaking that child for the life of the app.
+    /// Observed live in the Track A smoke before this existed.
+    private var startTasks: [String: Task<URL, Error>] = [:]
+
     private let allocator: PortAllocator
     private let linger: Duration
     private let launch: @Sendable (GatewayDescriptor) async throws -> Void
@@ -67,43 +77,74 @@ public actor GatewayPool {
             return nil
         }
 
-        if var existing = entries[account.id] {
-            existing.lingerTask?.cancel()
-            existing.lingerTask = nil
-            existing.refcount += 1
-            entries[account.id] = existing
-            return existing.baseURL
+        // No entry yet, and nobody is starting one: become the starter. The task
+        // registers the entry ITSELF before returning, so every coalesced waiter
+        // resuming from `task.value` is guaranteed to observe it.
+        if entries[account.id] == nil, startTasks[account.id] == nil {
+            startTasks[account.id] = makeStartTask(
+                account: account, command: command, upstream: upstream)
         }
 
-        let port = try await allocator.allocate()
-        let descriptor = GatewayDescriptor(
-            accountID: account.id,
-            command: command,
-            port: port,
-            stateDirectory: GatewayDescriptor.stateDirectory(
-                forAccountHome: account.homeDirectoryPath),
-            upstream: upstream ?? GatewayDescriptor.defaultUpstream
-        )
-
-        do {
-            try await launch(descriptor)
-        } catch {
-            // Release the port rather than leaking it, and register nothing — a
-            // half-registered entry would hand the next caller a base URL pointing
-            // at a gateway that never started.
-            await allocator.release(port)
-            GatewayLog.pool.error(
-                "gateway launch failed — account=\(account.id, privacy: .public)"
-            )
-            throw error
+        if let pending = startTasks[account.id] {
+            defer { startTasks.removeValue(forKey: account.id) }
+            _ = try await pending.value
         }
 
-        entries[account.id] = Entry(
-            refcount: 1, baseURL: descriptor.baseURL, port: port, lingerTask: nil)
+        // Take a reference. Every caller — starter and coalesced waiter alike —
+        // arrives here, so N concurrent acquires yield a refcount of N and one
+        // gateway.
+        guard var entry = entries[account.id] else { return nil }
+        entry.lingerTask?.cancel()
+        entry.lingerTask = nil
+        entry.refcount += 1
+        entries[account.id] = entry
         GatewayLog.pool.notice(
-            "gateway acquired — account=\(account.id, privacy: .public) port=\(port, privacy: .public)"
+            "gateway acquired — account=\(account.id, privacy: .public) port=\(entry.port, privacy: .public)"
         )
-        return descriptor.baseURL
+        return entry.baseURL
+    }
+
+    /// Allocate, launch, and register — as one unit that concurrent acquires share.
+    private func makeStartTask(
+        account: Account,
+        command: [String],
+        upstream: URL?
+    ) -> Task<URL, Error> {
+        Task { [allocator, launch] in
+            let port = try await allocator.allocate()
+            let descriptor = GatewayDescriptor(
+                accountID: account.id,
+                command: command,
+                port: port,
+                stateDirectory: GatewayDescriptor.stateDirectory(
+                    forAccountHome: account.homeDirectoryPath),
+                upstream: upstream ?? GatewayDescriptor.defaultUpstream
+            )
+
+            do {
+                try await launch(descriptor)
+            } catch {
+                // Release the port rather than leaking it, and register nothing — a
+                // half-registered entry would hand the next caller a base URL
+                // pointing at a gateway that never started.
+                await allocator.release(port)
+                GatewayLog.pool.error(
+                    "gateway launch failed — account=\(account.id, privacy: .public)"
+                )
+                throw error
+            }
+
+            await self.register(descriptor: descriptor, port: port)
+            return descriptor.baseURL
+        }
+    }
+
+    /// Register a freshly started gateway at refcount ZERO; the caller of `acquire`
+    /// takes the first reference. Separated so it runs INSIDE the start task, which
+    /// is what makes the entry visible to every coalesced waiter.
+    private func register(descriptor: GatewayDescriptor, port: UInt16) {
+        entries[descriptor.accountID] = Entry(
+            refcount: 0, baseURL: descriptor.baseURL, port: port, lingerTask: nil)
     }
 
     /// Drop one reference. At zero the gateway lingers briefly before teardown.
@@ -163,7 +204,17 @@ actor GatewayProcessRegistry {
 
     private var processes: [String: GatewayProcess] = [:]
 
-    func store(_ process: GatewayProcess, for accountID: String) {
+    /// Defense in depth against a leaked child: overwriting an entry would drop the
+    /// previous `GatewayProcess` with its child still running and nothing left
+    /// holding a reference to terminate it. `GatewayPool`'s start-coalescing should
+    /// make a collision impossible; this makes it non-fatal if it ever is not.
+    func store(_ process: GatewayProcess, for accountID: String) async {
+        if let previous = processes[accountID] {
+            GatewayLog.process.error(
+                "replacing a live gateway process — account=\(accountID, privacy: .public)"
+            )
+            await previous.terminate()
+        }
         processes[accountID] = process
     }
 

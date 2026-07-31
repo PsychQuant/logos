@@ -46,6 +46,31 @@ struct SmokeTests {
             "no claude spawn notice — observed:\n\(Self.dump(launchEvents))"
         )
 
+        // spec 2026-07-31: the pane must reach a gateway DECISION before spawning.
+        // Which decision depends on the account the smoke happens to launch with —
+        // an isolated account acquires one, the system-default is deliberately
+        // excluded — so accept either, and fail only on silence, which would mean
+        // the gateway layer was skipped entirely.
+        #expect(
+            UnifiedLogReader.contains(launchEvents, category: "gateway-pool", message: "gateway acquired")
+                || UnifiedLogReader.contains(launchEvents, category: "gateway-pool", message: "system-default account excluded")
+                || UnifiedLogReader.contains(launchEvents, category: "gateway-pool", message: "no gateway command configured"),
+            "no gateway-pool decision recorded — observed:\n\(Self.dump(launchEvents))"
+        )
+
+        // When a gateway WAS acquired, it must precede the spawn: a claude that
+        // started first would have connected direct and never been paced.
+        if let acquired = launchEvents.firstIndex(where: {
+            $0.category == "gateway-pool" && $0.message.contains("gateway acquired")
+        }), let spawned = launchEvents.firstIndex(where: {
+            $0.category == "terminal" && $0.message.contains("spawned claude")
+        }) {
+            #expect(
+                acquired < spawned,
+                "gateway acquired AFTER claude spawned — observed:\n\(Self.dump(launchEvents))"
+            )
+        }
+
         // Phase 2: kill the hosted claude child while the app lives → the app's
         // PTY-termination path should log the exit (#18 / #22). This is the
         // exit half of the critical flow without needing the GUI Restart button
@@ -100,10 +125,27 @@ struct SmokeTests {
     /// app alive so it can log the termination.
     private static func killClaudeChild() {
         guard let logosPID = firstPID(matching: "Logos.app/Contents/MacOS/Logos") else { return }
-        // pgrep -P <logosPID> with the claude command filter.
-        if let out = try? runCapturing("/usr/bin/pgrep", ["-P", logosPID, "-f", "claude"]),
-           let childPID = out.split(separator: "\n").first.map(String.init) {
-            _ = try? run("/bin/kill", [childPID])
+        // Match the claude EXECUTABLE, not any command line mentioning "claude".
+        // Since the gateway layer (spec 2026-07-31) the app also spawns a proxy
+        // child whose argv is
+        // `python3 …/.claude/plugins/cache/claude-hot-limit/…/rate-limit-proxy.py`
+        // — which contains "claude" twice. A bare `-f claude` filter killed THAT
+        // instead, so the claude-exit assertion below never fired.
+        guard let out = try? runCapturing("/usr/bin/pgrep", ["-P", logosPID, "-l", "-f", "claude"])
+        else { return }
+
+        // `pgrep -l` prints "<pid> <argv…>". Exclude the gateway rather than
+        // requiring the executable to be named "claude": the real claude binary is
+        // reached through a version symlink, so its resolved argv0 can be
+        // `…/versions/2.1.220` with no "claude" basename at all.
+        let claudePID = out
+            .split(separator: "\n")
+            .first { !$0.contains("rate-limit-proxy") }?
+            .split(separator: " ").first
+            .map(String.init)
+
+        if let claudePID {
+            _ = try? run("/bin/kill", [claudePID])
         }
     }
 

@@ -219,6 +219,59 @@ Notes:
   dialog *didn't* show); the account flow asserts positives (indicator moved, app
   alive) only.
 
+## Per-account inference gateway
+
+`Sources/LogosGateway` gives every **isolated** account its own gateway process —
+own port, own state directory, own upstream — so one account hitting a rate limit
+cannot throttle another. Spec:
+[`docs/superpowers/specs/2026-07-31-per-account-gateway-design.md`](docs/superpowers/specs/2026-07-31-per-account-gateway-design.md).
+
+Why it exists: account isolation used to stop at the **credential** layer
+(`CLAUDE_CONFIG_DIR`, #12). Routing was untouched, so on the maintainer's machine
+`main` went through the `claude-hot-limit` proxy on `127.0.0.1:8787` (from the
+global `~/.claude/settings.json`) while all 66 isolated accounts went direct — the
+proxy paced on ~1.5% of real traffic.
+
+| Fact | Consequence |
+|------|-------------|
+| A settings-file `env` entry **outranks** process env ([env-vars § Precedence](https://code.claude.com/docs/en/env-vars)) | The system-default (main) account can't be routed by injection, and #54 forbids writing its settings — so it is **excluded from the pool** and keeps its ambient gateway. Once the others move to their own ports, `8787` is effectively main-only. |
+| `ANTHROPIC_BASE_URL` off `api.anthropic.com` disables Remote Control (v2.1.196+) and MCP tool search unless `ENABLE_TOOL_SEARCH=true` | An accepted, documented cost — stated in Settings → Advanced → Gateway next to the toggle. |
+| The proxy prints the port it was *asked* for, not the one it bound | `RATE_LIMIT_PROXY_PORT=0` is unusable; `PortAllocator` picks a concrete port by binding `127.0.0.1:0` and reading it back. |
+
+Shape:
+
+- **Granularity is per account, refcounted** — two windows on one account share one
+  gateway (they spend the same quota); a registered-but-unused account costs nothing.
+  5s linger at refcount zero so an account switch reuses rather than respawns.
+- **Readiness is a TCP connect probe, not a stdout parse.** The command is
+  user-configurable (`AdvancedSettings.gatewayCommand`, argv not a shell string), so
+  depending on one proxy's log format would break the moment it points elsewhere.
+- **`acquire` coalesces concurrent starts** via an in-flight `Task` map. Actor mutual
+  exclusion is not cross-`await` atomicity: `acquire` suspends twice between finding
+  no entry and registering one, and without coalescing two panes each started a
+  gateway with the second entry overwriting (and leaking) the first. Caught by the
+  Track A smoke, not by unit tests — see `GatewayPoolTests.concurrentAcquiresStartOnlyOneGateway`.
+- **State lives at `~/.logos/accounts/<id>/hot-limit/`** — inside the account dir, so
+  `AccountReaper` cleans it up with the account and needed no change. `AccountRemoval`
+  owns the ordering (stop the gateway, *then* remove) because the proxy's writer
+  recreates that directory and would otherwise resurrect the orphan #50 prevents.
+- **Failure policy is calibrated to the upstream**: default upstream → fail **open**
+  with a banner above a live terminal (unpaced but working); custom upstream → fail
+  **closed**, no terminal, because falling back would route traffic somewhere the
+  operator did not direct it.
+- `LogosAppDelegate` tears every gateway down at quit (a `Process` child is not
+  reaped when its parent exits), with a 5s watchdog so a wedged child cannot make
+  Logos un-quittable.
+
+Manual check with two isolated accounts open:
+
+```bash
+lsof -nP -iTCP -sTCP:LISTEN | grep 127.0.0.1
+ls -d ~/.logos/accounts/*/hot-limit
+```
+
+Expect two distinct ports and two distinct state directories.
+
 ## Brand
 
 Working name `Logos` (λόγος = word, reason, rational order). Trademark validation pending — see design doc § 12.
