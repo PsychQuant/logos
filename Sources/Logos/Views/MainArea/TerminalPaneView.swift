@@ -4,6 +4,11 @@ import LogoSwitch
 import LogosGateway
 
 struct TerminalPaneView: View {
+    /// #109: window padding between the pane edges and the terminal content
+    /// (the ~8-12pt every terminal ships — Ghostty `window-padding-*`, VS Code's
+    /// terminal inset). Fixed for now; a Settings knob is out of scope (#109 Residue).
+    static let terminalContentInset: CGFloat = 8
+
     @Environment(TerminalConfig.self) private var config
     @Environment(AdvancedSettings.self) private var advanced
     @Environment(AutoHandleEngine.self) private var engine
@@ -158,7 +163,14 @@ struct TerminalPaneView: View {
                     // #49 Part 2: bind the status bar to the exact session this pane spawns.
                     onSessionSpawned: { usage.setSessionId($0) }
                 )
-                .background(Color.black)
+                // #109: window padding — content used to sit flush against the
+                // pane's left/top edges. Padding lives at the SwiftUI layer so
+                // SwiftTerm's own coordinate system (mouse, selection) is
+                // untouched; the gutter is painted with the THEME background
+                // (not bare black) so the inset is indistinguishable from the
+                // terminal's own background.
+                .padding(TerminalPaneView.terminalContentInset)
+                .background(Color(nsColor: NSColor(hex: config.backgroundColorHex) ?? .black))
                 // Recreate on path / account / restart. The generation suffix
                 // makes Restart re-spawn a fresh claude (fresh detector/parser +
                 // re-materialized creds) by changing the view identity (#18).

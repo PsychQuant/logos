@@ -22,7 +22,10 @@ enum TerminalThemeApplier {
     }
 }
 
-private extension NSColor {
+/// Internal (not private): #109 added a second consumer — `TerminalPaneView`
+/// paints its window-padding gutter with `config.backgroundColorHex` so the
+/// inset area is indistinguishable from the terminal's own background.
+extension NSColor {
     convenience init?(hex: String) {
         var hex = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if hex.hasPrefix("#") { hex.removeFirst() }
