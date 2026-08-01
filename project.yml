@@ -142,9 +142,21 @@ targets:
     settings:
       base:
         PRODUCT_NAME: Logos
-        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logos
+        # #104: the Track B test host runs under its OWN bundle id so it can
+        # launch while a production Logos (app.getlogos.logos) is running — the
+        # dogfooding case. LaunchServices + LSMultipleInstancesProhibited treat
+        # same-id launches as one app, so with the shared id a live Logos
+        # absorbed the TEST_HOST launch and every hosted/UI test died with
+        # "Could not launch". The PRODUCTION id must never change here or
+        # anywhere (keychain + TCC grants anchor to it, #101); it lives in
+        # Info.plist, copied verbatim by the Makefile. TrackB-Info.plist reads
+        # $(PRODUCT_BUNDLE_IDENTIFIER) so this setting is the single id source
+        # for the test host. Companion: AccountBootstrap makes the hosted host
+        # bind a volatile registry, so concurrent test runs can't touch (or
+        # reap) the real ~/.logos/accounts of the live instance (#80 race).
+        PRODUCT_BUNDLE_IDENTIFIER: app.getlogos.logos.testhost
         GENERATE_INFOPLIST_FILE: "NO"
-        INFOPLIST_FILE: Info.plist
+        INFOPLIST_FILE: TrackB-Info.plist
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
 

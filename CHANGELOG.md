@@ -7,6 +7,17 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **Track B (hosted/UI tests) no longer requires quitting Logos**
+  ([#104](https://github.com/PsychQuant/logos/issues/104)). The xcodegen test host now builds
+  under its own bundle id (`app.getlogos.logos.testhost`, `TrackB-Info.plist`), so LaunchServices
+  no longer redirects the TEST_HOST launch into a live production Logos — the dogfooding case that
+  made every hosted and UI test die with `Could not launch`. The production identity in
+  `Info.plist` is untouched (keychain/TCC grants stay anchored, #101). Companion guard: under
+  app-hosted unit testing the host binds a volatile account registry (`AccountBootstrap`), so a
+  test host running concurrently with a live Logos can never touch or reap the real
+  `~/.logos/accounts` (the #80 race). Known residue: per-case teardown SIGSEGV keeps the
+  aggregate red ([#108](https://github.com/PsychQuant/logos/issues/108)).
+
 - **The keychain authorization dialog no longer reappears on every launch of a dev build**
   ([#101](https://github.com/PsychQuant/logos/issues/101)). `make bundle` signed ad-hoc, whose
   designated requirement is anchored to the CDHash — different on every rebuild — so the 永遠允許

@@ -29,15 +29,25 @@ struct LogosApp: App {
     @State private var generalSettings = LogosApp.makeGeneralSettings()
     @State private var advancedSettings = LogosApp.makeAdvancedSettings()
 
-    /// #67: the per-launch UI-testing accounts-index URL. Hoisted to a shared
+    /// #104: ONE launch-time registry decision for both `sharedRegistry` and
+    /// `makeAccountManager` (pure logic in `AccountBootstrap`). Volatile under
+    /// `--ui-testing` (#27, pre-existing) and under app-hosted unit testing
+    /// (#78 probe — new in #104, see `AccountBootstrap` for why the Track B
+    /// test host must never bind the real registry).
+    @MainActor
+    private static let bootstrapMode: AccountBootstrapMode = AccountBootstrap.mode(
+        arguments: CommandLine.arguments,
+        isHostedUnitTesting: HostedTestEnvironment.isHostedUnitTesting())
+
+    /// #67: the per-launch volatile accounts-index URL. Hoisted to a shared
     /// static (mirrors `uiTestingSettingsDirectory`) so both `sharedRegistry` —
     /// which writes `index.json` beneath it — and `makeAccountManager` — which
     /// under `--seed-remove-fails` chmods this file's parent dir read-only to arm
     /// the registry's designed persist-failure path — agree on ONE path. nil in
-    /// production (`--ui-testing` absent). Computed once per launch.
+    /// production (`bootstrapMode == .production`). Computed once per launch.
     @MainActor
     private static let uiTestingAccountsIndexURL: URL? = {
-        guard CommandLine.arguments.contains("--ui-testing") else { return nil }
+        guard bootstrapMode == .volatile else { return nil }
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("logos-uitesting-accounts-\(ProcessInfo.processInfo.processIdentifier)")
             .appendingPathComponent("index.json")
@@ -67,14 +77,18 @@ struct LogosApp: App {
     @MainActor
     private static func makeAccountManager() -> AccountManager {
         let args = CommandLine.arguments
-        guard args.contains("--ui-testing") else {
+        guard bootstrapMode == .volatile else {
             let mgr = AccountManager(registry: sharedRegistry)
             // #50: one-shot startup GC of the account dirs orphaned by pre-#50 removes.
             // Runs HERE — during @State model construction, before any window/terminal
             // renders — so it completes BEFORE any claude spawn and never races a live
             // session writing its config dir. Conservative (only unregistered, no-config
-            // dirs are reaped). Production only: the --ui-testing path below uses a
-            // per-launch temp registry, so real orphans must not be swept during a UI test.
+            // dirs are reaped). Production only: the volatile path below uses a
+            // per-launch temp registry, so real orphans must not be swept during a UI
+            // test — nor by the Track B hosted test host (#104), which can now run
+            // CONCURRENTLY with a live production Logos (own bundle id) and would
+            // otherwise re-create the #80 registry race from outside the
+            // LSMultipleInstancesProhibited fence.
             mgr.reapOrphanedDirectories()
             return mgr
         }

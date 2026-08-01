@@ -88,17 +88,27 @@ Notes:
 - **Track A is gated**: the app-launching `Smoke` suite only runs under
   `LOGOS_SMOKE=1` (set by `make smoke`), so a plain `swift test` never launches
   the app. The `UnifiedLogReader` parse test runs in every `swift test`.
-- **Track B needs Logos itself to NOT be running** (#104). LaunchServices treats
-  `app.getlogos.logos` as single-instance, so if a copy is already up — the
-  dogfooding case, since Logos is the maintainer's terminal — it absorbs the
-  launch request and `xcodebuild`'s launcher never gets a process to inject the
-  test bundle into. Every hosted *and* UI test then fails identically with
-  `Could not launch "LogosHostedTests"` / `Could not launch "Logos"` — a
-  launch-layer error that looks nothing like a bundle-id or signing problem.
-  **Quit Logos (Cmd+Q) before `make hosted-tests`.** Moving the installed
-  `/Applications/Logos.app` aside does NOT help: the conflict is with the
-  *running process*, not the bundle on disk. Diagnostic note: `pgrep -fl logos`
-  can miss it — use `ps -ax | grep -i logos`.
+- **Track B runs under its own bundle id** (#104): the xcodegen app target is
+  `app.getlogos.logos.testhost` (`TrackB-Info.plist`), NOT the production
+  `app.getlogos.logos` (which lives in `Info.plist`, copied verbatim by the
+  Makefile, and must never change — keychain + TCC grants anchor to it, #101).
+  Why: LaunchServices + `LSMultipleInstancesProhibited` (#80) treat a same-id
+  launch as the already-running app, so with the shared id a live Logos — the
+  dogfooding case, since Logos is the maintainer's terminal — absorbed the
+  TEST_HOST launch and every hosted *and* UI test failed identically with
+  `Could not launch "LogosHostedTests"` / `Could not launch "Logos"`, a
+  launch-layer error that looks nothing like a signing problem (confirmed by
+  A/B: shared id + live Logos → Could not launch; testhost id + same live
+  Logos → runner launches). With its own id **Track B now runs concurrently
+  with a live Logos** — no quit needed. Companion guard: under app-hosted unit
+  testing the host binds a volatile account registry
+  (`AccountBootstrap.mode` → `.volatile`), so a concurrent test host can never
+  touch or reap the real `~/.logos/accounts` of the live instance (the #80
+  race the same-id fence used to prevent). Diagnostic note: `pgrep -fl logos`
+  can miss a running Logos — use `ps -ax | grep -i logos`. Known residue: each
+  hosted test case currently SIGSEGVs at teardown (pre-existing, #108), so the
+  aggregate still prints `** TEST FAILED **` even when every executed case
+  passed — read per-case results, not the aggregate, until #108 lands.
 - **Track B needs Apple Development signing.** macOS 26 Gatekeeper rejects an
   ad-hoc-signed XCUITest runner as "damaged" and refuses to launch it, which
   blocks `xcodebuild test`. `project.yml` signs with the generic
