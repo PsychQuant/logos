@@ -33,9 +33,11 @@ packages:
   SwiftTerm:
     url: https://github.com/PsychQuant/SwiftTerm.git
     branch: logos-renderer-base
+  # #107: our fork (mirrors Package.swift) — upstream's Bundle.module access
+  # fatalErrors when the resource bundle is missing; logos-base fails soft.
   Highlightr:
-    url: https://github.com/raspu/Highlightr.git
-    from: "2.2.1"
+    url: https://github.com/PsychQuant/Highlightr.git
+    branch: logos-base
   Yams:
     url: https://github.com/jpsim/Yams.git
     from: "5.0.0"

@@ -7,6 +7,21 @@ All notable changes to Logos are documented here. Format loosely follows
 
 ### Fixed
 
+- **Opening a code file can no longer crash the installed app when the dev build tree is absent**
+  ([#107](https://github.com/PsychQuant/logos/issues/107)). SwiftPM's generated `Bundle.module`
+  accessor (non-Xcode builds) only checks the app-bundle *root* — where a valid macOS bundle cannot
+  carry files — and the build machine's absolute `.build/...` path, so the `Contents/Resources`
+  embed from #99 was never consulted and deleting `.build` killed the app (launch crash via
+  SwiftTerm's Metal shaders — since fixed by the fork's own probe — and a latent viewer crash via
+  Highlightr). Highlightr now comes from our fork (`PsychQuant/Highlightr@logos-base`), which
+  probes `Contents/Resources` and friends instead of touching `Bundle.module`; a genuine miss
+  makes `Highlightr()` return nil and the code viewer falls back to plain text instead of dying.
+
+- **Terminal content no longer sits flush against the pane edges**
+  ([#109](https://github.com/PsychQuant/logos/issues/109)). The terminal now has an 8pt window
+  padding on all sides (the inset every terminal ships), and the gutter is painted with the
+  configured theme background instead of bare black so the inset is seamless.
+
 - **Track B (hosted/UI tests) no longer requires quitting Logos**
   ([#104](https://github.com/PsychQuant/logos/issues/104)). The xcodegen test host now builds
   under its own bundle id (`app.getlogos.logos.testhost`, `TrackB-Info.plist`), so LaunchServices

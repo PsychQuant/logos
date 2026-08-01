@@ -18,7 +18,11 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/PsychQuant/SwiftTerm.git", branch: "logos-renderer-base"),
-        .package(url: "https://github.com/raspu/Highlightr.git", from: "2.2.1"),
+        // #107: our fork — upstream's Bundle.module access fatalErrors (killing
+        // the app) when the resource bundle isn't at SwiftPM's two hardcoded
+        // candidates; the logos-base branch probes Contents/Resources etc. and
+        // fails soft (init returns nil -> CodeViewer's plain-text fallback).
+        .package(url: "https://github.com/PsychQuant/Highlightr.git", branch: "logos-base"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0")
     ],
     targets: [
