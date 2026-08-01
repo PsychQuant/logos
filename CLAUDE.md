@@ -88,6 +88,17 @@ Notes:
 - **Track A is gated**: the app-launching `Smoke` suite only runs under
   `LOGOS_SMOKE=1` (set by `make smoke`), so a plain `swift test` never launches
   the app. The `UnifiedLogReader` parse test runs in every `swift test`.
+- **Track B needs Logos itself to NOT be running** (#104). LaunchServices treats
+  `app.getlogos.logos` as single-instance, so if a copy is already up — the
+  dogfooding case, since Logos is the maintainer's terminal — it absorbs the
+  launch request and `xcodebuild`'s launcher never gets a process to inject the
+  test bundle into. Every hosted *and* UI test then fails identically with
+  `Could not launch "LogosHostedTests"` / `Could not launch "Logos"` — a
+  launch-layer error that looks nothing like a bundle-id or signing problem.
+  **Quit Logos (Cmd+Q) before `make hosted-tests`.** Moving the installed
+  `/Applications/Logos.app` aside does NOT help: the conflict is with the
+  *running process*, not the bundle on disk. Diagnostic note: `pgrep -fl logos`
+  can miss it — use `ps -ax | grep -i logos`.
 - **Track B needs Apple Development signing.** macOS 26 Gatekeeper rejects an
   ad-hoc-signed XCUITest runner as "damaged" and refuses to launch it, which
   blocks `xcodebuild test`. `project.yml` signs with the generic
