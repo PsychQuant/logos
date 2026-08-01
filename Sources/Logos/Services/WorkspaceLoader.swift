@@ -54,6 +54,27 @@ extension WorkspaceLoading {
 
 public struct WorkspaceLoader: Sendable {
 
+    /// Test seam (#106): invoked once at the start of every `load`, on whatever
+    /// thread the walk actually runs on.
+    ///
+    /// `loadAsync` promises the walk does NOT occupy the caller's actor. That
+    /// promise was previously checked by racing a 5ms MainActor sentinel against
+    /// the walk and asserting a tick count — a *timing* proxy, which under a
+    /// fully parallel `swift test` measured scheduler throughput rather than
+    /// actor availability and produced hard-gate reds unrelated to this code.
+    /// Measured: a healthy walk ticks 2-3× under load while a MainActor-blocking
+    /// one ticks exactly 1 (structural — the single tick comes from the
+    /// suspension before the blocking loader grabs MainActor), so no threshold
+    /// separates them reliably.
+    ///
+    /// This seam replaces the proxy with a direct observation: the test reads
+    /// `Thread.isMainThread` from inside the walk. Deterministic, no sleeps.
+    /// Mirrors the existing `metalEnabler` seam on `TeedLocalProcessTerminalView`.
+    /// Default `nil` — production never pays for it.
+    /// Defaulted so the existing designated init covers it and no call site
+    /// changes.
+    public var walkProbe: (@Sendable () -> Void)? = nil
+
     static let skipNames: Set<String> = [
         ".git", ".build", ".swiftpm", ".DS_Store", "node_modules",
         "__pycache__", ".venv", "venv", ".pytest_cache", ".idea",
@@ -208,6 +229,7 @@ public struct WorkspaceLoader: Sendable {
     /// halt an in-flight walk's I/O (Issue #4); defaults to never-cancelled so
     /// existing sync callers are unaffected.
     public func load(rootPath: String, excludeGlobs: [String], isCancelled: @escaping @Sendable () -> Bool) throws -> FileNode {
+        walkProbe?()   // #106 — fires on the walk's own thread; see `walkProbe`.
         let canonical = Self.canonical(rootPath)
         if Self.isSystemPath(canonical) {
             throw LoaderError.refusedSystemPath(canonical)
