@@ -35,6 +35,7 @@ struct WindowRoot: View {
             .navigationTitle(windowTitle)
             .onAppear {
                 seedIfNeeded()
+                ensureContextWindowChannel()   // #113 — before track, so the first read can see a report
                 usage.track(configDir: currentConfigDir)
                 // #111: this window is now showing an account — record it so 帳號用量's
                 // 使用中 chip reflects reality. Keyed by the ticket's stable token, so a
@@ -63,6 +64,7 @@ struct WindowRoot: View {
             .onChange(of: selection.accountId) { _, newValue in
                 presentedAccountID = newValue
                 // #47: re-point usage at the now-active account's session transcript.
+                ensureContextWindowChannel()   // #113 — the new account needs its own channel
                 usage.track(configDir: currentConfigDir)
                 // #111: THE fix for the reported bug — a switch MOVES this window's
                 // census entry, so 帳號用量's chip leaves the old row and lands on the
@@ -99,6 +101,26 @@ struct WindowRoot: View {
             selected: selection.accountId,
             accounts: accountManager.accounts
         )?.usageConfigDir
+    }
+
+    /// #113: make sure this window's account reports its own context window.
+    ///
+    /// The status bar's denominator was stuck at 200k because there is no readable signal for
+    /// the 1M selection — not in settings.json, not in env, not anywhere on disk (all searched
+    /// exhaustively). The one authoritative source is what a session pushes to a `statusLine`
+    /// command, so Logos configures one.
+    ///
+    /// **Only for isolated accounts.** The system-default account is the user's own
+    /// `~/.claude`; Logos does not write there (the same line #54 draws for the gateway), so
+    /// Main keeps the inference ladder and reads its window late rather than wrongly.
+    /// `install` is idempotent, declines to touch a `statusLine` the user configured, and
+    /// refuses to rewrite a settings file it could not parse.
+    private func ensureContextWindowChannel() {
+        guard let account = WindowAccountResolver.resolve(
+            selected: selection.accountId, accounts: accountManager.accounts),
+              !account.isSystemDefault
+        else { return }
+        StatusLineChannel.install(inConfigDir: account.usageConfigDir)
     }
 
     /// Seed once per window. Guards on `nil` so a SwiftUI re-render (or a window the

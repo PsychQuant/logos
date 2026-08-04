@@ -163,7 +163,11 @@ final class WindowUsageModel {
                 contextMax: ClaudeUsageReader.contextWindow(
                     sessionModel: usage.model,
                     selectedModel: ClaudeUsageReader.selectedModel(inConfigDir: configDir),
-                    observedTokens: usage.contextTokens),
+                    observedTokens: usage.contextTokens,
+                    // #113: what the session itself reported, when the channel is installed
+                    // for this account. nil for the system-default account (Logos does not
+                    // write there) — that one keeps the inference ladder below.
+                    reportedWindow: StatusLineChannel.reportedContextWindow(inConfigDir: configDir)),
                 sessionCostUSD: cost.usd,
                 hasUnpricedModel: cost.hasUnpricedModel,
                 modelID: usage.model,

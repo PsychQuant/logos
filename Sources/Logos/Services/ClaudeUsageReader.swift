@@ -111,7 +111,23 @@ enum ClaudeUsageReader {
     /// the `[1m]` context-beta suffix AND its base id matches the session's model → 1M up front
     /// (before any tokens); (3) else if usage already exceeds `base` → 1M (fallback, so it
     /// self-corrects even without the settings signal); (4) else `base`.
-    static func contextWindow(sessionModel: String?, selectedModel: String?, observedTokens: Int = 0) -> Int {
+    static func contextWindow(
+        sessionModel: String?,
+        selectedModel: String?,
+        observedTokens: Int = 0,
+        reportedWindow: Int? = nil
+    ) -> Int {
+        // (0) #113: the session told us. This OUTRANKS every inference below, because the
+        // rest of this ladder is guesswork about a value the session actually knows.
+        //
+        // It also answers the complaint that opened the issue —「剛開始應賅就要先蒐集詢問一
+        // 次吧」. Branch (3) below is a POST-HOC correction that cannot fire until 200k has
+        // been spent, so a 1M session read wrong for its entire first 200k: not an edge case,
+        // but every session's opening, and exactly when the number matters most.
+        //
+        // A non-positive report is no signal, not a value to display (the #110 rule).
+        if let reportedWindow, reportedWindow > 0 { return reportedWindow }
+
         let base = baseWindow(forModel: sessionModel)
         // (2) The account's SELECTED model carries [1m] → a 1M session. When the session's model is
         // not known yet (fresh session, no transcript), trust the selection outright — that's the
