@@ -43,8 +43,10 @@ public final class AccountUsageModel: Identifiable {
     public let isDefault: Bool
     /// #55 C3: the launcher registry account id this row corresponds to (nil for
     /// discovery-built rows). The row's own `id` is the config-dir path, so this is
-    /// what the usage window compares against `AccountManager.activeAccountId` to
-    /// highlight the active selection.
+    /// the key the usage window looks this account up by. #111: it is now looked up in
+    /// `AccountWindowCensus` (how many windows are actually showing the account);
+    /// it used to be compared against `AccountManager.activeAccountId`, which #42 had
+    /// already demoted to a new-window seed the chip could never track.
     public let registryAccountId: String?
 
     public private(set) var state: LoadState = .idle

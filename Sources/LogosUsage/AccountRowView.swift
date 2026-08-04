@@ -52,14 +52,24 @@ struct AccountHeader: View {
 
     /// The 使用中 chip's text. A single window reads plainly; two or more carry the count,
     /// which is the whole reason this is an Int (#111).
-    private var activeChipText: String {
-        activeWindowCount == 1 ? "使用中" : "使用中 ×\(activeWindowCount)"
+    ///
+    /// Returns `Text`, not `String` (#111 verify, codex MEDIUM): building a plain `String`
+    /// first and handing it to `Text` takes the verbatim path, which no longer registers
+    /// as a localizable resource — so word order, plural rules and number formatting would
+    /// all become untranslatable. Keeping the literal inside `Text` preserves that.
+    private var activeChipText: Text {
+        activeWindowCount == 1 ? Text("使用中") : Text("使用中 ×\(activeWindowCount)")
     }
 
     /// Spoken form of the chip. `使用中 ×2` would otherwise be read as "使用中 乘 2" —
     /// a multiplication, not a window count (#111 diagnosis Residue).
-    private var activeChipAccessibilityLabel: String {
-        activeWindowCount == 1 ? "使用中" : "使用中，\(activeWindowCount) 個視窗"
+    ///
+    /// The count is spoken at EVERY positive value, including 1 (#111 verify, codex
+    /// MEDIUM). The visual chip can drop it at 1 because there is no `×` to misread, but
+    /// a VoiceOver user gets no other way to hear how many windows hold the account, and
+    /// "why does one read differently" is a worse inconsistency than one extra word.
+    private var activeChipAccessibilityLabel: Text {
+        Text("使用中，\(activeWindowCount) 個視窗")
     }
 
     var body: some View {
@@ -70,7 +80,7 @@ struct AccountHeader: View {
                         .font(.headline)
                         .fontWeight(activeWindowCount > 0 ? .semibold : .regular)
                     if activeWindowCount > 0 {
-                        Text(activeChipText)
+                        activeChipText
                             .font(.caption2)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)

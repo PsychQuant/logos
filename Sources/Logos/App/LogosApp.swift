@@ -172,9 +172,13 @@ struct LogosApp: App {
         Window("帳號用量", id: "account-usage") {
             AccountUsageWindow()
                 .environment(registryUsage)
-                // #55 C3: the usage window needs the SAME accountManager instance
-                // (read-only) — it still reads `isDefault`/the account list from it.
-                // Without this an @Environment(AccountManager) read traps (#20 pattern).
+                // Injected defensively, with NO current reader (#111 verify, requirements
+                // + regression + logic lenses): the window's rows come from
+                // `RegistryUsageModel`, and `isDefault` from `AccountUsageModel`, so
+                // nothing here reads `AccountManager` today. It stays because adding an
+                // `@Environment(AccountManager.self)` to this subtree later must not
+                // silently re-introduce the #20 trap — the same reason the Settings scene
+                // below injects the full set rather than only what it currently reads.
                 .environment(accountManager)
                 // #111: the 使用中 chip reads THIS — the live per-window census — not
                 // `accountManager.activeAccountId`, which #42 demoted to a new-window
@@ -198,6 +202,13 @@ struct LogosApp: App {
                 .environment(pdfPreview)
                 .environment(generalSettings)
                 .environment(advancedSettings)
+                // #111: keeps the "full set" invariant this comment states — a new
+                // app-level model must be injected here too, or a later
+                // `@Environment(AccountWindowCensus.self)` read in any tab traps (#20).
+                // (Pre-existing gap flagged at #111 verify, NOT introduced here:
+                // `registryUsage` is likewise absent from this list — filed separately
+                // rather than fixed in-scope.)
+                .environment(accountWindowCensus)
         }
     }
 }

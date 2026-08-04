@@ -12,10 +12,6 @@ import LogoSwitch
 /// usage (#47): this is the plan/rate-limit quota per account.
 struct AccountUsageWindow: View {
     @Environment(RegistryUsageModel.self) private var model
-    /// #55 C3: the account list / `isDefault` still come from the launcher model.
-    /// Bridge lives at the view layer only — `RegistryUsageModel` stays decoupled
-    /// from `LogoSwitch`.
-    @Environment(AccountManager.self) private var accountManager
     /// #111: which accounts open windows are ACTUALLY using, and how many each.
     ///
     /// The 使用中 chip used to compare against `accountManager.activeAccountId`, which

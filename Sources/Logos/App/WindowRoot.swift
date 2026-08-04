@@ -22,7 +22,10 @@ struct WindowRoot: View {
     /// instance across every window (that cross-window view is the entire point).
     @Environment(AccountWindowCensus.self) private var census
     /// #111: this window's entry in the census, plus the `isolated deinit` teardown
-    /// backstop. `@State` so it lives exactly as long as the window.
+    /// backstop. `@State` so SwiftUI keeps it for as long as it keeps this view's state —
+    /// in practice the window's life, though SwiftUI does not contractually promise the
+    /// two coincide, which is exactly why the ticket also carries the deinit backstop
+    /// (#111 verify, codex LOW: the earlier wording claimed a guarantee SwiftUI does not give).
     @State private var censusTicket = WindowCensusTicket()
 
     var body: some View {
@@ -36,7 +39,7 @@ struct WindowRoot: View {
                 // #111: this window is now showing an account — record it so 帳號用量's
                 // 使用中 chip reflects reality. Keyed by the ticket's stable token, so a
                 // re-entrant onAppear re-registers rather than double-counting.
-                censusTicket.bind(census, to: selection.accountId)
+                censusTicket.appear(in: census, accountId: selection.accountId)
             }
             // #47 verify (Codex F3): stop the usage FileWatcher promptly when the window closes,
             // rather than waiting for the model to dealloc. #91 added an `isolated deinit`
@@ -65,7 +68,7 @@ struct WindowRoot: View {
                 // census entry, so 帳號用量's chip leaves the old row and lands on the
                 // new one. The pre-#111 chip watched `AccountManager.activeAccountId`,
                 // which this path deliberately never writes (#42), so it never moved.
-                censusTicket.bind(census, to: newValue)
+                censusTicket.move(to: newValue)
             }
             // #42 verify (DA-1/M1 + DA-2/M2): when the account list changes, drop a
             // since-deleted selection (else this window is stranded on

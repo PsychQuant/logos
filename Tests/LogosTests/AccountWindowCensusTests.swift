@@ -17,7 +17,6 @@ struct AccountWindowCensusTests {
     func empty() {
         let census = AccountWindowCensus()
         #expect(census.windowCount(for: "acct-a") == 0)
-        #expect(census.activeAccountIds.isEmpty)
     }
 
     @Test("registering one window counts one")
@@ -107,7 +106,7 @@ struct AccountWindowCensusTests {
         let census = AccountWindowCensus()
         let token = UUID()
         census.setAccount(nil, forWindow: token)
-        #expect(census.activeAccountIds.isEmpty)
+        #expect(census.windowCount(for: "acct-a") == 0)
 
         census.setAccount("acct-a", forWindow: token)
         #expect(census.windowCount(for: "acct-a") == 1)
@@ -127,12 +126,128 @@ struct AccountWindowCensusTests {
         #expect(census.windowCount(for: "acct-a") == 1)
     }
 
-    @Test("activeAccountIds reports every account with at least one window")
-    func activeIds() {
+}
+
+/// #111 verify (codex HIGH + logic MEDIUM + regression MEDIUM + devil's advocate): the
+/// round-1 tests asserted only the census's own dictionary, so **the entire
+/// `WindowCensusTicket` — including the `isolated deinit` teardown backstop — could have
+/// been deleted with all of them still green**. That is exactly where the round-1
+/// lifecycle defect hid. These exercise the ticket itself.
+@Suite("WindowCensusTicket lifecycle", .serialized)
+@MainActor
+struct WindowCensusTicketTests {
+
+    /// THE round-1 HIGH. `appear` and `move` used to be one `bind` method with no phase,
+    /// so a change arriving after `release()` silently re-registered a closed window and
+    /// stranded its account permanently labelled 使用中.
+    ///
+    /// This is not a theoretical ordering worry: `WindowRoot` has a second
+    /// `onChange(of: accountManager.accounts)` that rewrites `selection.accountId` to
+    /// re-seed a window off a deleted account, which cascades into the selection
+    /// `onChange` — so *another window deleting an account* was enough to trigger it.
+    @Test("a move arriving after release must NOT resurrect the entry")
+    func lateMoveAfterReleaseIsInert() {
         let census = AccountWindowCensus()
-        census.setAccount("acct-a", forWindow: UUID())
-        census.setAccount("acct-a", forWindow: UUID())
-        census.setAccount("acct-b", forWindow: UUID())
-        #expect(census.activeAccountIds == ["acct-a", "acct-b"])
+        let ticket = WindowCensusTicket()
+
+        ticket.appear(in: census, accountId: "acct-a")
+        #expect(census.windowCount(for: "acct-a") == 1)
+
+        ticket.release()
+        #expect(census.windowCount(for: "acct-a") == 0)
+
+        ticket.move(to: "acct-b")                       // the reseed cascade
+        #expect(census.windowCount(for: "acct-b") == 0, "released ticket re-registered")
+        #expect(census.windowCount(for: "acct-a") == 0)
+    }
+
+    /// The other direction, which no lens except the devil's advocate raised: the
+    /// two-layer teardown only guards OVER-counting. Guarding `move` behind a plain
+    /// "already registered" flag would have traded that for UNDER-counting — a window
+    /// whose `onAppear` never landed could then never be counted, and unlike an
+    /// over-count nothing later corrects it. `pending` self-heals forward.
+    @Test("a move before any appear still registers, so a missed onAppear self-heals")
+    func moveBeforeAppearSelfHeals() {
+        let census = AccountWindowCensus()
+        let ticket = WindowCensusTicket()
+
+        ticket.move(to: "acct-a")
+        #expect(census.windowCount(for: "acct-a") == 0, "no census bound yet — nothing to do")
+
+        ticket.appear(in: census, accountId: "acct-a")
+        ticket.move(to: "acct-b")
+        #expect(census.windowCount(for: "acct-a") == 0)
+        #expect(census.windowCount(for: "acct-b") == 1)
+    }
+
+    /// The teardown backstop itself — the thing round 1 documented but never executed.
+    /// Dropping the last reference must clear the entry even though `release()` was
+    /// never called, which is the missed-`onDisappear` case #91 hit with FSEventStream.
+    @Test("dropping the ticket without release still clears its entry (isolated deinit)")
+    func deinitIsTheBackstop() {
+        let census = AccountWindowCensus()
+        do {
+            let ticket = WindowCensusTicket()
+            ticket.appear(in: census, accountId: "acct-a")
+            #expect(census.windowCount(for: "acct-a") == 1)
+        }   // no release() — only ARC dropping the ticket
+        #expect(census.windowCount(for: "acct-a") == 0, "isolated deinit did not deregister")
+    }
+
+    /// Both layers firing must be harmless — that is why `removeWindow` is idempotent.
+    @Test("release followed by deinit does not double-decrement a sibling window")
+    func releaseThenDeinitLeavesSiblingIntact() {
+        let census = AccountWindowCensus()
+        let survivor = WindowCensusTicket()
+        survivor.appear(in: census, accountId: "acct-a")
+        do {
+            let closing = WindowCensusTicket()
+            closing.appear(in: census, accountId: "acct-a")
+            #expect(census.windowCount(for: "acct-a") == 2)
+            closing.release()                            // prompt path
+        }                                                // then deinit, same token
+        #expect(census.windowCount(for: "acct-a") == 1, "sibling window lost its mark")
+    }
+
+    /// A re-entrant `onAppear` is the reason the token is per-window rather than
+    /// per-account — re-appearing must re-register, never add a second entry.
+    @Test("re-appearing does not double-count, and moves when the account changed")
+    func reAppearIsIdempotent() {
+        let census = AccountWindowCensus()
+        let ticket = WindowCensusTicket()
+        ticket.appear(in: census, accountId: "acct-a")
+        ticket.appear(in: census, accountId: "acct-a")
+        #expect(census.windowCount(for: "acct-a") == 1)
+
+        ticket.appear(in: census, accountId: "acct-b")
+        #expect(census.windowCount(for: "acct-a") == 0)
+        #expect(census.windowCount(for: "acct-b") == 1)
+    }
+
+    /// Re-appearing against a DIFFERENT census must not leave an orphan in the old one.
+    @Test("re-appearing in another census drops the entry in the previous one")
+    func appearInDifferentCensusDropsTheOld() {
+        let first = AccountWindowCensus()
+        let second = AccountWindowCensus()
+        let ticket = WindowCensusTicket()
+
+        ticket.appear(in: first, accountId: "acct-a")
+        ticket.appear(in: second, accountId: "acct-a")
+        #expect(first.windowCount(for: "acct-a") == 0, "orphan left in the previous census")
+        #expect(second.windowCount(for: "acct-a") == 1)
+    }
+
+    /// Two live windows on one account is the case the whole `Int` exists for — the
+    /// `使用中 ×2` the ruling asked for.
+    @Test("two tickets on one account count two, and releasing one leaves one")
+    func twoTicketsOneAccount() {
+        let census = AccountWindowCensus()
+        let a = WindowCensusTicket()
+        let b = WindowCensusTicket()
+        a.appear(in: census, accountId: "acct-a")
+        b.appear(in: census, accountId: "acct-a")
+        #expect(census.windowCount(for: "acct-a") == 2)
+        a.release()
+        #expect(census.windowCount(for: "acct-a") == 1)
     }
 }
