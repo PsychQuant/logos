@@ -10,9 +10,17 @@ struct StatusBarView: View {
         HStack(spacing: 10) {
             AccountStatusItem()
             HUDDivider()
+            // #116: the session's environment (CLI version + git branch) sits in its OWN
+            // segment, further left than the model — the user's 2026-08-04 ruling.
+            SessionEnvironmentStatusItem()
+            HUDDivider()
             CostStatusItem()
             HUDDivider()
             AutoHandleStatusItem()
+            HUDDivider()
+            // #116: model + effort immediately LEFT of the context counter, per the same
+            // ruling ("在 token 還剩多少的左邊", "effort 在 model 旁邊").
+            ModelStatusItem()
             HUDDivider()
             ContextUsageStatusItem()
             HUDDivider()

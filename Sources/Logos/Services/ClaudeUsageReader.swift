@@ -12,7 +12,31 @@ enum ClaudeUsageReader {
         /// Context-window tokens consumed on the latest turn = input + cache(read + creation).
         let contextTokens: Int
         /// Model id of the latest assistant turn (e.g. `claude-opus-4-8`), if present.
+        ///
+        /// Never carries the `[1m]` context-beta suffix — claude writes the bare family id
+        /// here (#95's note, re-confirmed empirically at #113). The window it selects has
+        /// to come from elsewhere.
         let model: String?
+        /// #116: reasoning effort of the latest assistant turn (`high` / `xhigh` / …).
+        let effort: String?
+        /// #116: the claude CLI version that wrote the turn (e.g. `2.1.220`).
+        let version: String?
+        /// #116: the git branch claude saw for the project at that turn.
+        let gitBranch: String?
+
+        init(
+            contextTokens: Int,
+            model: String?,
+            effort: String? = nil,
+            version: String? = nil,
+            gitBranch: String? = nil
+        ) {
+            self.contextTokens = contextTokens
+            self.model = model
+            self.effort = effort
+            self.version = version
+            self.gitBranch = gitBranch
+        }
     }
 
     /// Parse a transcript's full contents → the **latest** assistant turn's usage.
@@ -32,9 +56,16 @@ enum ClaudeUsageReader {
             let input = usage["input_tokens"] as? Int ?? 0
             let cacheRead = usage["cache_read_input_tokens"] as? Int ?? 0
             let cacheCreate = usage["cache_creation_input_tokens"] as? Int ?? 0
+            // #116: `effort` / `version` / `gitBranch` are TOP-LEVEL record keys, not
+            // inside `message` — verified against a live transcript, where every assistant
+            // record carrying a usage block also carried version and gitBranch (700/700)
+            // and nearly all carried effort (698/700). Reading them here costs no extra I/O.
             latest = Usage(
                 contextTokens: input + cacheRead + cacheCreate,
-                model: message["model"] as? String
+                model: message["model"] as? String,
+                effort: obj["effort"] as? String,
+                version: obj["version"] as? String,
+                gitBranch: obj["gitBranch"] as? String
             )
         }
         return latest

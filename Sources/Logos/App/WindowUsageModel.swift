@@ -35,6 +35,21 @@ final class WindowUsageModel {
     /// under-reporting.
     var hasUnpricedModel: Bool = false
 
+    /// #116: identity of the latest assistant turn, for the status bar's model segment.
+    /// All read out of the SAME transcript pass the context read already does.
+    var modelID: String?
+    var effort: String?
+    var cliVersion: String?
+    var gitBranch: String?
+
+    /// #116: the model as Claude Code itself renders it — `Opus 5 (1M)`. Nil before the
+    /// first assistant turn, so the segment hides rather than showing an empty chip.
+    ///
+    /// The `(1M)` half rides on `contextMax`, which today only reaches 1M through the
+    /// observed-tokens fallback — so on a 1M session it appears late. #113 replaces that
+    /// with the authoritative signal and this line then reads correctly from the start.
+    var modelDisplayName: String? { ModelDisplayName.of(modelID, contextWindow: contextMax) }
+
     @ObservationIgnored private var configDir: String?
     @ObservationIgnored private var watcher: UsageWatching?
 
@@ -65,6 +80,12 @@ final class WindowUsageModel {
         /// (and any pre-#48 reader) keep compiling; a real read fills them in.
         var sessionCostUSD: Decimal = 0
         var hasUnpricedModel: Bool = false
+        /// #116: same defaulting rationale as the cost fields — existing call sites keep
+        /// compiling and a real read fills them in.
+        var modelID: String? = nil
+        var effort: String? = nil
+        var cliVersion: String? = nil
+        var gitBranch: String? = nil
     }
 
     /// Off-main read + parse seam. Given the account's config dir and the bound session id
@@ -144,7 +165,11 @@ final class WindowUsageModel {
                     selectedModel: ClaudeUsageReader.selectedModel(inConfigDir: configDir),
                     observedTokens: usage.contextTokens),
                 sessionCostUSD: cost.usd,
-                hasUnpricedModel: cost.hasUnpricedModel
+                hasUnpricedModel: cost.hasUnpricedModel,
+                modelID: usage.model,
+                effort: usage.effort,
+                cliVersion: usage.version,
+                gitBranch: usage.gitBranch
             )
         }.value
     }
@@ -229,6 +254,10 @@ final class WindowUsageModel {
             guard let snapshot else { return }
             self.contextTokens = snapshot.contextTokens
             self.contextMax = snapshot.contextMax
+            self.modelID = snapshot.modelID
+            self.effort = snapshot.effort
+            self.cliVersion = snapshot.cliVersion
+            self.gitBranch = snapshot.gitBranch
             self.sessionCostUSD = snapshot.sessionCostUSD
             self.hasUnpricedModel = snapshot.hasUnpricedModel
         }
