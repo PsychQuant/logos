@@ -68,7 +68,7 @@ struct WindowRoot: View {
                 // census entry, so 帳號用量's chip leaves the old row and lands on the
                 // new one. The pre-#111 chip watched `AccountManager.activeAccountId`,
                 // which this path deliberately never writes (#42), so it never moved.
-                censusTicket.move(to: newValue)
+                censusTicket.move(to: newValue, in: census)
             }
             // #42 verify (DA-1/M1 + DA-2/M2): when the account list changes, drop a
             // since-deleted selection (else this window is stranded on

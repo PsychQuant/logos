@@ -50,15 +50,21 @@ struct AccountHeader: View {
     /// #111: open windows currently using this account (0 = none, so no 使用中 chip).
     var activeWindowCount: Int = 0
 
-    /// The 使用中 chip's text. A single window reads plainly; two or more carry the count,
-    /// which is the whole reason this is an Int (#111).
+    /// The 使用中 chip's text — the count is shown at EVERY positive value, including 1.
+    ///
+    /// An earlier round dropped the `×1` on the theory that one window "reads plainly".
+    /// Two round-2 reviewers pushed back for the same reason, and the acceptance argument
+    /// is the decisive one: the reporter hit this bug with a SINGLE window open, so at
+    /// count 1 a bare 使用中 renders pixel-identical to the broken pre-#111 chip — the very
+    /// state they would be checking. `使用中 ×1` makes the fix self-evidencing, and matches
+    /// the ruling's own wording ("並顯示視窗數", with no exception for one).
     ///
     /// Returns `Text`, not `String` (#111 verify, codex MEDIUM): building a plain `String`
     /// first and handing it to `Text` takes the verbatim path, which no longer registers
     /// as a localizable resource — so word order, plural rules and number formatting would
     /// all become untranslatable. Keeping the literal inside `Text` preserves that.
     private var activeChipText: Text {
-        activeWindowCount == 1 ? Text("使用中") : Text("使用中 ×\(activeWindowCount)")
+        Text("使用中 ×\(activeWindowCount)")
     }
 
     /// Spoken form of the chip. `使用中 ×2` would otherwise be read as "使用中 乘 2" —

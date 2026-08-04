@@ -202,12 +202,12 @@ struct LogosApp: App {
                 .environment(pdfPreview)
                 .environment(generalSettings)
                 .environment(advancedSettings)
-                // #111: keeps the "full set" invariant this comment states — a new
-                // app-level model must be injected here too, or a later
+                // #111: a new app-level model must be injected here too, or a later
                 // `@Environment(AccountWindowCensus.self)` read in any tab traps (#20).
-                // (Pre-existing gap flagged at #111 verify, NOT introduced here:
-                // `registryUsage` is likewise absent from this list — filed separately
-                // rather than fixed in-scope.)
+                //
+                // This does NOT make the list above complete: `registryUsage` has been
+                // absent since #90 and is still absent. That pre-existing drift — and the
+                // fact that two hand-maintained lists is the actual defect — is #118.
                 .environment(accountWindowCensus)
         }
     }

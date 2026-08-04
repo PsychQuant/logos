@@ -156,7 +156,7 @@ struct WindowCensusTicketTests {
         ticket.release()
         #expect(census.windowCount(for: "acct-a") == 0)
 
-        ticket.move(to: "acct-b")                       // the reseed cascade
+        ticket.move(to: "acct-b", in: census)           // the reseed cascade
         #expect(census.windowCount(for: "acct-b") == 0, "released ticket re-registered")
         #expect(census.windowCount(for: "acct-a") == 0)
     }
@@ -166,18 +166,51 @@ struct WindowCensusTicketTests {
     /// "already registered" flag would have traded that for UNDER-counting — a window
     /// whose `onAppear` never landed could then never be counted, and unlike an
     /// over-count nothing later corrects it. `pending` self-heals forward.
-    @Test("a move before any appear still registers, so a missed onAppear self-heals")
+    /// Round 2 shipped this test asserting `== 0` on the first move — i.e. asserting the
+    /// ABSENCE of the self-heal it was named for, because `move` could only reach a census
+    /// that `appear` had stored. Five round-2 lenses caught it. `move` now takes the
+    /// census, so the name and the assertion finally agree.
+    @Test("a move before any appear registers on its own, so a missed onAppear self-heals")
     func moveBeforeAppearSelfHeals() {
         let census = AccountWindowCensus()
         let ticket = WindowCensusTicket()
 
-        ticket.move(to: "acct-a")
-        #expect(census.windowCount(for: "acct-a") == 0, "no census bound yet — nothing to do")
+        ticket.move(to: "acct-a", in: census)
+        #expect(census.windowCount(for: "acct-a") == 1, "pending move did not self-heal")
 
-        ticket.appear(in: census, accountId: "acct-a")
-        ticket.move(to: "acct-b")
+        ticket.move(to: "acct-b", in: census)
         #expect(census.windowCount(for: "acct-a") == 0)
         #expect(census.windowCount(for: "acct-b") == 1)
+    }
+
+    /// The `.released` half, stated separately from the `.pending` half so a future
+    /// mutation that guts one is not masked by the other. Deleting the phase enum turns
+    /// THIS red — which is how the round-2 claim that the whole machine was inert
+    /// ("delete Phase, 17/17 still green") was refuted.
+    @Test("a released ticket stays released even when the move supplies a census")
+    func releasedIgnoresMoveEvenWithCensus() {
+        let census = AccountWindowCensus()
+        let ticket = WindowCensusTicket()
+        ticket.appear(in: census, accountId: "acct-a")
+        ticket.release()
+        ticket.move(to: "acct-b", in: census)
+        #expect(census.windowCount(for: "acct-b") == 0)
+    }
+
+    /// A genuine re-appear after release MUST re-register — the window came back. Three
+    /// round-2 lenses proposed guarding `appear` against `.released`; the devil's advocate
+    /// refuted them, because that guard turns every disappear/reappear cycle into a
+    /// permanent under-count. This pins the behaviour so the "fix" cannot be applied later.
+    @Test("a genuine re-appear after release re-registers rather than staying torn down")
+    func reAppearAfterReleaseReRegisters() {
+        let census = AccountWindowCensus()
+        let ticket = WindowCensusTicket()
+        ticket.appear(in: census, accountId: "acct-a")
+        ticket.release()
+        #expect(census.windowCount(for: "acct-a") == 0)
+
+        ticket.appear(in: census, accountId: "acct-a")
+        #expect(census.windowCount(for: "acct-a") == 1, "a returning window lost its mark")
     }
 
     /// The teardown backstop itself — the thing round 1 documented but never executed.
