@@ -28,7 +28,26 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
     /// The consumed fraction, 0–1, clamped. This is what every usage bar feeds
     /// to `UsageLevel` (#110) — clamping at the model layer means no view has to
     /// defend against an out-of-range `utilization` on its own.
-    public var utilizationFraction: Double { max(0, min(1, utilization / 100)) }
+    ///
+    /// The `isFinite` guard is load-bearing and must come FIRST: `min` / `max` do
+    /// **not** sanitize NaN. Swift's `min(x, y)` is `y < x ? y : x`, and every
+    /// comparison against NaN is false, so `min(1, .nan)` returns `1` — a bare
+    /// `max(0, min(1, utilization / 100))` renders a non-finite reading as a FULL,
+    /// CRITICAL, red bar (#110 verify, devil's advocate + codex, both HIGH).
+    public var utilizationFraction: Double {
+        guard utilization.isFinite else { return 0 }
+        return max(0, min(1, utilization / 100))
+    }
+
+    /// The integer percent a usage row's label shows, derived from
+    /// `utilizationFraction` so the number and the bar are two projections of ONE
+    /// clamped value — a row whose label and fill disagree is unrepresentable.
+    ///
+    /// Deriving it here also keeps `Int(_: Double)` off non-finite input: that
+    /// conversion traps ("Double value cannot be converted to Int because it is
+    /// either infinite or NaN"), so a view formatting `Int(utilization.rounded())`
+    /// directly could crash the process on a malformed reading (#110 verify, HIGH).
+    public var utilizationPercent: Int { Int((utilizationFraction * 100).rounded()) }
 
     /// Percent of the window still available, clamped to 0–100.
     ///

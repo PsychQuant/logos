@@ -84,7 +84,7 @@ struct PlanUsageStatusItem: View {
                 Image(systemName: "hourglass").font(.caption2).foregroundStyle(.secondary)
                 ForEach(loadedWindows) { window in
                     HStack(spacing: 4) {
-                        Text("\(Self.abbrev(window)) \(Int(window.utilization.rounded()))%")
+                        Text("\(Self.abbrev(window)) \(window.utilizationPercent)%")
                             .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                         HUDProgressBar(fraction: window.utilizationFraction, width: 32)
                     }
@@ -150,7 +150,7 @@ struct PlanUsageStatusItem: View {
     private var accessibilityLabel: String {
         switch PlanUsageGlyph.from(accountModel?.state) {
         case .bars:
-            let parts = loadedWindows.map { "\(Self.abbrev($0)) \(Int($0.utilization.rounded())) percent" }
+            let parts = loadedWindows.map { "\(Self.abbrev($0)) \($0.utilizationPercent) percent" }
             return "Plan usage: " + parts.joined(separator: ", ")
         case .empty: return "Plan usage: no windows"
         case .loading: return "Plan usage: loading"

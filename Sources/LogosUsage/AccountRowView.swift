@@ -98,11 +98,7 @@ struct AccountUsageSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(usage.windows) { window in
-                        UsageBar(
-                            label: window.label,
-                            utilization: window.utilization,
-                            fraction: window.utilizationFraction,
-                            resetsAt: window.resetsAt)
+                        UsageBar(window: window)
                     }
                     Text("更新於 \(fetchedAt, format: .dateTime.hour().minute().second())")
                         .font(.caption2).foregroundStyle(.tertiary)
@@ -129,25 +125,24 @@ struct AccountUsageSection: View {
 /// the colour comes from the shared `UsageLevel` bands. It used to render the
 /// remaining side with its own inverted thresholds, so the same account read as
 /// a nearly-full red bar in the status bar and a nearly-empty red bar here.
+/// Takes the whole `UsageWindow` rather than pre-split numbers: the label, the
+/// fill, and the colour band are then three projections of ONE clamped value, so
+/// a row showing "130% 已用" beside a bar pinned at full — or a label that traps
+/// on a non-finite reading — is unrepresentable (#110 verify, codex MEDIUM ×2).
 struct UsageBar: View {
-    let label: String
-    /// Percent consumed, 0–100 — the label's number.
-    let utilization: Double
-    /// The same value as a clamped 0–1 fraction, for the bar and its colour band.
-    let fraction: Double
-    let resetsAt: Date?
+    let window: UsageWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(label).font(.caption).fontWeight(.medium)
+                Text(window.label).font(.caption).fontWeight(.medium)
                 Spacer()
-                Text("\(Int(utilization.rounded()))% 已用")
+                Text("\(window.utilizationPercent)% 已用")
                     .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
-            ProgressView(value: fraction, total: 1)
-                .tint(UsageLevel(fraction: fraction).color)
-            if let resetsAt {
+            ProgressView(value: window.utilizationFraction, total: 1)
+                .tint(UsageLevel(fraction: window.utilizationFraction).color)
+            if let resetsAt = window.resetsAt {
                 Text("重置於 \(resetsAt, format: .dateTime.month().day().hour().minute())")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
