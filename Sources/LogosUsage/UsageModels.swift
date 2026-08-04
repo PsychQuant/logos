@@ -25,7 +25,16 @@ public struct UsageWindow: Identifiable, Equatable, Sendable {
         self.resetsAt = resetsAt
     }
 
+    /// The consumed fraction, 0–1, clamped. This is what every usage bar feeds
+    /// to `UsageLevel` (#110) — clamping at the model layer means no view has to
+    /// defend against an out-of-range `utilization` on its own.
+    public var utilizationFraction: Double { max(0, min(1, utilization / 100)) }
+
     /// Percent of the window still available, clamped to 0–100.
+    ///
+    /// #110: model-level API only. No view reads this — every usage surface
+    /// renders the CONSUMED side (`utilization` / `utilizationFraction`) so the
+    /// status bar and the 帳號用量 window agree on which direction "full" means.
     public var percentRemaining: Double { max(0, min(100, 100 - utilization)) }
 }
 
