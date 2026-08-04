@@ -116,6 +116,17 @@ struct AccountWindowCensusTests {
         #expect(census.windowCount(for: "acct-a") == 0)
     }
 
+    /// A usage row's `registryAccountId` is optional, so the query takes an optional. A row
+    /// with no registry id cannot be open in any window — 0 is the answer, not a crash and
+    /// not an accidental match against some other row.
+    @Test("querying a nil account id counts zero, never matching a registered window")
+    func queryNilCountsZero() {
+        let census = AccountWindowCensus()
+        census.setAccount("acct-a", forWindow: UUID())
+        #expect(census.windowCount(for: nil) == 0)
+        #expect(census.windowCount(for: "acct-a") == 1)
+    }
+
     @Test("activeAccountIds reports every account with at least one window")
     func activeIds() {
         let census = AccountWindowCensus()

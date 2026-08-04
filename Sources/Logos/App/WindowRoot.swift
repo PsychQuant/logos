@@ -17,6 +17,13 @@ struct WindowRoot: View {
     @State private var selection = WindowAccountSelection()
     /// #47: this window's live token/context usage, driven from its account's session transcript.
     @State private var usage = WindowUsageModel()
+    /// #111: the app-level census of which accounts windows are using — the 帳號用量
+    /// window's 使用中 chip reads it. Injected rather than owned: it is deliberately ONE
+    /// instance across every window (that cross-window view is the entire point).
+    @Environment(AccountWindowCensus.self) private var census
+    /// #111: this window's entry in the census, plus the `isolated deinit` teardown
+    /// backstop. `@State` so it lives exactly as long as the window.
+    @State private var censusTicket = WindowCensusTicket()
 
     var body: some View {
         MainView()
@@ -26,6 +33,10 @@ struct WindowRoot: View {
             .onAppear {
                 seedIfNeeded()
                 usage.track(configDir: currentConfigDir)
+                // #111: this window is now showing an account — record it so 帳號用量's
+                // 使用中 chip reflects reality. Keyed by the ticket's stable token, so a
+                // re-entrant onAppear re-registers rather than double-counting.
+                censusTicket.bind(census, to: selection.accountId)
             }
             // #47 verify (Codex F3): stop the usage FileWatcher promptly when the window closes,
             // rather than waiting for the model to dealloc. #91 added an `isolated deinit`
@@ -34,6 +45,12 @@ struct WindowRoot: View {
             // is still the prompt path on window close (same pattern as PDFLivePreviewModel).
             .onDisappear {
                 usage.track(configDir: nil)
+                // #111: same two-layer teardown. This is the prompt path; the ticket's
+                // `isolated deinit` covers a missed onDisappear, because a leak here
+                // strands an account permanently labelled 使用中 — the same silently-wrong
+                // readout this issue removes. `removeWindow` is idempotent, so both
+                // layers firing is harmless.
+                censusTicket.release()
             }
             // Mirror the window-local selection back to the presented value so that IF
             // the OS restores the window it can reopen on the same account. Scene
@@ -44,6 +61,11 @@ struct WindowRoot: View {
                 presentedAccountID = newValue
                 // #47: re-point usage at the now-active account's session transcript.
                 usage.track(configDir: currentConfigDir)
+                // #111: THE fix for the reported bug — a switch MOVES this window's
+                // census entry, so 帳號用量's chip leaves the old row and lands on the
+                // new one. The pre-#111 chip watched `AccountManager.activeAccountId`,
+                // which this path deliberately never writes (#42), so it never moved.
+                censusTicket.bind(census, to: newValue)
             }
             // #42 verify (DA-1/M1 + DA-2/M2): when the account list changes, drop a
             // since-deleted selection (else this window is stranded on

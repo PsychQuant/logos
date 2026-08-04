@@ -12,10 +12,18 @@ import LogoSwitch
 /// usage (#47): this is the plan/rate-limit quota per account.
 struct AccountUsageWindow: View {
     @Environment(RegistryUsageModel.self) private var model
-    /// #55 C3: read the launcher's active/seed selection to highlight the matching
-    /// row. Bridge lives at the view layer only — `RegistryUsageModel` stays
-    /// decoupled from `LogoSwitch`.
+    /// #55 C3: the account list / `isDefault` still come from the launcher model.
+    /// Bridge lives at the view layer only — `RegistryUsageModel` stays decoupled
+    /// from `LogoSwitch`.
     @Environment(AccountManager.self) private var accountManager
+    /// #111: which accounts open windows are ACTUALLY using, and how many each.
+    ///
+    /// The 使用中 chip used to compare against `accountManager.activeAccountId`, which
+    /// #42 demoted to *the seed for newly-opened windows*: an in-window switch writes
+    /// `WindowAccountSelection` and deliberately never touches the global id, so the chip
+    /// was bound to a field the switch could not write and never moved. The census is the
+    /// only cross-window view of that per-window value.
+    @Environment(AccountWindowCensus.self) private var census
 
     var body: some View {
         content
@@ -52,7 +60,7 @@ struct AccountUsageWindow: View {
             List(model.accounts) { account in
                 UsageAccountRow(
                     account: account,
-                    isActive: account.registryAccountId == accountManager.activeAccountId)
+                    activeWindowCount: census.windowCount(for: account.registryAccountId))
             }
         }
     }

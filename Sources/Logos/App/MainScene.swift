@@ -22,6 +22,11 @@ struct MainScene: Scene {
     /// The SAME instance `LogosApp` injects into the 帳號用量 window — one registry, so
     /// the status bar and the usage window can never disagree.
     let registryUsage: RegistryUsageModel
+    /// #111: the app-level census of which accounts open windows are using. Threaded in
+    /// so each `WindowRoot` can register its own account; the 帳號用量 window reads the
+    /// SAME instance, which is the whole point — it is the only cross-window view of a
+    /// per-window (#42) value.
+    let accountWindowCensus: AccountWindowCensus
     let workspace: WorkspaceModel
     let pdfPreview: PDFLivePreviewModel
     let generalSettings: GeneralSettings
@@ -65,6 +70,7 @@ struct MainScene: Scene {
             .environment(autoHandleEngine)
             .environment(accountManager)
             .environment(registryUsage)
+            .environment(accountWindowCensus)
             .environment(workspace)
             .environment(pdfPreview)
             .environment(generalSettings)

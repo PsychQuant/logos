@@ -24,6 +24,9 @@ struct LogosApp: App {
     @State private var autoHandleEngine = AutoHandleEngine()
     @State private var accountManager = LogosApp.makeAccountManager()
     @State private var registryUsage = RegistryUsageModel(registry: LogosApp.sharedRegistry)
+    /// #111: which accounts open windows are actually using. App-level so the single
+    /// 帳號用量 window can see across every terminal window's per-window account (#42).
+    @State private var accountWindowCensus = AccountWindowCensus()
     @State private var workspace = WorkspaceModel()
     @State private var pdfPreview = PDFLivePreviewModel()
     @State private var generalSettings = LogosApp.makeGeneralSettings()
@@ -156,6 +159,7 @@ struct LogosApp: App {
             autoHandleEngine: autoHandleEngine,
             accountManager: accountManager,
             registryUsage: registryUsage,
+            accountWindowCensus: accountWindowCensus,
             workspace: workspace,
             pdfPreview: pdfPreview,
             generalSettings: generalSettings,
@@ -168,11 +172,14 @@ struct LogosApp: App {
         Window("帳號用量", id: "account-usage") {
             AccountUsageWindow()
                 .environment(registryUsage)
-                // #55 C3: the usage window highlights the launcher's active selection,
-                // so it needs the SAME accountManager instance (read-only) to read
-                // activeAccountId. Without this an @Environment(AccountManager) read
-                // traps (#20 pattern).
+                // #55 C3: the usage window needs the SAME accountManager instance
+                // (read-only) — it still reads `isDefault`/the account list from it.
+                // Without this an @Environment(AccountManager) read traps (#20 pattern).
                 .environment(accountManager)
+                // #111: the 使用中 chip reads THIS — the live per-window census — not
+                // `accountManager.activeAccountId`, which #42 demoted to a new-window
+                // seed that an in-window switch never writes (so the chip never moved).
+                .environment(accountWindowCensus)
         }
         .defaultSize(width: 480, height: 480)
 

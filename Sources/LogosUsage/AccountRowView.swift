@@ -9,12 +9,22 @@ import SwiftUI
 /// template it efficiently.
 public struct UsageAccountRow: View {
     public let account: AccountUsageModel
-    /// #55 C3: this row is the launcher's active/seed selection.
-    public let isActive: Bool
+    /// #111: how many open windows are currently using this account — 0 means no chip.
+    ///
+    /// A COUNT, not a flag. The account is per-window (#42) while 帳號用量 is a single
+    /// window, so "使用中" is only meaningful as a cross-window aggregate; the user's
+    /// 2026-08-04 ruling is to mark every in-use account with its window count, because
+    /// the rate-limit-rotation case needs "which accounts am I burning at once" rather
+    /// than one marker that jumps around.
+    ///
+    /// Replaces the pre-#111 `isActive`, which compared against
+    /// `AccountManager.activeAccountId` — a value #42 demoted to a new-window seed that
+    /// an in-window switch never writes, so the chip could never move.
+    public let activeWindowCount: Int
 
-    public init(account: AccountUsageModel, isActive: Bool = false) {
+    public init(account: AccountUsageModel, activeWindowCount: Int = 0) {
         self.account = account
-        self.isActive = isActive
+        self.activeWindowCount = activeWindowCount
     }
 
     public var body: some View {
@@ -24,7 +34,7 @@ public struct UsageAccountRow: View {
                 email: account.email,
                 tier: account.tier,
                 isDefault: account.isDefault,
-                isActive: isActive)
+                activeWindowCount: activeWindowCount)
             AccountUsageSection(state: account.state)
         }
         .padding(.vertical, 4)
@@ -37,8 +47,20 @@ struct AccountHeader: View {
     let email: String?
     let tier: String?
     let isDefault: Bool
-    /// #55 C3: launcher active-selection highlight (mirrors the switcher's AccountRow).
-    var isActive: Bool = false
+    /// #111: open windows currently using this account (0 = none, so no 使用中 chip).
+    var activeWindowCount: Int = 0
+
+    /// The 使用中 chip's text. A single window reads plainly; two or more carry the count,
+    /// which is the whole reason this is an Int (#111).
+    private var activeChipText: String {
+        activeWindowCount == 1 ? "使用中" : "使用中 ×\(activeWindowCount)"
+    }
+
+    /// Spoken form of the chip. `使用中 ×2` would otherwise be read as "使用中 乘 2" —
+    /// a multiplication, not a window count (#111 diagnosis Residue).
+    private var activeChipAccessibilityLabel: String {
+        activeWindowCount == 1 ? "使用中" : "使用中，\(activeWindowCount) 個視窗"
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -46,13 +68,14 @@ struct AccountHeader: View {
                 HStack(spacing: 6) {
                     Text(label)
                         .font(.headline)
-                        .fontWeight(isActive ? .semibold : .regular)
-                    if isActive {
-                        Text("使用中")
+                        .fontWeight(activeWindowCount > 0 ? .semibold : .regular)
+                    if activeWindowCount > 0 {
+                        Text(activeChipText)
                             .font(.caption2)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(Color.accentColor.opacity(0.18), in: Capsule())
+                            .accessibilityLabel(activeChipAccessibilityLabel)
                     }
                     if isDefault {
                         Text("預設")
