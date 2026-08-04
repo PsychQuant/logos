@@ -86,7 +86,7 @@ struct PlanUsageStatusItem: View {
                     HStack(spacing: 4) {
                         Text("\(Self.abbrev(window)) \(Int(window.utilization.rounded()))%")
                             .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        HUDProgressBar(fraction: window.utilization / 100, width: 32)
+                        HUDProgressBar(fraction: window.utilizationFraction, width: 32)
                     }
                 }
             }
