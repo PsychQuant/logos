@@ -20,11 +20,44 @@ struct AccountUsageWindow: View {
     /// was bound to a field the switch could not write and never moved. The census is the
     /// only cross-window view of that per-window value.
     @Environment(AccountWindowCensus.self) private var census
+    /// #112: the persisted row order. Lives on `GeneralSettings` rather than a new
+    /// app-level model — see the note there.
+    @Environment(GeneralSettings.self) private var generalSettings
+
+    /// #112: rows in the user's chosen order.
+    ///
+    /// `now` is read HERE, once per body evaluation, and handed to the pure sort — the sort
+    /// never reads the clock itself, so it stays testable and the list cannot silently
+    /// reorder while the user is looking at it (it re-derives on refresh / reopen, which is
+    /// when the underlying numbers change anyway).
+    private var orderedAccounts: [AccountUsageModel] {
+        UsageSorting.sorted(
+            model.accounts,
+            by: generalSettings.usageSortOrder,
+            now: Date(),
+            state: \.state)
+    }
 
     var body: some View {
         content
         .navigationTitle("帳號用量")
         .toolbar {
+            // #112: a Picker rather than a toggle — the ruling chose one of three candidate
+            // urgency algorithms and the issue floated a fourth ordering, so the control has
+            // to survive a third entry without changing shape.
+            ToolbarItem(placement: .primaryAction) {
+                Picker("排序", selection: Binding(
+                    get: { generalSettings.usageSortOrder },
+                    set: { generalSettings.usageSortOrder = $0 }
+                )) {
+                    ForEach(UsageSortOrder.allCases) { order in
+                        Text(order.label).tag(order)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("logos.usage.sortOrder")
+                .help("帳號順序＝registry 順序，位置固定可預期。重置緊迫度＝以「剩餘額度 ÷ 還要等多久重置」排序，每小時可用額度最少的排前面；一個帳號有多個每週視窗時取最緊迫的那一個。")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task {
@@ -53,7 +86,7 @@ struct AccountUsageWindow: View {
                 systemImage: "person.crop.circle.badge.questionmark",
                 description: Text("在 設定 → 帳號 新增帳號後，這裡會顯示各帳號的方案用量。"))
         } else {
-            List(model.accounts) { account in
+            List(orderedAccounts) { account in
                 UsageAccountRow(
                     account: account,
                     activeWindowCount: census.windowCount(for: account.registryAccountId))

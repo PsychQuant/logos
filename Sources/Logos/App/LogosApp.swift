@@ -184,6 +184,10 @@ struct LogosApp: App {
                 // `accountManager.activeAccountId`, which #42 demoted to a new-window
                 // seed that an in-window switch never writes (so the chip never moved).
                 .environment(accountWindowCensus)
+                // #112: the toolbar's sort Picker reads/writes `usageSortOrder` here.
+                // A REAL read, unlike the accountManager injection above — omitting it
+                // traps this window on open (#20).
+                .environment(generalSettings)
         }
         .defaultSize(width: 480, height: 480)
 
