@@ -100,7 +100,8 @@ struct AccountUsageSection: View {
                     ForEach(usage.windows) { window in
                         UsageBar(
                             label: window.label,
-                            percentRemaining: window.percentRemaining,
+                            utilization: window.utilization,
+                            fraction: window.utilizationFraction,
                             resetsAt: window.resetsAt)
                     }
                     Text("更新於 \(fetchedAt, format: .dateTime.hour().minute().second())")
@@ -121,10 +122,19 @@ struct AccountUsageSection: View {
     }
 }
 
-/// A single remaining-quota bar for one usage window (session / weekly).
+/// A single consumed-quota bar for one usage window (session / weekly).
+///
+/// #110: consumed-oriented, matching claude.ai's own "N% used" plan-usage rows
+/// and the status bar's `HUDProgressBar` — the fill grows as quota is spent and
+/// the colour comes from the shared `UsageLevel` bands. It used to render the
+/// remaining side with its own inverted thresholds, so the same account read as
+/// a nearly-full red bar in the status bar and a nearly-empty red bar here.
 struct UsageBar: View {
     let label: String
-    let percentRemaining: Double // 0–100
+    /// Percent consumed, 0–100 — the label's number.
+    let utilization: Double
+    /// The same value as a clamped 0–1 fraction, for the bar and its colour band.
+    let fraction: Double
     let resetsAt: Date?
 
     var body: some View {
@@ -132,23 +142,15 @@ struct UsageBar: View {
             HStack {
                 Text(label).font(.caption).fontWeight(.medium)
                 Spacer()
-                Text("\(Int(percentRemaining.rounded()))% 剩餘")
+                Text("\(Int(utilization.rounded()))% 已用")
                     .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
-            ProgressView(value: percentRemaining, total: 100)
-                .tint(barColor)
+            ProgressView(value: fraction, total: 1)
+                .tint(UsageLevel(fraction: fraction).color)
             if let resetsAt {
                 Text("重置於 \(resetsAt, format: .dateTime.month().day().hour().minute())")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
-        }
-    }
-
-    private var barColor: Color {
-        switch percentRemaining {
-        case ..<10: .red
-        case ..<25: .orange
-        default: .green
         }
     }
 }
