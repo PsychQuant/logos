@@ -37,12 +37,31 @@ struct UsageWindowFractionTests {
         #expect(window(-5).utilizationFraction == 0)
     }
 
-    /// The two derived views of the same field stay complementary across the
-    /// normal range — the guard against a future edit flipping one and not the other.
-    @Test("utilizationFraction and percentRemaining stay complementary")
-    func complementary() {
-        let w = window(87)
-        #expect(w.utilizationFraction * 100 + w.percentRemaining == 100)
+    /// Complementarity is a MODEL-layer invariant: `percentRemaining` is the exact
+    /// complement of the clamped raw `utilization`. It is deliberately NOT asserted
+    /// against `utilizationFraction`, which is a quantised DISPLAY projection —
+    /// at `utilization = 12.5` the display says 13% consumed while the model says
+    /// 87.5% remaining, which is two precisions, not a contradiction.
+    @Test("percentRemaining is the exact complement of the raw utilization")
+    func complementaryAtTheModelLayer() {
+        for u in [0.0, 12.5, 87.0, 100.0] {
+            #expect(u + window(u).percentRemaining == 100)
+        }
+        #expect(window(130).percentRemaining == 0)     // over budget → nothing left
+        #expect(window(-5).percentRemaining == 100)    // below zero → nothing spent
+    }
+
+    /// #110 verify round 2 (codex): the non-finite policy has to reach
+    /// `percentRemaining` too. `100 - .infinity` is `-.infinity`, which the old
+    /// `max(0, ...)` clamped to 0 — leaving one window claiming "0% consumed"
+    /// (from the guard) AND "0% remaining" at the same time. An unreadable value
+    /// means nothing known was spent, so everything is still available.
+    @Test("a non-finite utilization reads as fully remaining, matching 0% consumed")
+    func nonFiniteIsFullyRemaining() {
+        for u in [Double.nan, .infinity, -.infinity] {
+            #expect(window(u).utilizationPercent == 0)
+            #expect(window(u).percentRemaining == 100)
+        }
     }
 
     /// #110 verify (devil's advocate + codex, both HIGH): `min`/`max` are NOT NaN
@@ -102,13 +121,38 @@ struct UsageWindowPercentTests {
         #expect(window(.infinity).utilizationPercent == 0)
     }
 
-    /// The invariant that makes a desynced row unrepresentable: the label's number
-    /// and the bar's fill are two projections of ONE clamped value.
-    @Test("the label percent always agrees with the bar fraction")
-    func labelAgreesWithBar() {
-        for u in [0.0, 12.5, 87, 99.6, 100, 130, -5, .nan, .infinity] {
+    /// #110 verify round 2 (logic + regression lenses): `utilizationPercent` must
+    /// round the clamped RAW percent, not a `÷100 → ×100` round-trip. The
+    /// round-trip is inexact in binary64 and lands on the wrong side of an exact
+    /// `.5` tie for exactly these four values, displaying one lower than the
+    /// pre-#110 label did — a silent change to an in-range displayed number.
+    ///
+    /// The expectations are stated independently (conventional round-half-up),
+    /// NOT derived from the production expression.
+    @Test("exact half-percent values round up, with no floating-point round-trip drift")
+    func halfPercentTiesRoundUp() {
+        #expect(window(14.5).utilizationPercent == 15)
+        #expect(window(28.5).utilizationPercent == 29)
+        #expect(window(56.5).utilizationPercent == 57)
+        #expect(window(57.5).utilizationPercent == 58)
+    }
+
+    /// #110 verify round 2 (codex + devil's advocate): the number the user reads
+    /// and the colour they see must not straddle a threshold in opposite
+    /// directions. Before quantising, `89.995` displayed "90% 已用" in a YELLOW
+    /// row while `UsageLevel` documents red at/above 0.90.
+    ///
+    /// Stated as a rule over the DISPLAYED percent, independent of how the
+    /// fraction is computed: ≥90 must be critical, 70..<90 warning, <70 nominal.
+    @Test("the colour band always matches the percent the label displays")
+    func bandMatchesDisplayedPercent() {
+        for u in [0.0, 12.5, 69.4, 69.995, 70.0, 87, 89.4, 89.995, 90.0, 99.6, 100, 130, -5, .nan, .infinity] {
             let w = window(u)
-            #expect(Double(w.utilizationPercent) == (w.utilizationFraction * 100).rounded())
+            let level = UsageLevel(fraction: w.utilizationFraction)
+            let expected: UsageLevel = w.utilizationPercent >= 90 ? .critical
+                                     : w.utilizationPercent >= 70 ? .warning
+                                     : .nominal
+            #expect(level == expected, "utilization \(u) displays \(w.utilizationPercent)% but banded as \(level)")
         }
     }
 }
